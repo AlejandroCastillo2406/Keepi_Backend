@@ -645,7 +645,8 @@ class AWSService:
             file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{key}"
             logger.info(f"✅ Archivo subido a S3: {file_url}")
             return file_url
-                except Exception as e:
+            
+        except Exception as e:
             logger.error(f"❌ Error subiendo archivo a S3: {e}")
             raise
     
