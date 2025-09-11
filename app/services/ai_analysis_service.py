@@ -187,39 +187,8 @@ class DocumentAnalysisService:
             except Exception as e:
                 print(f"❌ Error en Textract asíncrono para PDF {filename}: {e}")
             
-            # Estrategia 2: EasyOCR (fallback)
-            try:
-                print(f"🔄 Intentando EasyOCR para PDF {filename}...")
-                # Convertir PDF a imagen y usar EasyOCR
-                import fitz  # PyMuPDF
-                doc = fitz.open(stream=content, filetype="pdf")
-                all_text = ""
-                
-                for page_num in range(min(len(doc), 3)):  # Procesar máximo 3 páginas
-                    page = doc[page_num]
-                    # Convertir página a imagen
-                    mat = fitz.Matrix(2.0, 2.0)  # Aumentar resolución
-                    pix = page.get_pixmap(matrix=mat)
-                    img_data = pix.tobytes("png")
-                    
-                    # Usar EasyOCR en la imagen
-                    results = self.easyocr_reader.readtext(img_data)
-                    page_text = ' '.join([result[1] for result in results])
-                    all_text += page_text + " "
-                
-                doc.close()
-                
-                if all_text and len(all_text.strip()) > 50:
-                    print(f"✅ EasyOCR extrajo texto de PDF {filename}: {len(all_text)} caracteres")
-                    return all_text.strip()
-                else:
-                    print(f"⚠️ EasyOCR no pudo extraer texto suficiente de PDF {filename}")
-                    
-            except Exception as e:
-                print(f"❌ Error en EasyOCR para PDF {filename}: {e}")
-            
-            # Estrategia 3: Fallback manual
-            print(f"⚠️ No se pudo extraer texto de PDF {filename}, requiere clasificación manual")
+            # Estrategia 2: Clasificación manual (fallback)
+            print(f"⚠️ PDF {filename} requiere clasificación manual")
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
         except Exception as e:

@@ -5,7 +5,6 @@ import tempfile
 import os
 from typing import Dict, List, Any, Optional
 from botocore.exceptions import ClientError
-import fitz  # PyMuPDF
 from app.config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -108,23 +107,6 @@ class AWSService:
             logger.error(f"❌ Error inesperado en extracción de texto: {e}")
             raise
     
-    def _extract_text_with_pymupdf(self, file_data: bytes, file_name: str) -> str:
-        """Extraer texto usando PyMuPDF (fitz)"""
-        try:
-            doc = fitz.open(stream=file_data, filetype="pdf")
-            all_text = ""
-            
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                text = page.get_text()
-                all_text += text + " "
-            
-            doc.close()
-            return all_text.strip()
-            
-        except Exception as e:
-            logger.error(f"Error en PyMuPDF: {e}")
-            return ""
     
     async def _extract_text_with_textract_async(self, file_data: bytes, file_name: str) -> Dict[str, Any]:
         """
@@ -300,34 +282,6 @@ class AWSService:
             logger.error(f"❌ Error procesando imagen: {e}")
             raise
     
-    def _convert_pdf_to_pdf2(self, file_data: bytes, file_name: str) -> Optional[bytes]:
-        """Convertir PDF a versión 2.0 usando PyMuPDF"""
-        try:
-            logger.info("🔄 Convirtiendo PDF a versión 2.0...")
-            
-            # Abrir PDF original
-            doc = fitz.open(stream=file_data, filetype="pdf")
-            
-            # Crear nuevo documento PDF 2.0
-            new_doc = fitz.open()
-            
-            # Copiar páginas
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
-            
-            # Guardar como PDF 2.0
-            pdf2_data = new_doc.write()
-            
-            doc.close()
-            new_doc.close()
-            
-            logger.info("✅ PDF convertido a versión 2.0 exitosamente")
-            return pdf2_data
-            
-        except Exception as e:
-            logger.error(f"❌ Error convirtiendo PDF: {e}")
-            return None
     
     async def categorize_document(self, text: str) -> Dict[str, Any]:
         """
