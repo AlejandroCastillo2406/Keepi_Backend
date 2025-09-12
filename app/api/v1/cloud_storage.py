@@ -393,32 +393,30 @@ async def get_cloud_providers():
     try:
         providers = [
             {
-                "id": "keepi_cloud",
+                "provider": "keepi_cloud",
                 "name": "KIPI Cloud",
                 "description": "Almacenamiento seguro en la nube de KIPI",
-                "icon": "cloud",
                 "features": [
                     "Almacenamiento ilimitado",
                     "Cifrado de extremo a extremo",
                     "Sincronización automática",
                     "Respaldo automático"
                 ],
-                "pricing": "Gratis",
-                "available": True
+                "storage_limit": "Ilimitado",
+                "is_available": True
             },
             {
-                "id": "google_drive",
+                "provider": "google_drive",
                 "name": "Google Drive",
                 "description": "Integración con tu Google Drive existente",
-                "icon": "google",
                 "features": [
                     "15GB de almacenamiento gratis",
                     "Integración con Google Workspace",
                     "Colaboración en tiempo real",
                     "Acceso desde cualquier dispositivo"
                 ],
-                "pricing": "Gratis (15GB)",
-                "available": True
+                "storage_limit": "15GB gratis",
+                "is_available": True
             }
         ]
         
@@ -443,9 +441,11 @@ async def get_first_time_setup(
         
         return {
             "success": True,
-            "is_first_time": is_first_time,
-            "storage_configured": bool(current_user.storage_preference),
-            "storage_type": current_user.storage_preference
+            "data": {
+                "is_first_time": is_first_time,
+                "storage_configured": bool(current_user.storage_preference),
+                "storage_type": current_user.storage_preference
+            }
         }
         
     except Exception as e:
