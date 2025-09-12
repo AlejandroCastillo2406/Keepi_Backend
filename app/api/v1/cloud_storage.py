@@ -385,6 +385,73 @@ async def change_storage_type(
         logger.error(f"Error cambiando tipo de almacenamiento: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/cloud-providers")
+async def get_cloud_providers():
+    """
+    Obtiene la lista de proveedores de almacenamiento disponibles
+    """
+    try:
+        providers = [
+            {
+                "id": "keepi_cloud",
+                "name": "KIPI Cloud",
+                "description": "Almacenamiento seguro en la nube de KIPI",
+                "icon": "cloud",
+                "features": [
+                    "Almacenamiento ilimitado",
+                    "Cifrado de extremo a extremo",
+                    "Sincronización automática",
+                    "Respaldo automático"
+                ],
+                "pricing": "Gratis",
+                "available": True
+            },
+            {
+                "id": "google_drive",
+                "name": "Google Drive",
+                "description": "Integración con tu Google Drive existente",
+                "icon": "google",
+                "features": [
+                    "15GB de almacenamiento gratis",
+                    "Integración con Google Workspace",
+                    "Colaboración en tiempo real",
+                    "Acceso desde cualquier dispositivo"
+                ],
+                "pricing": "Gratis (15GB)",
+                "available": True
+            }
+        ]
+        
+        return {
+            "success": True,
+            "data": providers
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo proveedores: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/first-time-setup")
+async def get_first_time_setup(
+    current_user: UserResponse = Depends(get_current_user)
+):
+    """
+    Verifica si es la primera vez que el usuario configura el almacenamiento
+    """
+    try:
+        is_first_time = not current_user.storage_preference
+        
+        return {
+            "success": True,
+            "is_first_time": is_first_time,
+            "storage_configured": bool(current_user.storage_preference),
+            "storage_type": current_user.storage_preference
+        }
+        
+    except Exception as e:
+        logger.error(f"Error verificando configuración inicial: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/storage-status")
 async def get_storage_status(
     current_user: UserResponse = Depends(get_current_user)
