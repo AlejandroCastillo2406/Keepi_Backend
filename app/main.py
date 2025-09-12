@@ -46,7 +46,7 @@ async def health_check():
     }
 
 # Importar routers
-from app.api.v1 import auth, documents, notifications, users, aws_documents, user_config
+from app.api.v1 import auth, documents, notifications, users, aws_documents, user_config, cloud_storage
 
 # Incluir routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
@@ -55,6 +55,7 @@ app.include_router(documents.router, prefix="/api/v1/documents", tags=["Document
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(aws_documents.router, prefix="/api/v1/aws", tags=["AWS Documents"])
 app.include_router(user_config.router, prefix="/api/v1/config", tags=["User Configuration"])
+app.include_router(cloud_storage.router, prefix="/api/v1/cloud-storage", tags=["Cloud Storage"])
 
 if __name__ == "__main__":
     import uvicorn

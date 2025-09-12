@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.security import HTTPBearer
 from typing import List, Optional
 import logging
+from datetime import datetime
 from app.services.s3_service import S3Service
 from app.services.drive_service import GoogleDriveService
 from app.services.ocr_service import OCRService
@@ -285,7 +286,7 @@ async def create_folder(
             drive_service = GoogleDriveService(user_credentials)
             
             # Crear carpeta en Google Drive
-            folder_id = await drive_service.create_folder(folder_name, parent_id)
+            folder_id = await drive_service.create_folder(folder_name, parent_folder)
             
             result = {
                 'success': True,

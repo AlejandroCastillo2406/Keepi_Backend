@@ -134,32 +134,32 @@ class DocumentAnalysisService:
             # Estrategia 2: EasyOCR (fallback)
             try:
                 print(f"🔄 Intentando EasyOCR para imagen {filename}...")
-                # Crear archivo temporal
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                    temp_file.write(content)
-                    temp_file_path = temp_file.name
-                
-                try:
+            # Crear archivo temporal
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+            
+            try:
                     # Usar EasyOCR
                     results = self.easyocr_reader.readtext(temp_file_path)
                     text = ' '.join([result[1] for result in results])
-                    
-                    # Limpiar archivo temporal
-                    os.unlink(temp_file_path)
-                    
+                
+                # Limpiar archivo temporal
+                os.unlink(temp_file_path)
+                
                     if text and len(text.strip()) > 20:
                         print(f"✅ EasyOCR extrajo texto de imagen {filename}: {len(text)} caracteres")
-                        return text.strip()
+                return text.strip()
                     else:
                         print(f"⚠️ EasyOCR no pudo extraer texto suficiente de {filename}")
-                        
-                except Exception as e:
-                    # Limpiar archivo temporal en caso de error
-                    if os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
-                    raise e
-                    
+                
             except Exception as e:
+                # Limpiar archivo temporal en caso de error
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                raise e
+                
+        except Exception as e:
                 print(f"❌ Error en EasyOCR para imagen {filename}: {e}")
             
             # Estrategia 3: Fallback manual
