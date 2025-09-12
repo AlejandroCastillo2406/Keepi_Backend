@@ -16,6 +16,7 @@ class UserService:
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 user_data['uid'] = uid
+                user_data['id'] = uid  # Asegurar compatibilidad
                 return UserResponse(**user_data)
             return None
         except Exception as e:
@@ -32,6 +33,7 @@ class UserService:
             
             self.db.collection('users').document(user_data.uid).set(user_dict)
             user_dict['uid'] = user_data.uid
+            user_dict['id'] = user_data.uid  # Asegurar compatibilidad
             
             return UserResponse(**user_dict)
         except Exception as e:
@@ -52,11 +54,23 @@ class UserService:
             if updated_doc.exists:
                 user_dict = updated_doc.to_dict()
                 user_dict['uid'] = uid
+                user_dict['id'] = uid  # Asegurar compatibilidad
                 return UserResponse(**user_dict)
             return None
         except Exception as e:
             print(f"Error actualizando usuario: {e}")
             return None
+    
+    async def update_user_fields(self, uid: str, fields: dict) -> bool:
+        """Actualizar campos específicos del usuario"""
+        try:
+            fields['updated_at'] = datetime.now()
+            user_ref = self.db.collection('users').document(uid)
+            user_ref.update(fields)
+            return True
+        except Exception as e:
+            print(f"Error actualizando campos del usuario: {e}")
+            return False
     
     async def get_all_users(self) -> List[UserResponse]:
         """Obtener todos los usuarios (solo para desarrollo)"""
@@ -66,6 +80,7 @@ class UserService:
             for user in users:
                 user_data = user.to_dict()
                 user_data['uid'] = user.id
+                user_data['id'] = user.id  # Asegurar compatibilidad
                 user_list.append(UserResponse(**user_data))
             return user_list
         except Exception as e:

@@ -20,10 +20,18 @@ class UserUpdate(BaseModel):
 class UserResponse(UserBase):
     """Modelo de respuesta para usuario"""
     uid: str
+    id: Optional[str] = None  # Alias para uid para compatibilidad
     profile_picture: Optional[str] = None
     settings: Optional[Dict[str, Any]] = None
+    storage_preference: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Asegurar que id sea igual a uid para compatibilidad
+        if self.id is None:
+            self.id = self.uid
 
 class UserSettings(BaseModel):
     """Modelo para configuración de usuario"""
