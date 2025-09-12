@@ -543,18 +543,19 @@ async def get_mobile_dashboard(
 ):
     """Dashboard optimizado para móviles con información resumida"""
     try:
-        document_service = DocumentService()
+        from app.services.user_service import UserService
+        from app.services.s3_service import S3Service
+        from app.services.drive_service import GoogleDriveService
+        
+        user_service = UserService()
+        user = await user_service.get_user_by_uid(user_token['uid'])
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
         
         # Obtener documentos recientes
+        document_service = DocumentService()
         all_documents = await document_service.get_user_documents(user_token['uid'])
-        recent_documents = sorted(all_documents, key=lambda x: x.created_at, reverse=True)[:limit]
-        
-        # Estadísticas básicas
-        total_documents = len(all_documents)
-        categories = {}
-        for doc in all_documents:
-            category = doc.category or 'Sin categoría'
-            categories[category] = categories.get(category, 0) + 1
         
         # Documentos por vencer (próximos 30 días)
         from datetime import datetime, timedelta
@@ -568,10 +569,46 @@ async def get_mobile_dashboard(
                 except:
                     continue
         
+        # Obtener carpetas según el almacenamiento configurado
+        folders = []
+        if user.storage_preference == 'keepi_cloud':
+            # Leer carpetas de S3
+            s3_service = S3Service()
+            try:
+                s3_folders = await s3_service.list_folders(f"users/{user_token['uid']}")
+                folders = [
+                    {
+                        "id": folder['name'],
+                        "name": folder['name'].split('/')[-1],  # Solo el nombre de la carpeta
+                        "document_count": folder.get('document_count', 0),
+                        "path": folder['name']
+                    }
+                    for folder in s3_folders
+                ]
+            except Exception as e:
+                print(f"Error leyendo carpetas de S3: {e}")
+                folders = []
+                
+        elif user.storage_preference == 'google_drive':
+            # Leer carpetas de Google Drive
+            drive_service = GoogleDriveService()
+            try:
+                drive_folders = await drive_service.list_folders()
+                folders = [
+                    {
+                        "id": folder['id'],
+                        "name": folder['name'],
+                        "document_count": folder.get('document_count', 0),
+                        "path": folder.get('path', '')
+                    }
+                    for folder in drive_folders
+                ]
+            except Exception as e:
+                print(f"Error leyendo carpetas de Drive: {e}")
+                folders = []
+        
         return {
-            "total_documents": total_documents,
-            "recent_documents": recent_documents,
-            "categories": categories,
+            "folders": folders,
             "expiring_soon_count": len(expiring_soon),
             "expiring_soon": expiring_soon[:5],  # Solo los próximos 5
             "last_updated": datetime.now().isoformat()

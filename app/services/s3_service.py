@@ -446,3 +446,65 @@ class S3Service:
         except Exception as e:
             logger.error(f"Error obteniendo uso de almacenamiento: {str(e)}")
             raise
+
+    async def list_folders(self, prefix: str = "") -> List[Dict[str, Any]]:
+        """
+        Lista todas las carpetas (prefijos) en S3 para un usuario específico
+        """
+        try:
+            folders = []
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            # Asegurar que el bucket existe
+            await self.ensure_bucket_exists()
+            
+            # Listar objetos con el prefijo especificado
+            page_iterator = paginator.paginate(
+                Bucket=self.bucket_name,
+                Prefix=prefix,
+                Delimiter='/'
+            )
+            
+            for page in page_iterator:
+                # Obtener carpetas (prefijos comunes)
+                if 'CommonPrefixes' in page:
+                    for folder in page['CommonPrefixes']:
+                        folder_name = folder['Prefix']
+                        if folder_name.endswith('/'):
+                            folder_name = folder_name[:-1]  # Quitar la barra final
+                        
+                        # Contar documentos en esta carpeta
+                        doc_count = await self._count_documents_in_folder(folder['Prefix'])
+                        
+                        folders.append({
+                            'name': folder_name,
+                            'document_count': doc_count,
+                            'path': folder['Prefix']
+                        })
+            
+            return folders
+            
+        except Exception as e:
+            logger.error(f"Error listando carpetas: {str(e)}")
+            return []
+
+    async def _count_documents_in_folder(self, folder_prefix: str) -> int:
+        """
+        Cuenta los documentos en una carpeta específica
+        """
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=folder_prefix,
+                MaxKeys=1000  # Límite para evitar paginación
+            )
+            
+            # Filtrar solo archivos (no carpetas)
+            files = [obj for obj in response.get('Contents', []) 
+                    if not obj['Key'].endswith('/')]
+            
+            return len(files)
+            
+        except Exception as e:
+            logger.error(f"Error contando documentos en carpeta {folder_prefix}: {str(e)}")
+            return 0

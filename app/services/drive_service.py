@@ -307,3 +307,53 @@ class GoogleDriveService:
         except HttpError as error:
             print(f'Error subiendo archivo: {error}')
             raise
+
+    async def list_folders(self) -> List[Dict[str, Any]]:
+        """
+        Lista todas las carpetas en Google Drive
+        """
+        try:
+            # Buscar todas las carpetas
+            query = "mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = self.service.files().list(
+                q=query,
+                fields="nextPageToken, files(id, name, parents, createdTime, modifiedTime)"
+            ).execute()
+            
+            folders = []
+            for folder in results.get('files', []):
+                # Contar documentos en esta carpeta
+                doc_count = await self._count_documents_in_folder(folder['id'])
+                
+                folders.append({
+                    'id': folder['id'],
+                    'name': folder['name'],
+                    'document_count': doc_count,
+                    'path': folder.get('parents', [None])[0] if folder.get('parents') else None,
+                    'created_time': folder.get('createdTime'),
+                    'modified_time': folder.get('modifiedTime')
+                })
+            
+            return folders
+            
+        except HttpError as error:
+            print(f'Error listando carpetas: {error}')
+            return []
+
+    async def _count_documents_in_folder(self, folder_id: str) -> int:
+        """
+        Cuenta los documentos en una carpeta específica
+        """
+        try:
+            # Buscar archivos en la carpeta (excluyendo subcarpetas)
+            query = f"'{folder_id}' in parents and mimeType!='application/vnd.google-apps.folder' and trashed=false"
+            results = self.service.files().list(
+                q=query,
+                fields="files(id)"
+            ).execute()
+            
+            return len(results.get('files', []))
+            
+        except HttpError as error:
+            print(f'Error contando documentos en carpeta {folder_id}: {error}')
+            return 0
