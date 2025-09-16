@@ -137,12 +137,12 @@ class DocumentAnalysisService:
             # Estrategia 2: EasyOCR (fallback)
             try:
                 print(f"🔄 Intentando EasyOCR para imagen {filename}...")
-            # Crear archivo temporal
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                temp_file.write(content)
-                temp_file_path = temp_file.name
-            
-            try:
+                # Crear archivo temporal
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                    temp_file.write(content)
+                    temp_file_path = temp_file.name
+                
+                try:
                     # Usar EasyOCR
                     results = self.easyocr_reader.readtext(temp_file_path)
                     text = ' '.join([result[1] for result in results])
@@ -295,7 +295,7 @@ class DocumentAnalysisService:
                 
                 if text and len(text.strip()) > 50:
                     print(f"✅ python-pptx extrajo texto de PowerPoint {filename}: {len(text)} caracteres")
-                return text.strip()
+                    return text.strip()
                 else:
                     print(f"⚠️ python-pptx no pudo extraer texto suficiente de {filename}")
                 
@@ -465,23 +465,23 @@ class DocumentAnalysisService:
                 return expiry_date
             
             # Fallback: buscar patrones de fecha de vencimiento
-        expiry_patterns = [
+            expiry_patterns = [
             r'venc[ei]miento[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
             r'expir[ae][:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
             r'validez[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
             r'vigencia[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})'
-        ]
-        
-        for pattern in expiry_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                return match.group(1)
-        
-        return None
+            ]
             
+            for pattern in expiry_patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    return match.group(1)
+            
+            return None
+                
         except Exception as e:
             print(f"Error extrayendo fecha de vencimiento con Bedrock: {e}")
-        return None
+            return None
     
     async def _extract_document_number(self, text: str) -> Optional[str]:
         """Extraer número de documento del texto"""
