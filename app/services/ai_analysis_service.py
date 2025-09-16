@@ -5,6 +5,7 @@ from PIL import Image
 import easyocr
 from datetime import datetime, timedelta
 import re
+from app.services.bedrock_service import BedrockService
 
 class DocumentAnalysisService:
     """Servicio para análisis automático de documentos usando AI"""
@@ -12,6 +13,8 @@ class DocumentAnalysisService:
     def __init__(self):
         # Inicializar EasyOCR para español e inglés
         self.easyocr_reader = easyocr.Reader(['es', 'en'])
+        # Inicializar Bedrock para análisis con Claude 3 Haiku
+        self.bedrock_service = BedrockService()
     
     async def analyze_document(self, content: bytes, content_type: str, filename: str) -> Dict[str, Any]:
         """Analizar documento y extraer información automáticamente"""
@@ -73,7 +76,7 @@ class DocumentAnalysisService:
             print(f"Error analizando documento: {e}")
             # Retornar análisis básico en caso de error
             return {
-                "suggested_category": "General",
+                "suggested_category": "Documento",
                 "confidence_score": 0.1,
                 "extracted_text": "",
                 "metadata": {},
@@ -134,12 +137,12 @@ class DocumentAnalysisService:
             # Estrategia 2: EasyOCR (fallback)
             try:
                 print(f"🔄 Intentando EasyOCR para imagen {filename}...")
-                # Crear archivo temporal
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                    temp_file.write(content)
-                    temp_file_path = temp_file.name
-                
-                try:
+            # Crear archivo temporal
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+            
+            try:
                     # Usar EasyOCR
                     results = self.easyocr_reader.readtext(temp_file_path)
                     text = ' '.join([result[1] for result in results])
@@ -292,10 +295,10 @@ class DocumentAnalysisService:
                 
                 if text and len(text.strip()) > 50:
                     print(f"✅ python-pptx extrajo texto de PowerPoint {filename}: {len(text)} caracteres")
-                    return text.strip()
+                return text.strip()
                 else:
                     print(f"⚠️ python-pptx no pudo extraer texto suficiente de {filename}")
-                    
+                
             except Exception as e:
                 print(f"❌ Error en python-pptx para PowerPoint {filename}: {e}")
             
@@ -308,31 +311,27 @@ class DocumentAnalysisService:
             return "MANUAL_CLASSIFICATION_REQUIRED"
     
     async def _classify_document(self, text: str, filename: str) -> str:
-        """Clasificar documento usando AWS Comprehend o fallback manual"""
+        """Clasificar documento usando Amazon Bedrock con Claude 3 Haiku"""
         try:
             # Si requiere clasificación manual, devolver señal especial
             if text == "MANUAL_CLASSIFICATION_REQUIRED":
                 return "MANUAL_CLASSIFICATION_REQUIRED"
             
-            # Usar AWS Comprehend para clasificación dinámica
-            from app.services.aws_service import AWSService
-            aws_service = AWSService()
-            
-            # Analizar con AWS Comprehend
-            comprehend_result = await aws_service.categorize_document(text)
-            category = comprehend_result.get('category', 'General')
+            # Usar Bedrock con Claude 3 Haiku para clasificación
+            bedrock_result = await self.bedrock_service.analyze_document_content(text, filename)
+            category = bedrock_result.get('category', 'Documento')
             
             return category
             
         except Exception as e:
-            print(f"Error en clasificación con AWS Comprehend: {e}")
-            # Fallback: clasificación básica por extensión si AWS falla
+            print(f"Error en clasificación con Bedrock: {e}")
+            # Fallback: clasificación básica por extensión si Bedrock falla
             if filename.endswith('.pdf'):
                 return "Documento PDF"
             elif filename.endswith(('.jpg', '.jpeg', '.png')):
                 return "Imagen"
             else:
-                return "General"
+                return "Documento"
     
     async def _extract_metadata(self, text: str) -> Dict[str, Any]:
         """Extraer metadatos del texto"""
@@ -386,29 +385,12 @@ class DocumentAnalysisService:
         return metadata
     
     async def _generate_tags(self, text: str, category: str) -> List[str]:
-        """Generar tags automáticamente usando AWS Comprehend"""
+        """Generar tags automáticamente usando Bedrock"""
         try:
             tags = [category.lower()]
             
-            # Usar AWS Comprehend para generar tags dinámicos
-            from app.services.aws_service import AWSService
-            aws_service = AWSService()
-            
-            comprehend_result = await aws_service.categorize_document(text)
-            
-            # Extraer frases clave como tags
-            key_phrases = comprehend_result.get('key_phrases', [])
-            for phrase in key_phrases[:5]:  # Tomar las 5 frases más relevantes
-                tag = phrase.get('Text', '').lower().strip()
-                if tag and len(tag) > 2:  # Filtrar tags muy cortos
-                    tags.append(tag)
-            
-            # Extraer entidades como tags
-            entities = comprehend_result.get('entities', [])
-            for entity in entities[:3]:  # Tomar las 3 entidades más relevantes
-                entity_text = entity.get('Text', '').lower().strip()
-                if entity_text and len(entity_text) > 2:
-                    tags.append(entity_text)
+            # Usar Bedrock para generar tags dinámicos
+            bedrock_result = await self.bedrock_service.analyze_document_content(text, "temp")
             
             # Agregar tags básicos basados en el texto
             text_lower = text.lower()
@@ -423,39 +405,66 @@ class DocumentAnalysisService:
                 if any(keyword in text_lower for keyword in keywords):
                     tags.append(tag)
             
+            # Agregar tags basados en palabras clave del texto
+            text_lower = text.lower()
+            keyword_tags = []
+            
+            # Palabras clave comunes para generar tags
+            if any(word in text_lower for word in ["certificado", "diploma", "título", "académico"]):
+                keyword_tags.append("académico")
+            if any(word in text_lower for word in ["contrato", "nómina", "trabajo", "empleo"]):
+                keyword_tags.append("laboral")
+            if any(word in text_lower for word in ["receta", "análisis", "médico", "salud"]):
+                keyword_tags.append("médico")
+            if any(word in text_lower for word in ["factura", "estado", "cuenta", "pago"]):
+                keyword_tags.append("financiero")
+            if any(word in text_lower for word in ["dni", "pasaporte", "licencia", "identidad"]):
+                keyword_tags.append("identificación")
+            if any(word in text_lower for word in ["matrícula", "seguro", "itv", "auto"]):
+                keyword_tags.append("vehículo")
+            if any(word in text_lower for word in ["alquiler", "escritura", "casa", "hogar"]):
+                keyword_tags.append("vivienda")
+            
+            tags.extend(keyword_tags)
+            
             return list(set(tags))[:10]  # Máximo 10 tags únicos
             
         except Exception as e:
-            print(f"Error generando tags con AWS Comprehend: {e}")
+            print(f"Error generando tags con Bedrock: {e}")
             # Fallback: tags básicos
             return [category.lower(), "documento"]
     
     async def _calculate_confidence(self, text: str, category: str) -> float:
-        """Calcular nivel de confianza de la clasificación usando AWS Comprehend"""
+        """Calcular nivel de confianza de la clasificación usando Bedrock"""
         try:
             if not text or text.strip() == "":
                 return 0.1
             
-            # Usar AWS Comprehend para obtener confianza real
-            from app.services.aws_service import AWSService
-            aws_service = AWSService()
-            
-            comprehend_result = await aws_service.categorize_document(text)
-            confidence = comprehend_result.get('confidence', 0.5)
+            # Usar Bedrock para obtener confianza real
+            bedrock_result = await self.bedrock_service.analyze_document_content(text, "temp")
+            confidence = bedrock_result.get('confidence', 0.5)
             
             # Normalizar confianza entre 0 y 1
             return round(min(max(confidence, 0.0), 1.0), 2)
             
         except Exception as e:
-            print(f"Error calculando confianza con AWS Comprehend: {e}")
+            print(f"Error calculando confianza con Bedrock: {e}")
             # Fallback: confianza básica basada en longitud del texto
             text_length = len(text)
             length_confidence = min(text_length / 1000, 1.0)
             return round(length_confidence, 2)
     
     async def _extract_expiry_date(self, text: str) -> Optional[str]:
-        """Extraer fecha de vencimiento del texto"""
-        # Buscar patrones de fecha de vencimiento
+        """Extraer fecha de vencimiento del texto usando Bedrock"""
+        try:
+            # Usar Bedrock para extraer fecha de vencimiento
+            bedrock_result = await self.bedrock_service.analyze_document_content(text, "temp")
+            expiry_date = bedrock_result.get('expiry_date')
+            
+            if expiry_date and expiry_date != "null":
+                return expiry_date
+            
+            # Fallback: buscar patrones de fecha de vencimiento
         expiry_patterns = [
             r'venc[ei]miento[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
             r'expir[ae][:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
@@ -468,6 +477,10 @@ class DocumentAnalysisService:
             if match:
                 return match.group(1)
         
+        return None
+            
+        except Exception as e:
+            print(f"Error extrayendo fecha de vencimiento con Bedrock: {e}")
         return None
     
     async def _extract_document_number(self, text: str) -> Optional[str]:

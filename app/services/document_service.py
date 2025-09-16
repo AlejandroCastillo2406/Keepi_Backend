@@ -4,6 +4,8 @@ from app.config.database import DatabaseConfig
 from app.models.document import DocumentCreate, DocumentUpdate, DocumentResponse
 from app.services.aws_service import AWSService
 from app.services.user_config_service import UserConfigService
+from app.services.folder_service import FolderService
+from app.services.ai_analysis_service import DocumentAnalysisService
 
 class DocumentService:
     """Servicio para gestión de documentos"""
@@ -12,6 +14,8 @@ class DocumentService:
         self.db = DatabaseConfig.get_firestore_client()
         self.aws_service = AWSService()
         self.user_config_service = UserConfigService()
+        self.folder_service = FolderService()
+        self.ai_analysis_service = DocumentAnalysisService()
     
     async def get_user_documents(self, user_id: str) -> List[DocumentResponse]:
         """Obtener todos los documentos de un usuario"""
@@ -164,6 +168,91 @@ class DocumentService:
         except Exception as e:
             print(f"Error buscando documentos: {e}")
             return []
+    
+    async def process_document_with_bedrock(self, user_id: str, file_data: bytes, file_name: str, file_type: str) -> DocumentResponse:
+        """Procesar documento con Bedrock y crear carpetas automáticamente"""
+        try:
+            # Obtener configuración del usuario
+            user_config = await self.user_config_service.get_user_config(user_id)
+            storage_preference = user_config.storage_preference if user_config else "keepi_cloud"
+            
+            # PASO 1: Análisis con Bedrock
+            ai_analysis = await self.ai_analysis_service.analyze_document(file_data, file_type, file_name)
+            
+            # Verificar si requiere clasificación manual
+            if ai_analysis.get('suggested_category') == "MANUAL_CLASSIFICATION_REQUIRED":
+                # Crear documento con categoría pendiente
+                document_data = DocumentCreate(
+                    name=file_name,
+                    category="Pendiente de clasificación",
+                    file_name=file_name,
+                    file_type=file_type,
+                    file_size=len(file_data),
+                    file_url=None,
+                    cloud_provider=storage_preference,
+                    s3_key=None,
+                    extracted_text=ai_analysis.get('extracted_text', ''),
+                    ai_analysis=ai_analysis,
+                    expiry_date=ai_analysis.get('expiry_date'),
+                    document_number=ai_analysis.get('document_number'),
+                    organization=ai_analysis.get('organization')
+                )
+                
+                return await self.create_document(user_id, document_data)
+            
+            # PASO 2: Obtener categoría y fecha de vencimiento de Bedrock
+            category = ai_analysis.get('suggested_category', 'Documento')
+            expiry_date = ai_analysis.get('expiry_date')
+            confidence = ai_analysis.get('confidence_score', 0.5)
+            
+            # PASO 3: Crear carpeta de categoría automáticamente
+            folder_result = await self.folder_service.ensure_category_folder_exists(
+                user_id, category, storage_preference
+            )
+            
+            if not folder_result.get('success'):
+                print(f"⚠️ Error creando carpeta de categoría: {folder_result.get('error')}")
+                # Continuar sin carpeta específica
+            
+            # PASO 4: Subir archivo a la carpeta de categoría
+            file_url = None
+            s3_key = None
+            
+            if storage_preference == 'keepi_cloud':
+                # Subir a S3 en la carpeta de categoría
+                folder_path = f"users/{user_id}/{folder_result.get('folder_name', category)}/"
+                file_url = await self.aws_service.upload_to_s3(file_data, file_name, folder_path)
+                s3_key = f"{folder_path}{file_name}"
+                
+            elif storage_preference == 'google_drive':
+                # Subir a Google Drive en la carpeta de categoría
+                folder_id = folder_result.get('folder_id')
+                file_url = await self.drive_service.upload_file(file_data, file_name, folder_id)
+                s3_key = f"drive/{folder_id}/{file_name}"
+            
+            # PASO 5: Crear documento en base de datos
+            document_data = DocumentCreate(
+                name=file_name,
+                category=category,
+                file_name=file_name,
+                file_type=file_type,
+                file_size=len(file_data),
+                file_url=file_url,
+                cloud_provider=storage_preference,
+                s3_key=s3_key,
+                extracted_text=ai_analysis.get('extracted_text', ''),
+                ai_analysis=ai_analysis,
+                expiry_date=expiry_date,
+                document_number=ai_analysis.get('document_number'),
+                organization=ai_analysis.get('organization'),
+                tags=ai_analysis.get('tags', [])
+            )
+            
+            return await self.create_document(user_id, document_data)
+            
+        except Exception as e:
+            print(f"Error procesando documento con Bedrock: {e}")
+            raise
     
     async def process_document_with_aws(self, user_id: str, file_data: bytes, file_name: str, file_type: str) -> DocumentResponse:
         """Procesar documento con AWS Textract y Comprehend - Flujo dinámico"""

@@ -61,97 +61,43 @@ async def upload_and_analyze_document(
     file: UploadFile = File(...),
     user_token: dict = Depends(verify_token)
 ):
-    """Subir archivo, analizarlo automáticamente y guardarlo en Google Drive con clasificación"""
+    """Subir archivo, analizarlo con Bedrock y crear carpetas automáticamente"""
     try:
         # Verificar tipo de archivo
         if not file.filename:
             raise HTTPException(status_code=400, detail="Nombre de archivo requerido")
         
-        # Crear archivo temporal
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_file_path = temp_file.name
+        # Leer contenido del archivo
+        content = await file.read()
         
-        try:
-            # Analizar documento con AI
-            ai_service = DocumentAnalysisService()
-            analysis = await ai_service.analyze_document(
-                content, 
-                file.content_type or "application/octet-stream",
-                file.filename
-            )
-            
-            # Si requiere clasificación manual, devolver respuesta especial
-            if analysis.get('suggested_category') == 'MANUAL_CLASSIFICATION_REQUIRED':
-                return {
-                    "requires_manual_classification": True,
-                    "message": analysis.get('manual_classification_message', 'No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?'),
-                    "filename": file.filename,
-                    "file_type": file.content_type,
-                    "file_size": len(content)
-                }
-            
-            # Obtener credenciales de Google Drive del usuario
-            from app.services.oauth_service import GoogleOAuthService
-            
-            oauth_service = GoogleOAuthService()
-            user_credentials = await oauth_service.refresh_user_tokens(user_token['uid'])
-            
-            if not user_credentials:
-                raise HTTPException(
-                    status_code=401, 
-                    detail="Usuario no ha autorizado acceso a Google Drive. Use /api/v1/auth/google/authorize primero."
-                )
-            
-            # Crear carpeta en Google Drive según categoría
-            drive_service = GoogleDriveService(user_credentials)
-            
-            # Crear estructura de carpetas
-            category_folder = await drive_service.get_or_create_folder(analysis['suggested_category'])
-            
-            # Subir archivo a Google Drive
-            drive_file_id = await drive_service.upload_file(
-                temp_file_path,
-                file.filename,
-                category_folder,
-                file.content_type
-            )
-            
-            # Crear documento en Firestore
-            document_service = DocumentService()
-            
-            document_data = DocumentCreate(
-                name=file.filename,
-                category=analysis['suggested_category'],
-                description=f"Documento analizado automáticamente. Categoría sugerida: {analysis['suggested_category']}",
-                file_url=f"https://drive.google.com/file/d/{drive_file_id}/view",
-                file_name=file.filename,
-                file_size=len(content),
-                file_type=file.content_type,
-                expiry_date=analysis.get('expiry_date'),
-                metadata=analysis.get('metadata', {}),
-                tags=analysis.get('tags', [])
-            )
-            
-            document = await document_service.create_document(user_token['uid'], document_data)
-            
-            # Limpiar archivo temporal
-            os.unlink(temp_file_path)
-            
+        # Procesar documento con Bedrock
+        document_service = DocumentService()
+        document = await document_service.process_document_with_bedrock(
+            user_token['uid'],
+            content,
+            file.filename,
+            file.content_type or "application/octet-stream"
+        )
+        
+        # Si requiere clasificación manual, devolver respuesta especial
+        if document.category == "Pendiente de clasificación":
             return {
-                "message": "Documento subido y analizado exitosamente",
-                "document": document,
-                "analysis": analysis,
-                "drive_file_id": drive_file_id,
-                "drive_url": f"https://drive.google.com/file/d/{drive_file_id}/view"
+                "requires_manual_classification": True,
+                "message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?",
+                "filename": file.filename,
+                "file_type": file.content_type,
+                "file_size": len(content),
+                "document_id": document.id
             }
-            
-        except Exception as e:
-            # Limpiar archivo temporal en caso de error
-            os.unlink(temp_file_path)
-            raise e
-            
+        
+        return {
+            "message": "Documento subido y analizado exitosamente con Bedrock",
+            "document": document,
+            "category": document.category,
+            "expiry_date": document.expiry_date,
+            "confidence": document.ai_analysis.get('confidence_score', 0) if document.ai_analysis else 0
+        }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
