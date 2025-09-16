@@ -134,6 +134,25 @@ class FolderService:
             logger.error(f"Error buscando carpeta en Drive: {e}")
             return None
     
+    async def _find_drive_folder_with_service(self, folder_name: str, drive_service: GoogleDriveService) -> Optional[Dict[str, Any]]:
+        """Busca una carpeta existente en Google Drive usando un servicio específico"""
+        try:
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = drive_service.service.files().list(
+                q=query,
+                fields="files(id, name)"
+            ).execute()
+            
+            folders = results.get('files', [])
+            if folders:
+                return folders[0]  # Retornar la primera carpeta encontrada
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error buscando carpeta en Drive con servicio específico: {e}")
+            return None
+    
     async def ensure_category_folder_exists(self, user_id: str, category: str, storage_preference: str) -> Dict[str, Any]:
         """
         Asegura que existe una carpeta para la categoría, la crea si no existe
@@ -146,7 +165,37 @@ class FolderService:
                 
             elif storage_preference == 'google_drive':
                 folder_name = self._clean_folder_name(category)
-                exists = await self._find_drive_folder(folder_name) is not None
+                # Obtener credenciales del usuario para verificar si existe la carpeta
+                from app.services.user_service import UserService
+                user_service = UserService()
+                user = await user_service.get_user_by_uid(user_id)
+                
+                if not user or not user.drive_credentials:
+                    return {
+                        "success": False,
+                        "requires_drive_auth": True,
+                        "error": "Usuario no tiene credenciales de Google Drive configuradas",
+                        "drive_auth_url": "https://accounts.google.com/oauth/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline",
+                        "folder_name": category,
+                        "storage_type": storage_preference
+                    }
+                
+                try:
+                    drive_service = GoogleDriveService(user.drive_credentials)
+                    exists = await self._find_drive_folder_with_service(folder_name, drive_service) is not None
+                except Exception as drive_error:
+                    # Si hay error con las credenciales, solicitar reautorización
+                    if "invalid_grant" in str(drive_error) or "credentials" in str(drive_error).lower():
+                        return {
+                            "success": False,
+                            "requires_drive_auth": True,
+                            "error": "Credenciales de Google Drive expiradas o inválidas",
+                            "drive_auth_url": "https://accounts.google.com/oauth/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline",
+                            "folder_name": category,
+                            "storage_type": storage_preference
+                        }
+                    else:
+                        raise drive_error
                 
             else:
                 raise ValueError(f"Tipo de almacenamiento no soportado: {storage_preference}")

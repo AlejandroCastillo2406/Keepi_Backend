@@ -211,8 +211,16 @@ class DocumentService:
             )
             
             if not folder_result.get('success'):
-                print(f"⚠️ Error creando carpeta de categoría: {folder_result.get('error')}")
-                # Continuar sin carpeta específica
+                # Si requiere autorización de Drive, lanzar excepción especial
+                if folder_result.get('requires_drive_auth'):
+                    from app.exceptions import DriveAuthRequiredException
+                    raise DriveAuthRequiredException(
+                        message=folder_result.get('error', 'Se requiere autorización de Google Drive'),
+                        drive_auth_url=folder_result.get('drive_auth_url', '')
+                    )
+                else:
+                    print(f"⚠️ Error creando carpeta de categoría: {folder_result.get('error')}")
+                    # Continuar sin carpeta específica
             
             # PASO 4: Subir archivo a la carpeta de categoría
             file_url = None

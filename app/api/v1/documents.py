@@ -98,8 +98,28 @@ async def upload_and_analyze_document(
             "confidence": document.ai_analysis.get('confidence_score', 0) if document.ai_analysis else 0
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Verificar si es una excepción de autorización de Drive
+        if "DriveAuthRequiredException" in str(type(e)) or "requires_drive_auth" in str(e):
+            from app.exceptions import DriveAuthRequiredException
+            if isinstance(e, DriveAuthRequiredException):
+                return {
+                    "requires_drive_auth": True,
+                    "message": e.message,
+                    "drive_auth_url": e.drive_auth_url,
+                    "error": "Se requiere autorización de Google Drive"
+                }
+            else:
+                return {
+                    "requires_drive_auth": True,
+                    "message": "Se requiere autorización de Google Drive",
+                    "drive_auth_url": "https://accounts.google.com/oauth/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline",
+                    "error": str(e)
+                }
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{document_id}", response_model=DocumentResponse)
 async def update_document(
