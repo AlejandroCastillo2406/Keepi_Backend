@@ -557,18 +557,22 @@ async def get_mobile_dashboard(
                 
         elif user.storage_preference == 'google_drive':
             # Leer carpetas de Google Drive
-            drive_service = GoogleDriveService()
             try:
-                drive_folders = await drive_service.list_folders()
-                folders = [
-                    {
-                        "id": folder['id'],
-                        "name": folder['name'],
-                        "document_count": folder.get('document_count', 0),
-                        "path": folder.get('path', '')
-                    }
-                    for folder in drive_folders
-                ]
+                if not user.drive_credentials:
+                    print("Usuario no tiene credenciales de Google Drive configuradas")
+                    folders = []
+                else:
+                    drive_service = GoogleDriveService(user.drive_credentials)
+                    drive_folders = await drive_service.list_folders()
+                    folders = [
+                        {
+                            "id": folder['id'],
+                            "name": folder['name'],
+                            "document_count": folder.get('document_count', 0),
+                            "path": folder.get('path', '')
+                        }
+                        for folder in drive_folders
+                    ]
             except Exception as e:
                 print(f"Error leyendo carpetas de Drive: {e}")
                 folders = []

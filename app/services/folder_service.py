@@ -10,7 +10,7 @@ class FolderService:
     
     def __init__(self):
         self.s3_service = S3Service()
-        self.drive_service = GoogleDriveService()
+        # drive_service se inicializará cuando sea necesario con las credenciales del usuario
     
     async def create_category_folder(self, user_id: str, category: str, storage_preference: str) -> Dict[str, Any]:
         """
@@ -83,8 +83,18 @@ class FolderService:
     async def _create_drive_folder(self, folder_name: str, user_id: str) -> Dict[str, Any]:
         """Crea una carpeta en Google Drive"""
         try:
+            # Obtener credenciales del usuario
+            from app.services.user_service import UserService
+            user_service = UserService()
+            user = await user_service.get_user_by_uid(user_id)
+            
+            if not user or not user.drive_credentials:
+                raise Exception("Usuario no tiene credenciales de Google Drive configuradas")
+            
+            drive_service = GoogleDriveService(user.drive_credentials)
+            
             # Verificar si la carpeta ya existe
-            existing_folder = await self._find_drive_folder(folder_name)
+            existing_folder = await self._find_drive_folder_with_service(folder_name, drive_service)
             if existing_folder:
                 return {
                     "path": existing_folder['name'],
@@ -100,7 +110,7 @@ class FolderService:
                 'parents': []  # Carpeta raíz
             }
             
-            folder = self.drive_service.service.files().create(
+            folder = drive_service.service.files().create(
                 body=folder_metadata,
                 fields='id, name'
             ).execute()
@@ -115,24 +125,6 @@ class FolderService:
             logger.error(f"Error creando carpeta en Drive: {e}")
             raise
     
-    async def _find_drive_folder(self, folder_name: str) -> Optional[Dict[str, Any]]:
-        """Busca una carpeta existente en Google Drive"""
-        try:
-            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            results = self.drive_service.service.files().list(
-                q=query,
-                fields="files(id, name)"
-            ).execute()
-            
-            folders = results.get('files', [])
-            if folders:
-                return folders[0]  # Retornar la primera carpeta encontrada
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error buscando carpeta en Drive: {e}")
-            return None
     
     async def _find_drive_folder_with_service(self, folder_name: str, drive_service: GoogleDriveService) -> Optional[Dict[str, Any]]:
         """Busca una carpeta existente en Google Drive usando un servicio específico"""
@@ -171,11 +163,18 @@ class FolderService:
                 user = await user_service.get_user_by_uid(user_id)
                 
                 if not user or not user.drive_credentials:
+                    from app.config.settings import GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI
+                    drive_auth_url = (
+                        f"https://accounts.google.com/o/oauth2/auth?client_id={GOOGLE_CLIENT_ID}"
+                        f"&redirect_uri={GOOGLE_REDIRECT_URI}"
+                        "&scope=https://www.googleapis.com/auth/drive"
+                        "&response_type=code&access_type=offline&prompt=consent"
+                    )
                     return {
                         "success": False,
                         "requires_drive_auth": True,
                         "error": "Usuario no tiene credenciales de Google Drive configuradas",
-                        "drive_auth_url": "https://accounts.google.com/oauth/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline",
+                        "drive_auth_url": drive_auth_url,
                         "folder_name": category,
                         "storage_type": storage_preference
                     }
@@ -186,11 +185,18 @@ class FolderService:
                 except Exception as drive_error:
                     # Si hay error con las credenciales, solicitar reautorización
                     if "invalid_grant" in str(drive_error) or "credentials" in str(drive_error).lower():
+                        from app.config.settings import GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI
+                        drive_auth_url = (
+                            f"https://accounts.google.com/o/oauth2/auth?client_id={GOOGLE_CLIENT_ID}"
+                            f"&redirect_uri={GOOGLE_REDIRECT_URI}"
+                            "&scope=https://www.googleapis.com/auth/drive"
+                            "&response_type=code&access_type=offline&prompt=consent"
+                        )
                         return {
                             "success": False,
                             "requires_drive_auth": True,
                             "error": "Credenciales de Google Drive expiradas o inválidas",
-                            "drive_auth_url": "https://accounts.google.com/oauth/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline",
+                            "drive_auth_url": drive_auth_url,
                             "folder_name": category,
                             "storage_type": storage_preference
                         }
