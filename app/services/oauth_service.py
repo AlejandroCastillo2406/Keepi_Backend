@@ -241,80 +241,52 @@ class GoogleOAuthService:
             return None
 
     async def _save_user_credentials(self, user_id: str, credentials: Credentials) -> bool:
-        """Guardar credenciales del usuario en Firestore"""
+        """Guardar credenciales del usuario en PostgreSQL"""
         try:
-            from app.config.database import DatabaseConfig
+            from app.services.oauth_credentials_service import OAuthCredentialsService
             
-            db = DatabaseConfig.get_firestore_client()
+            oauth_service = OAuthCredentialsService()
+            success = await oauth_service.save_user_credentials(user_id, credentials)
             
-            credentials_data = {
-                'user_id': user_id,
-                'access_token': credentials.token,
-                'refresh_token': credentials.refresh_token,
-                'expires_at': credentials.expiry.isoformat() if credentials.expiry else None,
-                'scopes': credentials.scopes,
-                'client_id': credentials.client_id,
-                'client_secret': credentials.client_secret,
-                'token_uri': credentials.token_uri,
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat()
-            }
-            
-            # Guardar en colección de credenciales OAuth
-            db.collection('oauth_credentials').document(user_id).set(credentials_data)
-            print(f"✅ Credenciales guardadas para usuario: {user_id}")
-            return True
+            if success:
+                print(f"✅ Credenciales guardadas para usuario: {user_id}")
+            return success
             
         except Exception as e:
             print(f"Error guardando credenciales: {e}")
             return False
     
     async def _get_user_credentials(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Obtener credenciales del usuario desde Firestore"""
+        """Obtener credenciales del usuario desde PostgreSQL"""
         try:
-            from app.config.database import DatabaseConfig
+            from app.services.oauth_credentials_service import OAuthCredentialsService
             
-            db = DatabaseConfig.get_firestore_client()
-            
-            doc = db.collection('oauth_credentials').document(user_id).get()
-            
-            if doc.exists:
-                return doc.to_dict()
-            return None
+            oauth_service = OAuthCredentialsService()
+            return await oauth_service.get_user_credentials(user_id)
             
         except Exception as e:
             print(f"Error obteniendo credenciales: {e}")
             return None
     
     async def _update_user_credentials(self, user_id: str, credentials: Credentials) -> bool:
-        """Actualizar credenciales del usuario en Firestore"""
+        """Actualizar credenciales del usuario en PostgreSQL"""
         try:
-            from app.config.database import DatabaseConfig
+            from app.services.oauth_credentials_service import OAuthCredentialsService
             
-            db = DatabaseConfig.get_firestore_client()
-            
-            update_data = {
-                'access_token': credentials.token,
-                'expires_at': credentials.expiry.isoformat() if credentials.expiry else None,
-                'updated_at': datetime.now().isoformat()
-            }
-            
-            db.collection('oauth_credentials').document(user_id).update(update_data)
-            return True
+            oauth_service = OAuthCredentialsService()
+            return await oauth_service.update_user_credentials(user_id, credentials)
             
         except Exception as e:
             print(f"Error actualizando credenciales: {e}")
             return False
     
     async def _delete_user_credentials(self, user_id: str) -> bool:
-        """Eliminar credenciales del usuario de Firestore"""
+        """Eliminar credenciales del usuario de PostgreSQL"""
         try:
-            from app.config.database import DatabaseConfig
+            from app.services.oauth_credentials_service import OAuthCredentialsService
             
-            db = DatabaseConfig.get_firestore_client()
-            
-            db.collection('oauth_credentials').document(user_id).delete()
-            return True
+            oauth_service = OAuthCredentialsService()
+            return await oauth_service.delete_user_credentials(user_id)
             
         except Exception as e:
             print(f"Error eliminando credenciales: {e}")

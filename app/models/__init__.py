@@ -8,6 +8,7 @@ from .folder import Folder
 from .audit_log import AuditLog
 from .backup_sync import BackupSync, SyncConflict
 from .search_index import SearchIndex
+from .oauth_credentials import OAuthCredentials
 
 # Exportar todos los modelos para que SQLAlchemy los registre
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "AuditLog",
     "BackupSync",
     "SyncConflict",
-    "SearchIndex"
+    "SearchIndex",
+    "OAuthCredentials"
 ]
