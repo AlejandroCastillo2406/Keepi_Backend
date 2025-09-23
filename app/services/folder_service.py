@@ -83,15 +83,15 @@ class FolderService:
     async def _create_drive_folder(self, folder_name: str, user_id: str) -> Dict[str, Any]:
         """Crea una carpeta en Google Drive"""
         try:
-            # Obtener credenciales del usuario
-            from app.services.user_service import UserService
-            user_service = UserService()
-            user = await user_service.get_user_by_uid(user_id)
+            # Obtener credenciales del usuario usando OAuth service
+            from app.services.oauth_service import GoogleOAuthService
+            oauth_service = GoogleOAuthService()
+            credentials = await oauth_service.refresh_user_tokens(user_id)
             
-            if not user or not user.drive_credentials:
+            if not credentials:
                 raise Exception("Usuario no tiene credenciales de Google Drive configuradas")
             
-            drive_service = GoogleDriveService(user.drive_credentials)
+            drive_service = GoogleDriveService(credentials)
             
             # Verificar si la carpeta ya existe
             existing_folder = await self._find_drive_folder_with_service(folder_name, drive_service)
@@ -158,11 +158,11 @@ class FolderService:
             elif storage_preference == 'google_drive':
                 folder_name = self._clean_folder_name(category)
                 # Obtener credenciales del usuario para verificar si existe la carpeta
-                from app.services.user_service import UserService
-                user_service = UserService()
-                user = await user_service.get_user_by_uid(user_id)
+                from app.services.oauth_service import GoogleOAuthService
+                oauth_service = GoogleOAuthService()
+                credentials = await oauth_service.refresh_user_tokens(user_id)
                 
-                if not user or not user.drive_credentials:
+                if not credentials:
                     from app.config.settings import GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI
                     drive_auth_url = (
                         f"https://accounts.google.com/o/oauth2/auth?client_id={GOOGLE_CLIENT_ID}"
@@ -180,7 +180,7 @@ class FolderService:
                     }
                 
                 try:
-                    drive_service = GoogleDriveService(user.drive_credentials)
+                    drive_service = GoogleDriveService(credentials)
                     exists = await self._find_drive_folder_with_service(folder_name, drive_service) is not None
                 except Exception as drive_error:
                     # Si hay error con las credenciales, solicitar reautorización

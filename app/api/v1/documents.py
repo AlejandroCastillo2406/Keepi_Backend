@@ -560,7 +560,7 @@ async def get_mobile_dashboard(
             try:
                 from app.services.oauth_service import GoogleOAuthService
                 oauth_service = GoogleOAuthService()
-                credentials = await oauth_service.get_user_credentials(str(user.id))
+                credentials = await oauth_service.refresh_user_tokens(str(user.id))
                 
                 if not credentials:
                     print("Usuario no tiene credenciales de Google Drive configuradas")
