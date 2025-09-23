@@ -37,7 +37,7 @@ async def setup_cloud_storage(
         from app.services.user_service import UserService
         user_service = UserService()
         await user_service.update_user_fields(
-            current_user.uid, 
+            str(current_user.id), 
             {"storage_preference": storage_type}
         )
         
@@ -364,7 +364,7 @@ async def change_storage_type(
         from app.services.user_service import UserService
         user_service = UserService()
         await user_service.update_user_fields(
-            current_user.uid, 
+            str(current_user.id), 
             {"storage_preference": new_storage_type}
         )
         

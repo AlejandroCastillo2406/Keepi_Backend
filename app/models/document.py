@@ -106,6 +106,35 @@ class DocumentResponse(DocumentBase):
     
     class Config:
         from_attributes = True
+    
+    @classmethod
+    def from_orm(cls, obj):
+        """Convertir desde ORM asegurando que los UUIDs sean strings"""
+        data = {
+            "id": str(obj.id),
+            "user_id": str(obj.user_id),
+            "name": obj.name,
+            "category": obj.category,
+            "description": obj.description,
+            "file_url": obj.file_url,
+            "file_name": obj.file_name,
+            "file_size": obj.file_size,
+            "file_type": obj.file_type,
+            "expiry_date": obj.expiry_date,
+            "document_metadata": obj.document_metadata,
+            "tags": obj.tags,
+            "drive_file_id": obj.drive_file_id,
+            "drive_folder_id": obj.drive_folder_id,
+            "cloud_provider": obj.cloud_provider,
+            "s3_key": obj.s3_key,
+            "extracted_text": obj.extracted_text,
+            "ai_analysis": obj.ai_analysis,
+            "is_archived": obj.is_archived,
+            "is_favorite": obj.is_favorite,
+            "created_at": obj.created_at,
+            "updated_at": obj.updated_at
+        }
+        return cls(**data)
 
 class DocumentMetadata(BaseModel):
     """Modelo para metadatos de documento"""

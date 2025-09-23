@@ -100,6 +100,28 @@ class AIAnalysisResponse(AIAnalysisBase):
     
     class Config:
         from_attributes = True
+    
+    @classmethod
+    def from_orm(cls, obj):
+        """Convertir desde ORM asegurando que los UUIDs sean strings"""
+        data = {
+            "id": str(obj.id),
+            "user_id": str(obj.user_id),
+            "document_id": str(obj.document_id),
+            "suggested_category": obj.suggested_category,
+            "confidence_score": obj.confidence_score,
+            "extracted_text": obj.extracted_text,
+            "analysis_metadata": obj.analysis_metadata,
+            "tags": obj.tags,
+            "expiry_date": obj.expiry_date,
+            "document_number": obj.document_number,
+            "organization": obj.organization,
+            "processing_time_ms": obj.processing_time_ms,
+            "ai_model_version": obj.ai_model_version,
+            "created_at": obj.created_at,
+            "updated_at": obj.updated_at
+        }
+        return cls(**data)
 
 class AIAnalysisHistoryResponse(BaseModel):
     """Modelo de respuesta para historial de análisis"""
