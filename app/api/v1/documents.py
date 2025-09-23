@@ -558,11 +558,15 @@ async def get_mobile_dashboard(
         elif user.storage_preference == 'google_drive':
             # Leer carpetas de Google Drive
             try:
-                if not user.drive_credentials:
+                from app.services.oauth_service import GoogleOAuthService
+                oauth_service = GoogleOAuthService()
+                credentials = await oauth_service.get_user_credentials(str(user.id))
+                
+                if not credentials:
                     print("Usuario no tiene credenciales de Google Drive configuradas")
                     folders = []
                 else:
-                    drive_service = GoogleDriveService(user.drive_credentials)
+                    drive_service = GoogleDriveService(credentials)
                     drive_folders = await drive_service.list_folders()
                     folders = [
                         {

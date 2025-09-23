@@ -33,13 +33,19 @@ async def setup_cloud_storage(
         if storage_type not in ["keepi_cloud", "google_drive"]:
             raise HTTPException(status_code=400, detail="Tipo de almacenamiento no válido")
         
-        # Actualizar preferencia del usuario en Firestore
+        # Actualizar preferencia del usuario en PostgreSQL
         from app.services.user_service import UserService
         user_service = UserService()
-        await user_service.update_user_fields(
+        logger.info(f"Actualizando storage_preference para usuario {current_user.id} a {storage_type}")
+        
+        success = await user_service.update_user_fields(
             str(current_user.id), 
             {"storage_preference": storage_type}
         )
+        
+        if not success:
+            logger.error(f"Error actualizando storage_preference para usuario {current_user.id}")
+            raise HTTPException(status_code=500, detail="Error actualizando preferencia de almacenamiento")
         
         # Si es Keepi Cloud, crear carpeta del usuario
         if storage_type == "keepi_cloud":
