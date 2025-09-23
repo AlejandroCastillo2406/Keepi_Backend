@@ -6,11 +6,11 @@ class Settings(BaseSettings):
     """Configuración centralizada de la aplicación"""
     
     # PostgreSQL Configuration
-    postgres_host: str = os.getenv("POSTGRES_HOST", "localhost")
-    postgres_port: int = int(os.getenv("POSTGRES_PORT", "5432"))
-    postgres_db: str = os.getenv("POSTGRES_DB", "keepi_db")
-    postgres_user: str = os.getenv("POSTGRES_USER", "keepi_user")
-    postgres_password: str = os.getenv("POSTGRES_PASSWORD", "Alex2406R")
+    postgres_host: str = os.getenv("POSTGRES_HOST") or "localhost"
+    postgres_port: int = int(os.getenv("POSTGRES_PORT") or "1234")
+    postgres_db: str = os.getenv("POSTGRES_DB") or "db"
+    postgres_user: str = os.getenv("POSTGRES_USER") or "user"
+    postgres_password: str = os.getenv("POSTGRES_PASSWORD") or "password"
     
     @property
     def database_url(self) -> str:
@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     api_version: str = "1.0.0"
     
     # Server Configuration
-    host: str = os.getenv("BACKEND_HOST", "0.0.0.0")
-    port: int = int(os.getenv("BACKEND_PORT", "8000"))
+    host: str = os.getenv("BACKEND_HOST") or "0.0.0.0"
+    port: int = int(os.getenv("BACKEND_PORT") or "8000")
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
     
     # CORS Configuration
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     cors_allow_headers: list = ["*"]
     
     # Security Configuration
-    jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "your-super-secret-jwt-key-change-this-in-production")
+    jwt_secret_key: str = os.getenv("JWT_SECRET_KEY") or "default-secret-key"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     
