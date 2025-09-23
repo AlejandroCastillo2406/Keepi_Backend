@@ -53,6 +53,23 @@ async def setup_cloud_storage(
             if not result['success']:
                 raise HTTPException(status_code=500, detail="Error creando carpeta de usuario")
         
+        # Si es Google Drive, verificar si necesita autorización
+        if storage_type == "google_drive":
+            from app.services.oauth_service import GoogleOAuthService
+            oauth_service = GoogleOAuthService()
+            credentials = await oauth_service.refresh_user_tokens(str(current_user.id))
+            
+            if not credentials:
+                # Generar URL de autorización
+                auth_data = await oauth_service.get_authorization_url(str(current_user.id))
+                return {
+                    "success": True,
+                    "message": f"Almacenamiento configurado como {storage_type}",
+                    "storage_type": storage_type,
+                    "authorization_required": True,
+                    "authorization_url": auth_data.get('authorization_url')
+                }
+        
         return {
             "success": True,
             "message": f"Almacenamiento configurado como {storage_type}",
