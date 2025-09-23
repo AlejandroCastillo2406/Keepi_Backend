@@ -2,7 +2,6 @@ from typing import Dict, Any, List, Optional
 import tempfile
 import os
 from PIL import Image
-import easyocr
 from datetime import datetime, timedelta
 import re
 from app.services.bedrock_service import BedrockService
@@ -11,8 +10,6 @@ class DocumentAnalysisService:
     """Servicio para análisis automático de documentos usando AI"""
     
     def __init__(self):
-        # Inicializar EasyOCR para español e inglés
-        self.easyocr_reader = easyocr.Reader(['es', 'en'])
         # Inicializar Bedrock para análisis con Claude 3 Haiku
         self.bedrock_service = BedrockService()
     
@@ -92,10 +89,10 @@ class DocumentAnalysisService:
         """Extraer texto del documento según su tipo"""
         try:
             if content_type.startswith('image/'):
-                # Procesar imagen con estrategia: Textract -> EasyOCR -> fallback manual
+                # Procesar imagen con estrategia: Textract -> fallback manual
                 return await self._extract_text_from_image(content, filename)
             elif content_type == 'application/pdf':
-                # Usar estrategia: Textract asíncrono -> EasyOCR -> fallback manual
+                # Usar estrategia: Textract asíncrono -> fallback manual
                 return await self._extract_text_from_pdf(content, filename)
             elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
                 # Procesar Word: python-docx -> openpyxl -> fallback manual
@@ -118,7 +115,7 @@ class DocumentAnalysisService:
             return f"Error extrayendo texto: {filename}"
     
     async def _extract_text_from_image(self, content: bytes, filename: str) -> str:
-        """Extraer texto de imagen usando estrategia: Textract -> EasyOCR -> fallback manual"""
+        """Extraer texto de imagen usando estrategia: Textract -> fallback manual"""
         try:
             # Estrategia 1: AWS Textract (principal)
             try:
@@ -134,34 +131,7 @@ class DocumentAnalysisService:
             except Exception as e:
                 print(f"❌ Error en Textract para imagen {filename}: {e}")
             
-            # Estrategia 2: EasyOCR (fallback)
-            try:
-                print(f"🔄 Intentando EasyOCR para imagen {filename}...")
-                # Crear archivo temporal
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                    temp_file.write(content)
-                    temp_file_path = temp_file.name
-                
-                try:
-                    # Usar EasyOCR
-                    results = self.easyocr_reader.readtext(temp_file_path)
-                    text = ' '.join([result[1] for result in results])
-                    
-                    if text and len(text.strip()) > 20:
-                        print(f"✅ EasyOCR extrajo texto de imagen {filename}: {len(text)} caracteres")
-                        return text.strip()
-                    else:
-                        print(f"⚠️ EasyOCR no pudo extraer texto suficiente de {filename}")
-                        
-                finally:
-                    # Limpiar archivo temporal
-                    if os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
-                
-            except Exception as e:
-                print(f"❌ Error en EasyOCR para imagen {filename}: {e}")
-            
-            # Estrategia 3: Fallback manual
+            # Estrategia 2: Fallback manual
             print(f"⚠️ No se pudo extraer texto de imagen {filename}, requiere clasificación manual")
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
@@ -170,7 +140,7 @@ class DocumentAnalysisService:
             return "MANUAL_CLASSIFICATION_REQUIRED"
     
     async def _extract_text_from_pdf(self, content: bytes, filename: str) -> str:
-        """Extraer texto de PDF usando estrategia: Textract asíncrono -> EasyOCR -> fallback manual"""
+        """Extraer texto de PDF usando estrategia: Textract asíncrono -> fallback manual"""
         try:
             # Estrategia 1: AWS Textract asíncrono (principal)
             try:
@@ -186,7 +156,7 @@ class DocumentAnalysisService:
             except Exception as e:
                 print(f"❌ Error en Textract asíncrono para PDF {filename}: {e}")
             
-            # Estrategia 2: Clasificación manual (fallback)
+            # Estrategia 2: Fallback manual
             print(f"⚠️ PDF {filename} requiere clasificación manual")
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
