@@ -6,8 +6,8 @@ from app.config.settings import settings
 from app.config.database import DatabaseConfig
 from app.utils.auth import verify_token
 
-# Inicializar Firebase
-DatabaseConfig.initialize_firebase()
+# Inicializar PostgreSQL
+DatabaseConfig.initialize_database()
 
 # Crear aplicación FastAPI
 app = FastAPI(

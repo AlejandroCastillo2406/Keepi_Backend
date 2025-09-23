@@ -131,8 +131,16 @@ TEXTO DEL DOCUMENTO:
             # Validar fecha de vencimiento
             if expiry_date and expiry_date != "null":
                 try:
-                    # Validar formato de fecha
-                    datetime.strptime(expiry_date, '%Y-%m-%d')
+                    # Si ya viene con tiempo, normalizar a formato Z
+                    if 'T' in expiry_date:
+                        # Evitar duplicados de sufijo. Tomar solo fecha y forzar 00:00:00Z
+                        date_part = expiry_date.split('T')[0]
+                        parsed_date = datetime.strptime(date_part, '%Y-%m-%d')
+                        expiry_date = parsed_date.strftime('%Y-%m-%dT00:00:00Z')
+                    else:
+                        # Convertir YYYY-MM-DD -> YYYY-MM-DDT00:00:00Z
+                        parsed_date = datetime.strptime(expiry_date, '%Y-%m-%d')
+                        expiry_date = parsed_date.strftime('%Y-%m-%dT00:00:00Z')
                 except ValueError:
                     expiry_date = None
             else:

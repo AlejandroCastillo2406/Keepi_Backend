@@ -1,7 +1,33 @@
+import uuid
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from app.config.database import Base
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+# Modelo SQLAlchemy para la tabla de notificaciones
+class Notification(Base):
+    __tablename__ = "notifications"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    type = Column(String(50), nullable=False, default="info")
+    read = Column(Boolean, default=False, nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # Relación con usuario
+    user = relationship("User", back_populates="notifications")
+    
+    def __repr__(self):
+        return f"<Notification(id={self.id}, user_id={self.user_id}, title={self.title})>"
+
+# Modelos Pydantic para la API
 class NotificationBase(BaseModel):
     """Modelo base para notificación"""
     title: str
@@ -23,6 +49,9 @@ class NotificationResponse(NotificationBase):
     read: bool = False
     created_at: datetime
     read_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
 
 from typing import ClassVar
 

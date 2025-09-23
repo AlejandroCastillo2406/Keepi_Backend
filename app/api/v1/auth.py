@@ -1,10 +1,67 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Dict, Any
 
-from app.utils.auth import verify_token
+from app.utils.auth import verify_token, get_current_user
 from app.services.oauth_service import GoogleOAuthService
+from app.services.user_service import UserService
+from app.models.user import UserCreate, UserLogin, UserResponse
+from app.models.user import User
 
 router = APIRouter()
+
+@router.post("/register", response_model=UserResponse)
+async def register_user(user_data: UserCreate):
+    """Registrar nuevo usuario"""
+    try:
+        if not user_data.password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Contraseña requerida para registro"
+            )
+        
+        user_service = UserService()
+        user = await user_service.create_user(user_data)
+        
+        return user
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error registrando usuario: {str(e)}"
+        )
+
+@router.post("/login")
+async def login_user(login_data: UserLogin):
+    """Iniciar sesión de usuario"""
+    try:
+        user_service = UserService()
+        result = await user_service.login_user(login_data)
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email o contraseña incorrectos"
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error en login: {str(e)}"
+        )
+
+@router.get("/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Obtener información del usuario actual"""
+    return UserResponse.from_orm(current_user)
 
 @router.get("/verify")
 async def verify_authentication(user_token: dict = Depends(verify_token)):

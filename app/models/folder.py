@@ -1,7 +1,42 @@
+import uuid
+from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from app.config.database import Base
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+# Modelo SQLAlchemy para la tabla de carpetas
+class Folder(Base):
+    __tablename__ = "folders"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    category = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    parent_folder_id = Column(UUID(as_uuid=True), ForeignKey("folders.id"), nullable=True, index=True)
+    drive_folder_id = Column(String(255), nullable=False)
+    drive_parent_id = Column(String(255), nullable=True)
+    color = Column(String(7), nullable=True)  # Hex color code
+    icon = Column(String(50), nullable=True)
+    is_archived = Column(Boolean, default=False, nullable=False)
+    is_favorite = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relaciones
+    user = relationship("User", back_populates="folders")
+    documents = relationship("Document", back_populates="folder")
+    parent_folder = relationship("Folder", remote_side=[id], back_populates="subfolders")
+    subfolders = relationship("Folder", back_populates="parent_folder")
+    
+    def __repr__(self):
+        return f"<Folder(id={self.id}, name={self.name}, category={self.category})>"
+
+# Modelos Pydantic para la API
 class FolderBase(BaseModel):
     """Modelo base para carpeta"""
     name: str
@@ -41,6 +76,9 @@ class FolderResponse(FolderBase):
     is_favorite: bool = False
     created_at: datetime
     updated_at: datetime
+    
+    class Config:
+        from_attributes = True
 
 class FolderStructure(BaseModel):
     """Modelo para estructura de carpetas"""
@@ -52,6 +90,9 @@ class FolderStructure(BaseModel):
     subfolders: List['FolderStructure'] = []
     created_at: datetime
     updated_at: datetime
+    
+    class Config:
+        from_attributes = True
 
 # Para referencias circulares
 FolderStructure.model_rebuild()

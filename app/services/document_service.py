@@ -1,7 +1,8 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-from app.config.database import DatabaseConfig
-from app.models.document import DocumentCreate, DocumentUpdate, DocumentResponse
+from sqlalchemy.orm import Session
+from app.config.database import get_db, DatabaseConfig
+from app.models.document import Document, DocumentCreate, DocumentUpdate, DocumentResponse
 from app.services.aws_service import AWSService
 from app.services.user_config_service import UserConfigService
 from app.services.folder_service import FolderService
@@ -10,8 +11,8 @@ from app.services.ai_analysis_service import DocumentAnalysisService
 class DocumentService:
     """Servicio para gestión de documentos"""
     
-    def __init__(self):
-        self.db = DatabaseConfig.get_firestore_client()
+    def __init__(self, db: Session = None):
+        self.db = db or next(get_db())
         self.aws_service = AWSService()
         self.user_config_service = UserConfigService()
         self.folder_service = FolderService()
@@ -20,13 +21,8 @@ class DocumentService:
     async def get_user_documents(self, user_id: str) -> List[DocumentResponse]:
         """Obtener todos los documentos de un usuario"""
         try:
-            docs = self.db.collection('documents').where('user_id', '==', user_id).stream()
-            documents = []
-            for doc in docs:
-                doc_data = doc.to_dict()
-                doc_data['id'] = doc.id
-                documents.append(DocumentResponse(**doc_data))
-            return documents
+            documents = self.db.query(Document).filter(Document.user_id == user_id).all()
+            return [DocumentResponse.from_orm(doc) for doc in documents]
         except Exception as e:
             print(f"Error obteniendo documentos: {e}")
             return []
@@ -34,14 +30,13 @@ class DocumentService:
     async def get_document_by_id(self, document_id: str, user_id: str) -> Optional[DocumentResponse]:
         """Obtener documento por ID"""
         try:
-            doc_ref = self.db.collection('documents').document(document_id)
-            doc = doc_ref.get()
+            document = self.db.query(Document).filter(
+                Document.id == document_id,
+                Document.user_id == user_id
+            ).first()
             
-            if doc.exists:
-                doc_data = doc.to_dict()
-                if doc_data.get('user_id') == user_id:
-                    doc_data['id'] = document_id
-                    return DocumentResponse(**doc_data)
+            if document:
+                return DocumentResponse.from_orm(document)
             return None
         except Exception as e:
             print(f"Error obteniendo documento: {e}")
@@ -50,77 +45,86 @@ class DocumentService:
     async def create_document(self, user_id: str, document_data: DocumentCreate) -> DocumentResponse:
         """Crear nuevo documento"""
         try:
-            doc_dict = document_data.dict()
-            doc_dict['user_id'] = user_id
-            doc_dict['created_at'] = datetime.now()
-            doc_dict['updated_at'] = datetime.now()
-            doc_dict['is_archived'] = False
-            doc_dict['is_favorite'] = False
+            # Crear instancia de documento
+            document = Document(
+                user_id=user_id,
+                name=document_data.name,
+                category=document_data.category,
+                description=document_data.description,
+                file_url=document_data.file_url,
+                file_name=document_data.file_name,
+                file_size=document_data.file_size,
+                file_type=document_data.file_type,
+                expiry_date=document_data.expiry_date,
+                document_metadata=document_data.document_metadata or {},
+                tags=document_data.tags or [],
+                drive_file_id=document_data.drive_file_id,
+                drive_folder_id=document_data.drive_folder_id,
+                cloud_provider=document_data.cloud_provider,
+                s3_key=document_data.s3_key,
+                extracted_text=document_data.extracted_text,
+                ai_analysis=document_data.ai_analysis or {}
+            )
             
-            doc_ref = self.db.collection('documents').add(doc_dict)
-            doc_dict['id'] = doc_ref[1].id
+            self.db.add(document)
+            self.db.commit()
+            self.db.refresh(document)
             
-            return DocumentResponse(**doc_dict)
+            return DocumentResponse.from_orm(document)
         except Exception as e:
             print(f"Error creando documento: {e}")
+            self.db.rollback()
             raise
     
     async def update_document(self, document_id: str, user_id: str, document_data: DocumentUpdate) -> Optional[DocumentResponse]:
         """Actualizar documento"""
         try:
-            doc_ref = self.db.collection('documents').document(document_id)
-            doc = doc_ref.get()
+            document = self.db.query(Document).filter(
+                Document.id == document_id,
+                Document.user_id == user_id
+            ).first()
             
-            if not doc.exists:
+            if not document:
                 return None
             
-            doc_data = doc.to_dict()
-            if doc_data.get('user_id') != user_id:
-                return None
-            
+            # Actualizar campos
             update_data = document_data.dict(exclude_unset=True)
-            update_data['updated_at'] = datetime.now()
+            for field, value in update_data.items():
+                setattr(document, field, value)
             
-            doc_ref.update(update_data)
+            self.db.commit()
+            self.db.refresh(document)
             
-            # Obtener documento actualizado
-            updated_doc = doc_ref.get().to_dict()
-            updated_doc['id'] = document_id
-            
-            return DocumentResponse(**updated_doc)
+            return DocumentResponse.from_orm(document)
         except Exception as e:
             print(f"Error actualizando documento: {e}")
+            self.db.rollback()
             return None
     
     async def delete_document(self, document_id: str, user_id: str) -> bool:
         """Eliminar documento"""
         try:
-            doc_ref = self.db.collection('documents').document(document_id)
-            doc = doc_ref.get()
+            document = self.db.query(Document).filter(
+                Document.id == document_id,
+                Document.user_id == user_id
+            ).first()
             
-            if not doc.exists:
+            if not document:
                 return False
             
-            doc_data = doc.to_dict()
-            if doc_data.get('user_id') != user_id:
-                return False
-            
-            doc_ref.delete()
+            self.db.delete(document)
+            self.db.commit()
             return True
         except Exception as e:
             print(f"Error eliminando documento: {e}")
+            self.db.rollback()
             return False
     
     async def get_document_categories(self, user_id: str) -> List[str]:
         """Obtener categorías de documentos del usuario"""
         try:
-            docs = self.db.collection('documents').where('user_id', '==', user_id).stream()
-            categories = set()
-            for doc in docs:
-                doc_data = doc.to_dict()
-                if doc_data.get('category'):
-                    categories.add(doc_data['category'])
-            return list(categories)
+            documents = self.db.query(Document.category).filter(Document.user_id == user_id).distinct().all()
+            return [category[0] for category in documents]
         except Exception as e:
             print(f"Error obteniendo categorías: {e}")
             return []
@@ -128,22 +132,14 @@ class DocumentService:
     async def get_expiring_documents(self, user_id: str, days: int = 30) -> List[DocumentResponse]:
         """Obtener documentos que vencen pronto"""
         try:
-            docs = self.db.collection('documents').where('user_id', '==', user_id).stream()
-            expiring_docs = []
             cutoff_date = datetime.now() + timedelta(days=days)
+            documents = self.db.query(Document).filter(
+                Document.user_id == user_id,
+                Document.expiry_date.isnot(None),
+                Document.expiry_date <= cutoff_date
+            ).all()
             
-            for doc in docs:
-                doc_data = doc.to_dict()
-                if doc_data.get('expiry_date'):
-                    try:
-                        expiry_date = datetime.fromisoformat(doc_data['expiry_date'].replace('Z', '+00:00'))
-                        if expiry_date <= cutoff_date:
-                            doc_data['id'] = doc.id
-                            expiring_docs.append(DocumentResponse(**doc_data))
-                    except ValueError:
-                        continue
-            
-            return expiring_docs
+            return [DocumentResponse.from_orm(doc) for doc in documents]
         except Exception as e:
             print(f"Error obteniendo documentos por vencer: {e}")
             return []
@@ -151,20 +147,15 @@ class DocumentService:
     async def search_documents(self, user_id: str, query: str) -> List[DocumentResponse]:
         """Buscar documentos por texto"""
         try:
-            docs = self.db.collection('documents').where('user_id', '==', user_id).stream()
-            matching_docs = []
-            query_lower = query.lower()
+            query_lower = f"%{query.lower()}%"
+            documents = self.db.query(Document).filter(
+                Document.user_id == user_id,
+                (Document.name.ilike(query_lower) |
+                 Document.description.ilike(query_lower) |
+                 Document.category.ilike(query_lower))
+            ).all()
             
-            for doc in docs:
-                doc_data = doc.to_dict()
-                # Buscar en nombre, descripción y categoría
-                if (query_lower in doc_data.get('name', '').lower() or
-                    query_lower in doc_data.get('description', '').lower() or
-                    query_lower in doc_data.get('category', '').lower()):
-                    doc_data['id'] = doc.id
-                    matching_docs.append(DocumentResponse(**doc_data))
-            
-            return matching_docs
+            return [DocumentResponse.from_orm(doc) for doc in documents]
         except Exception as e:
             print(f"Error buscando documentos: {e}")
             return []
@@ -174,7 +165,7 @@ class DocumentService:
         try:
             # Obtener configuración del usuario
             user_config = await self.user_config_service.get_user_config(user_id)
-            storage_preference = user_config.storage_preference if user_config else "keepi_cloud"
+            storage_preference = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "keepi_cloud"
             
             # PASO 1: Análisis con Bedrock
             ai_analysis = await self.ai_analysis_service.analyze_document(file_data, file_type, file_name)
@@ -229,7 +220,7 @@ class DocumentService:
             if storage_preference == 'keepi_cloud':
                 # Subir a S3 en la carpeta de categoría
                 folder_path = f"users/{user_id}/{folder_result.get('folder_name', category)}/"
-                file_url = await self.aws_service.upload_to_s3(file_data, file_name, folder_path)
+                file_url = await self.aws_service.upload_to_s3_temp(file_data, file_name, user_id)
                 s3_key = f"{folder_path}{file_name}"
                 
             elif storage_preference == 'google_drive':

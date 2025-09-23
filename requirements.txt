@@ -6,14 +6,19 @@ python-multipart==0.0.6
 # Autenticación y seguridad
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 
 # Configuración y variables de entorno
 python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# Firebase
-firebase-admin==6.2.0
+# PostgreSQL y SQLAlchemy
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Google OAuth (mantenemos para autenticación)
 google-auth==2.23.4
 google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1

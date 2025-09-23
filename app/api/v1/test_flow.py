@@ -33,17 +33,25 @@ async def test_complete_flow(
         
         if not user_config:
             # Crear configuración inicial
+            from app.models.user_config import UserConfigCreate, CloudProvider
+            config_data = UserConfigCreate(
+                cloud_provider=CloudProvider.KEEPI_CLOUD if storage_preference == "keepi_cloud" else CloudProvider.GOOGLE_DRIVE
+            )
             await user_config_service.create_user_config(
-                user_token['uid'], 
-                storage_preference=storage_preference
+                user_token['uid'],
+                config_data
             )
             print(f"✅ Configuración creada: {storage_preference}")
         else:
             # Actualizar preferencia si es diferente
-            if user_config.storage_preference != storage_preference:
+            if user_config.cloud_provider.value != storage_preference:
+                from app.models.user_config import UserConfigUpdate, CloudProvider
+                update_data = UserConfigUpdate(
+                    cloud_provider=CloudProvider.KEEPI_CLOUD if storage_preference == "keepi_cloud" else CloudProvider.GOOGLE_DRIVE
+                )
                 await user_config_service.update_user_config(
                     user_token['uid'],
-                    storage_preference=storage_preference
+                    update_data
                 )
                 print(f"✅ Configuración actualizada: {storage_preference}")
             else:

@@ -1,36 +1,22 @@
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
-import firebase_admin
-from firebase_admin import firestore
-
-from app.models.user_config import UserConfigCreate, UserConfigUpdate, UserConfigResponse, CloudProvider, CloudProviderInfo
+from sqlalchemy.orm import Session
+from app.config.database import get_db
+from app.models.user_config import UserConfig, UserConfigCreate, UserConfigUpdate, UserConfigResponse, CloudProvider, CloudProviderInfo
 
 logger = logging.getLogger(__name__)
 
 class UserConfigService:
-    def __init__(self):
-        self.db = firestore.client()
-        self.collection = "user_configs"
+    def __init__(self, db: Session = None):
+        self.db = db or next(get_db())
     
     async def get_user_config(self, user_id: str) -> Optional[UserConfigResponse]:
         """Obtener configuración del usuario"""
         try:
-            doc_ref = self.db.collection(self.collection).document(user_id)
-            doc = doc_ref.get()
-            
-            if doc.exists:
-                data = doc.to_dict()
-                return UserConfigResponse(
-                    id=doc.id,
-                    user_id=user_id,
-                    cloud_provider=data.get('cloud_provider', CloudProvider.GOOGLE_DRIVE),
-                    auto_categorization=data.get('auto_categorization', True),
-                    aws_analysis_enabled=data.get('aws_analysis_enabled', True),
-                    notification_preferences=data.get('notification_preferences', {}),
-                    created_at=data.get('created_at', datetime.utcnow()),
-                    updated_at=data.get('updated_at', datetime.utcnow())
-                )
+            config = self.db.query(UserConfig).filter(UserConfig.user_id == user_id).first()
+            if config:
+                return UserConfigResponse.from_orm(config)
             return None
             
         except Exception as e:
@@ -40,68 +26,56 @@ class UserConfigService:
     async def create_user_config(self, user_id: str, config_data: UserConfigCreate) -> UserConfigResponse:
         """Crear configuración de usuario"""
         try:
-            now = datetime.utcnow()
-            
-            config_dict = {
-                'user_id': user_id,
-                'cloud_provider': config_data.cloud_provider.value,
-                'auto_categorization': config_data.auto_categorization,
-                'aws_analysis_enabled': config_data.aws_analysis_enabled,
-                'notification_preferences': config_data.notification_preferences or {},
-                'created_at': now,
-                'updated_at': now
-            }
-            
-            doc_ref = self.db.collection(self.collection).document(user_id)
-            doc_ref.set(config_dict)
-            
-            return UserConfigResponse(
-                id=user_id,
+            # Crear instancia de configuración
+            config = UserConfig(
                 user_id=user_id,
-                cloud_provider=config_data.cloud_provider,
+                cloud_provider=config_data.cloud_provider.value,
                 auto_categorization=config_data.auto_categorization,
                 aws_analysis_enabled=config_data.aws_analysis_enabled,
-                notification_preferences=config_data.notification_preferences or {},
-                created_at=now,
-                updated_at=now
+                notification_preferences=config_data.notification_preferences or {}
             )
+            
+            self.db.add(config)
+            self.db.commit()
+            self.db.refresh(config)
+            
+            return UserConfigResponse.from_orm(config)
             
         except Exception as e:
             logger.error(f"Error creando configuración de usuario: {str(e)}")
+            self.db.rollback()
             raise
     
     async def update_user_config(self, user_id: str, config_data: UserConfigUpdate) -> Optional[UserConfigResponse]:
         """Actualizar configuración de usuario"""
         try:
-            doc_ref = self.db.collection(self.collection).document(user_id)
-            doc = doc_ref.get()
+            config = self.db.query(UserConfig).filter(UserConfig.user_id == user_id).first()
             
-            if not doc.exists:
+            if not config:
                 return None
             
-            # Preparar datos de actualización
-            update_data = {'updated_at': datetime.utcnow()}
-            
+            # Actualizar campos
             if config_data.cloud_provider is not None:
-                update_data['cloud_provider'] = config_data.cloud_provider.value
+                config.cloud_provider = config_data.cloud_provider.value
             
             if config_data.auto_categorization is not None:
-                update_data['auto_categorization'] = config_data.auto_categorization
+                config.auto_categorization = config_data.auto_categorization
             
             if config_data.aws_analysis_enabled is not None:
-                update_data['aws_analysis_enabled'] = config_data.aws_analysis_enabled
+                config.aws_analysis_enabled = config_data.aws_analysis_enabled
             
             if config_data.notification_preferences is not None:
-                update_data['notification_preferences'] = config_data.notification_preferences
+                config.notification_preferences = config_data.notification_preferences
             
-            # Actualizar documento
-            doc_ref.update(update_data)
+            # Guardar cambios
+            self.db.commit()
+            self.db.refresh(config)
             
-            # Obtener configuración actualizada
-            return await self.get_user_config(user_id)
+            return UserConfigResponse.from_orm(config)
             
         except Exception as e:
             logger.error(f"Error actualizando configuración de usuario: {str(e)}")
+            self.db.rollback()
             raise
     
     async def get_or_create_user_config(self, user_id: str) -> UserConfigResponse:
