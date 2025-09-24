@@ -58,6 +58,60 @@ async def login_user(login_data: UserLogin):
             detail=f"Error en login: {str(e)}"
         )
 
+@router.post("/refresh")
+async def refresh_token(refresh_token: str):
+    """Renovar token de acceso usando refresh token"""
+    try:
+        from app.utils.auth import verify_refresh_token, create_access_token
+        from app.services.user_service import UserService
+        
+        # Verificar refresh token
+        payload = verify_refresh_token(refresh_token)
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token inválido o expirado"
+            )
+        
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token inválido"
+            )
+        
+        # Verificar que el usuario existe y el refresh token coincide
+        user_service = UserService()
+        user = await user_service.get_user_by_uid(user_id)
+        
+        if not user or user.refresh_token != refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token inválido"
+            )
+        
+        # Crear nuevo access token
+        access_token = create_access_token({
+            "sub": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "picture": user.profile_picture or ""
+        })
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": 30 * 60  # 30 minutos en segundos
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error renovando token: {str(e)}"
+        )
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Obtener información del usuario actual"""

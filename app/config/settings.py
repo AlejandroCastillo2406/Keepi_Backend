@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY") or "default-secret-key"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7  # Refresh token válido por 7 días
     
     # File Upload Configuration
     max_file_size: int = 10 * 1024 * 1024  # 10MB

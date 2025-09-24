@@ -16,6 +16,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     name = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=True)  # Para autenticación local
+    refresh_token = Column(String(500), nullable=True)  # Para refresh token
     profile_picture = Column(Text, nullable=True)
     settings = Column(JSON, nullable=True, default=dict)
     storage_preference = Column(String(50), nullable=True, default="local")

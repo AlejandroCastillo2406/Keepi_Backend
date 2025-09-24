@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.config.database import get_db, DatabaseConfig
 from app.models.user import User, UserCreate, UserUpdate, UserResponse, UserSettings, UserLogin
-from app.utils.auth import get_password_hash, verify_password, create_access_token
+from app.utils.auth import get_password_hash, verify_password, create_access_token, create_refresh_token
 
 class UserService:
     """Servicio para gestión de usuarios"""
@@ -72,7 +72,7 @@ class UserService:
             if not user:
                 return None
             
-            # Crear token JWT
+            # Crear access token
             access_token_expires = timedelta(minutes=30)
             access_token = create_access_token(
                 data={
@@ -84,9 +84,22 @@ class UserService:
                 expires_delta=access_token_expires
             )
             
+            # Crear refresh token
+            refresh_token = create_refresh_token({
+                "sub": str(user.id),
+                "email": user.email,
+                "name": user.name
+            })
+            
+            # Guardar refresh token en la base de datos
+            user.refresh_token = refresh_token
+            self.db.commit()
+            
             return {
                 "access_token": access_token,
+                "refresh_token": refresh_token,
                 "token_type": "bearer",
+                "expires_in": 30 * 60,  # 30 minutos en segundos
                 "user": UserResponse.from_orm(user)
             }
         except Exception as e:

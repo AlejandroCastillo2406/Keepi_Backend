@@ -32,6 +32,24 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt
 
+def create_refresh_token(data: dict) -> str:
+    """Crear refresh token JWT"""
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+    to_encode.update({"exp": expire, "type": "refresh"})
+    encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return encoded_jwt
+
+def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
+    """Verificar refresh token"""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        if payload.get("type") != "refresh":
+            return None
+        return payload
+    except JWTError:
+        return None
+
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verificar token JWT y retornar información del usuario"""
     if credentials is None:
