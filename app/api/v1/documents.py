@@ -57,6 +57,7 @@ async def create_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/upload")
+@router.post("/upload_and_analyze_document")  # Alias para compatibilidad con tests
 async def upload_and_analyze_document(
     file: UploadFile = File(...),
     user_token: dict = Depends(verify_token)
