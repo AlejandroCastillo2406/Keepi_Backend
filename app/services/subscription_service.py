@@ -94,20 +94,43 @@ class SubscriptionService:
                     raise ValueError("STRIPE_SECRET_KEY no encontrada")
             
             logger.info(f"🔍 Creando cliente Stripe para {user.email}")
-            customer = stripe.Customer.create(
-                email=user.email,
-                name=user.name,
-                metadata={
+            logger.info(f"🔍 User data - email: {user.email}, name: {user.name}, id: {user.id}")
+            
+            # Preparar datos del cliente
+            customer_data = {
+                'email': user.email,
+                'metadata': {
                     'user_id': str(user.id)
                 }
-            )
+            }
+            
+            # Solo agregar name si no es None
+            if user.name:
+                customer_data['name'] = user.name
+            
+            logger.info(f"🔍 Customer data: {customer_data}")
+            
+            customer = stripe.Customer.create(**customer_data)
             
             logger.info(f"✅ Cliente Stripe creado: {customer.id} para usuario {user.id}")
+            logger.info(f"🔍 Customer object type: {type(customer)}")
+            logger.info(f"🔍 Customer attributes: {dir(customer)}")
+            logger.info(f"🔍 Customer id: {getattr(customer, 'id', 'NO_ID')}")
+            
             return customer.id
             
         except Exception as e:
             logger.error(f"Error creando cliente Stripe: {e}")
             logger.error(f"stripe.api_key configurado: {bool(stripe.api_key)}")
+            logger.error(f"Tipo de error: {type(e).__name__}")
+            logger.error(f"Detalles del error: {str(e)}")
+            
+            # Si es un error de Stripe, mostrar más detalles
+            if hasattr(e, 'user_message'):
+                logger.error(f"Mensaje de usuario: {e.user_message}")
+            if hasattr(e, 'code'):
+                logger.error(f"Código de error: {e.code}")
+                
             raise
     
     async def create_payment_intent(
