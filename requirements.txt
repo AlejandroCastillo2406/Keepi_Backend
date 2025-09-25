@@ -45,4 +45,4 @@ botocore==1.34.0
 email-validator==2.1.0
 
 # Stripe para pagos
-stripe==7.8.0
+stripe==8.0.0

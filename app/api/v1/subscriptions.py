@@ -6,12 +6,13 @@ import stripe
 import logging
 import os
 import json
+from datetime import datetime
 
 from app.config.database import get_db
 from app.services.subscription_service import SubscriptionService
 from app.models.subscription import (
-    SubscriptionResponse, PaymentIntentRequest, PaymentIntentResponse,
-    SubscriptionPlan, WebhookEvent
+    Subscription, SubscriptionResponse, PaymentIntentRequest, PaymentIntentResponse,
+    SubscriptionPlan, SubscriptionStatus, WebhookEvent
 )
 from app.utils.auth import get_current_user
 from app.models.user import User
@@ -318,3 +319,208 @@ async def get_usage_statistics(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error obteniendo estadísticas de uso"
         )
+
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Webhook de Stripe para manejar eventos de suscripciones"""
+    try:
+        payload = await request.body()
+        sig_header = request.headers.get('stripe-signature')
+        
+        webhook_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
+        if not webhook_secret:
+            logger.error("❌ STRIPE_WEBHOOK_SECRET no configurado")
+            raise HTTPException(status_code=400, detail="Webhook secret not configured")
+        
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, webhook_secret
+            )
+        except ValueError as e:
+            logger.error(f"❌ Invalid payload: {e}")
+            raise HTTPException(status_code=400, detail="Invalid payload")
+        except stripe.error.SignatureVerificationError as e:
+            logger.error(f"❌ Invalid signature: {e}")
+            raise HTTPException(status_code=400, detail="Invalid signature")
+        
+        logger.info(f"🔔 Webhook recibido: {event['type']}")
+        
+        # Manejar diferentes tipos de eventos
+        subscription_service = SubscriptionService()
+        
+        if event['type'] == 'customer.subscription.created':
+            await handle_subscription_created(event['data']['object'], subscription_service, db)
+        
+        elif event['type'] == 'customer.subscription.updated':
+            await handle_subscription_updated(event['data']['object'], subscription_service, db)
+        
+        elif event['type'] == 'customer.subscription.deleted':
+            await handle_subscription_deleted(event['data']['object'], subscription_service, db)
+        
+        elif event['type'] == 'invoice.payment_succeeded':
+            await handle_payment_succeeded(event['data']['object'], subscription_service, db)
+        
+        elif event['type'] == 'invoice.payment_failed':
+            await handle_payment_failed(event['data']['object'], subscription_service, db)
+        
+        else:
+            logger.info(f"🔔 Evento no manejado: {event['type']}")
+        
+        return {"status": "success"}
+        
+    except Exception as e:
+        logger.error(f"❌ Error procesando webhook: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error procesando webhook"
+        )
+
+async def handle_subscription_created(subscription_data: Dict[str, Any], service: SubscriptionService, db: Session):
+    """Manejar creación de suscripción"""
+    try:
+        stripe_subscription_id = subscription_data['id']
+        stripe_customer_id = subscription_data['customer']
+        status = subscription_data['status']
+        
+        logger.info(f"✅ Suscripción creada: {stripe_subscription_id} para customer: {stripe_customer_id}")
+        
+        # Buscar la suscripción en nuestra BD por stripe_customer_id
+        subscription = db.query(Subscription).filter(
+            Subscription.stripe_customer_id == stripe_customer_id
+        ).first()
+        
+        if subscription:
+            # Actualizar con los datos de Stripe
+            subscription.stripe_subscription_id = stripe_subscription_id
+            subscription.status = SubscriptionStatus.ACTIVE if status == 'active' else SubscriptionStatus.INACTIVE
+            subscription.plan = SubscriptionPlan.PREMIUM  # Asumimos que es premium
+            subscription.analysis_limit = 999999  # Ilimitado para premium
+            subscription.current_period_start = datetime.fromtimestamp(subscription_data.get('current_period_start', 0))
+            subscription.current_period_end = datetime.fromtimestamp(subscription_data.get('current_period_end', 0))
+            
+            db.commit()
+            logger.info(f"✅ Suscripción actualizada en BD: {subscription.id}")
+        else:
+            logger.warning(f"⚠️ No se encontró suscripción para customer: {stripe_customer_id}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error procesando subscription_created: {e}")
+        db.rollback()
+
+async def handle_subscription_updated(subscription_data: Dict[str, Any], service: SubscriptionService, db: Session):
+    """Manejar actualización de suscripción"""
+    try:
+        stripe_subscription_id = subscription_data['id']
+        status = subscription_data['status']
+        
+        logger.info(f"🔄 Suscripción actualizada: {stripe_subscription_id} - status: {status}")
+        
+        # Buscar la suscripción en nuestra BD
+        subscription = db.query(Subscription).filter(
+            Subscription.stripe_subscription_id == stripe_subscription_id
+        ).first()
+        
+        if subscription:
+            # Actualizar status
+            if status == 'active':
+                subscription.status = SubscriptionStatus.ACTIVE
+            elif status == 'canceled':
+                subscription.status = SubscriptionStatus.CANCELED
+                subscription.canceled_at = datetime.utcnow()
+            else:
+                subscription.status = SubscriptionStatus.INACTIVE
+            
+            subscription.current_period_start = datetime.fromtimestamp(subscription_data.get('current_period_start', 0))
+            subscription.current_period_end = datetime.fromtimestamp(subscription_data.get('current_period_end', 0))
+            
+            db.commit()
+            logger.info(f"✅ Suscripción actualizada en BD: {subscription.id}")
+        else:
+            logger.warning(f"⚠️ No se encontró suscripción: {stripe_subscription_id}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error procesando subscription_updated: {e}")
+        db.rollback()
+
+async def handle_subscription_deleted(subscription_data: Dict[str, Any], service: SubscriptionService, db: Session):
+    """Manejar cancelación de suscripción"""
+    try:
+        stripe_subscription_id = subscription_data['id']
+        
+        logger.info(f"❌ Suscripción cancelada: {stripe_subscription_id}")
+        
+        # Buscar la suscripción en nuestra BD
+        subscription = db.query(Subscription).filter(
+            Subscription.stripe_subscription_id == stripe_subscription_id
+        ).first()
+        
+        if subscription:
+            # Cambiar a plan gratuito
+            subscription.status = SubscriptionStatus.CANCELED
+            subscription.plan = SubscriptionPlan.FREE
+            subscription.analysis_limit = 2  # Volver al límite gratuito
+            subscription.canceled_at = datetime.utcnow()
+            
+            db.commit()
+            logger.info(f"✅ Suscripción cancelada en BD: {subscription.id}")
+        else:
+            logger.warning(f"⚠️ No se encontró suscripción: {stripe_subscription_id}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error procesando subscription_deleted: {e}")
+        db.rollback()
+
+async def handle_payment_succeeded(invoice_data: Dict[str, Any], service: SubscriptionService, db: Session):
+    """Manejar pago exitoso"""
+    try:
+        invoice_id = invoice_data['id']
+        subscription_id = invoice_data.get('subscription')
+        
+        logger.info(f"💰 Pago exitoso: {invoice_id} para suscripción: {subscription_id}")
+        
+        if subscription_id:
+            # Buscar la suscripción en nuestra BD
+            subscription = db.query(Subscription).filter(
+                Subscription.stripe_subscription_id == subscription_id
+            ).first()
+            
+            if subscription:
+                # Asegurar que esté activa
+                subscription.status = SubscriptionStatus.ACTIVE
+                db.commit()
+                logger.info(f"✅ Pago confirmado para suscripción: {subscription.id}")
+            else:
+                logger.warning(f"⚠️ No se encontró suscripción: {subscription_id}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error procesando payment_succeeded: {e}")
+        db.rollback()
+
+async def handle_payment_failed(invoice_data: Dict[str, Any], service: SubscriptionService, db: Session):
+    """Manejar pago fallido"""
+    try:
+        invoice_id = invoice_data['id']
+        subscription_id = invoice_data.get('subscription')
+        
+        logger.info(f"❌ Pago fallido: {invoice_id} para suscripción: {subscription_id}")
+        
+        if subscription_id:
+            # Buscar la suscripción en nuestra BD
+            subscription = db.query(Subscription).filter(
+                Subscription.stripe_subscription_id == subscription_id
+            ).first()
+            
+            if subscription:
+                # Marcar como inactiva por falta de pago
+                subscription.status = SubscriptionStatus.INACTIVE
+                db.commit()
+                logger.info(f"⚠️ Suscripción inactiva por pago fallido: {subscription.id}")
+            else:
+                logger.warning(f"⚠️ No se encontró suscripción: {subscription_id}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error procesando payment_failed: {e}")
+        db.rollback()
