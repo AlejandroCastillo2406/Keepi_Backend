@@ -170,6 +170,69 @@ class SubscriptionService:
                 
             raise
     
+    async def create_checkout_session(
+        self, 
+        user_id: str, 
+        request: PaymentIntentRequest, 
+        db: Session
+    ) -> Dict[str, Any]:
+        """Crear sesión de checkout de Stripe para redirección"""
+        try:
+            # Obtener o crear usuario y suscripción
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise ValueError("Usuario no encontrado")
+            
+            subscription = await self.get_or_create_subscription(user_id, db)
+            
+            # Crear o obtener cliente de Stripe
+            if not subscription.stripe_customer_id:
+                customer_id = await self.create_stripe_customer(user)
+                subscription.stripe_customer_id = customer_id
+                db.commit()
+            
+            # Obtener precio según el plan
+            price_id = self.STRIPE_PRICES.get(request.plan)
+            if not price_id:
+                raise ValueError(f"Plan {request.plan} no válido")
+            
+            logger.info(f"🔍 Creando Checkout Session con price_id: {price_id}")
+            
+            # URLs de éxito y cancelación
+            success_url = "https://keepi.onrender.com/payment/success?session_id={CHECKOUT_SESSION_ID}"
+            cancel_url = "https://keepi.onrender.com/payment/cancel"
+            
+            # Crear sesión de checkout
+            checkout_session = stripe.checkout.Session.create(
+                customer=subscription.stripe_customer_id,
+                payment_method_types=['card'],
+                line_items=[{
+                    'price': price_id,
+                    'quantity': 1,
+                }],
+                mode='subscription',
+                success_url=success_url,
+                cancel_url=cancel_url,
+                metadata={
+                    'user_id': str(user.id),
+                    'plan': request.plan.value
+                }
+            )
+            
+            logger.info(f"✅ Checkout Session creado: {checkout_session.id}")
+            
+            return {
+                "checkout_session_id": checkout_session.id,
+                "checkout_url": checkout_session.url,
+                "success_url": success_url,
+                "cancel_url": cancel_url,
+                "stripe_customer_id": subscription.stripe_customer_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Error creando Checkout Session: {e}")
+            raise
+
     async def create_payment_intent(
         self, 
         user_id: str, 

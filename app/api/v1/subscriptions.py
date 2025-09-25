@@ -77,13 +77,56 @@ async def get_analysis_limits(
             detail="Error obteniendo límites de análisis"
         )
 
+@router.post("/create-checkout-session")
+async def create_checkout_session(
+    request: PaymentIntentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Crear Checkout Session para redirección a Stripe"""
+    try:
+        subscription_service = SubscriptionService()
+        
+        # Validar plan
+        if request.plan != SubscriptionPlan.PREMIUM:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo el plan Premium está disponible"
+            )
+        
+        checkout_session = await subscription_service.create_checkout_session(
+            str(current_user.id), 
+            request, 
+            db
+        )
+        
+        return {
+            "status": "success",
+            "checkout_url": checkout_session["checkout_url"],
+            "checkout_session_id": checkout_session["checkout_session_id"],
+            "message": "Redirige al usuario a checkout_url para completar el pago"
+        }
+        
+    except ValueError as e:
+        logger.error(f"Error de validación: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error creando Checkout Session: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error procesando el pago. Inténtalo de nuevo."
+        )
+
 @router.post("/create-payment-intent", response_model=PaymentIntentResponse)
 async def create_payment_intent(
     request: PaymentIntentRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Crear Payment Intent para suscripción"""
+    """Crear Payment Intent para suscripción (método alternativo)"""
     try:
         # Debug de variables de entorno
         import os
@@ -206,7 +249,7 @@ async def get_subscription_plans():
                 "name": "Plan Gratuito",
                 "description": "2 análisis de documentos gratuitos",
                 "price": 0,
-                "currency": "USD",
+                "currency": "MXN",
                 "interval": "lifetime",
                 "features": [
                     "2 análisis de documentos",
@@ -220,8 +263,8 @@ async def get_subscription_plans():
                 "id": SubscriptionPlan.PREMIUM,
                 "name": "Plan Premium",
                 "description": "Análisis ilimitados de documentos",
-                "price": 9.99,
-                "currency": "USD", 
+                "price": 49,
+                "currency": "MXN", 
                 "interval": "month",
                 "features": [
                     "Análisis ilimitados de documentos",
