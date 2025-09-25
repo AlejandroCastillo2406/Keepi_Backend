@@ -401,6 +401,7 @@ async def stripe_webhook(
         subscription_service = SubscriptionService()
         
         if event['type'] == 'checkout.session.completed':
+            logger.info(f"🎯 Procesando checkout.session.completed")
             await handle_checkout_session_completed(event['data']['object'], subscription_service, db)
         
         elif event['type'] == 'customer.subscription.created':
@@ -491,6 +492,7 @@ async def handle_subscription_created(subscription_data: Dict[str, Any], service
         status = subscription_data['status']
         
         logger.info(f"✅ Suscripción creada: {stripe_subscription_id} para customer: {stripe_customer_id}")
+        logger.info(f"🔍 Status de la suscripción: {status}")
         
         # Buscar la suscripción en nuestra BD por stripe_customer_id
         subscription = db.query(Subscription).filter(
@@ -500,14 +502,29 @@ async def handle_subscription_created(subscription_data: Dict[str, Any], service
         if subscription:
             # Actualizar con los datos de Stripe
             subscription.stripe_subscription_id = stripe_subscription_id
-            subscription.status = SubscriptionStatus.ACTIVE if status == 'active' else SubscriptionStatus.INACTIVE
             subscription.plan = SubscriptionPlan.PREMIUM  # Asumimos que es premium
-            subscription.analysis_limit = 999999  # Ilimitado para premium
+            
+            # Manejar diferentes status
+            if status == 'active':
+                subscription.status = SubscriptionStatus.ACTIVE
+                subscription.analysis_limit = 999999  # Ilimitado para premium
+                subscription.analysis_used = 0  # Resetear análisis
+                logger.info(f"🎯 Suscripción ACTIVA - Análisis ilimitados habilitados")
+            elif status == 'incomplete':
+                subscription.status = SubscriptionStatus.INACTIVE
+                subscription.analysis_limit = 2  # Mantener límite gratuito hasta pago
+                logger.info(f"⏳ Suscripción INCOMPLETA - Esperando pago")
+            else:
+                subscription.status = SubscriptionStatus.INACTIVE
+                logger.info(f"⚠️ Suscripción con status: {status}")
+            
+            # Actualizar fechas del período
             subscription.current_period_start = datetime.fromtimestamp(subscription_data.get('current_period_start', 0))
             subscription.current_period_end = datetime.fromtimestamp(subscription_data.get('current_period_end', 0))
             
             db.commit()
             logger.info(f"✅ Suscripción actualizada en BD: {subscription.id}")
+            logger.info(f"🎯 Plan: {subscription.plan}, Status: {subscription.status}, Límite: {subscription.analysis_limit}")
         else:
             logger.warning(f"⚠️ No se encontró suscripción para customer: {stripe_customer_id}")
             
