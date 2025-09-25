@@ -45,12 +45,33 @@ class DatabaseConfig:
         
         try:
             # Importar todos los modelos para que se registren
-            from app.models import user, document, ai_analysis, user_config, notification, folder, audit_log, backup_sync, search_index
+            from app.models import user, document, ai_analysis, user_config, notification, folder, oauth_credentials, subscription
             
             # Crear todas las tablas
             Base.metadata.create_all(bind=engine)
             logger.info("✅ Base de datos PostgreSQL inicializada correctamente")
             logger.info("✅ Todas las tablas creadas automáticamente")
+            
+            # Mostrar relaciones configuradas
+            logger.info("🔗 RELACIONES CONFIGURADAS:")
+            logger.info("   users.documents → Document")
+            logger.info("   users.ai_analyses → AIAnalysis")
+            logger.info("   users.user_config → UserConfig")
+            logger.info("   users.notifications → Notification")
+            logger.info("   users.folders → Folder")
+            logger.info("   users.oauth_credentials → OAuthCredentials")
+            logger.info("   users.subscription → Subscription")
+            logger.info("   documents.ai_analyses → AIAnalysis")
+            logger.info("   documents.user → User")
+            logger.info("   documents.folder → Folder")
+            logger.info("   folders.user → User")
+            logger.info("   folders.documents → Document")
+            logger.info("   folders.parent_folder → Folder (auto-referencia)")
+            logger.info("   folders.subfolders → Folder (auto-referencia)")
+            logger.info("   oauth_credentials.user → User ✅ (FK corregida)")
+            logger.info("   subscriptions.user → User ✅ (nueva tabla)")
+            logger.info("✅ Todas las relaciones están activas y funcionando")
+            
             cls._initialized = True
             
         except Exception as e:

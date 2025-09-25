@@ -30,7 +30,8 @@ class User(Base):
     user_config = relationship("UserConfig", back_populates="user", uselist=False)
     notifications = relationship("Notification", back_populates="user")
     folders = relationship("Folder", back_populates="user")
-    audit_logs = relationship("AuditLog", back_populates="user")
+    oauth_credentials = relationship("OAuthCredentials", back_populates="user")
+    subscription = relationship("Subscription", back_populates="user", uselist=False)
     
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, name={self.name})>"

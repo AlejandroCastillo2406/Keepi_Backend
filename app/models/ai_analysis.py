@@ -35,26 +35,7 @@ class AIAnalysis(Base):
     def __repr__(self):
         return f"<AIAnalysis(id={self.id}, document_id={self.document_id}, category={self.suggested_category})>"
 
-# Modelo SQLAlchemy para historial de análisis
-class AIAnalysisHistory(Base):
-    __tablename__ = "ai_analysis_history"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    analysis_version = Column(Integer, nullable=False)
-    previous_category = Column(String(100), nullable=True)
-    new_category = Column(String(100), nullable=False)
-    confidence_score = Column(Float, nullable=False)
-    reason_for_change = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
-    # Relaciones
-    user = relationship("User")
-    document = relationship("Document")
-    
-    def __repr__(self):
-        return f"<AIAnalysisHistory(id={self.id}, document_id={self.document_id}, version={self.analysis_version})>"
+# Nota: AIAnalysisHistory eliminado - ya no se necesita historial de análisis
 
 # Modelos Pydantic para la API
 class AIAnalysisBase(BaseModel):
@@ -123,17 +104,4 @@ class AIAnalysisResponse(AIAnalysisBase):
         }
         return cls(**data)
 
-class AIAnalysisHistoryResponse(BaseModel):
-    """Modelo de respuesta para historial de análisis"""
-    id: str
-    document_id: str
-    user_id: str
-    analysis_version: int
-    previous_category: Optional[str] = None
-    new_category: str
-    confidence_score: float
-    reason_for_change: Optional[str] = None
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
+# Nota: AIAnalysisHistoryResponse eliminado - ya no se necesita historial de análisis

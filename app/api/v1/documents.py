@@ -95,7 +95,8 @@ async def upload_and_analyze_document(
             "document": document,
             "category": document.category,
             "expiry_date": document.expiry_date,
-            "confidence": document.ai_analysis.get('confidence_score', 0) if document.ai_analysis else 0
+            "confidence": document.ai_analysis.get('confidence_score', 0) if document.ai_analysis else 0,
+            "subscription_info": document.ai_analysis.get('subscription_info') if document.ai_analysis else None
         }
         
     except HTTPException:

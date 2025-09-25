@@ -4,7 +4,9 @@ import os
 from PIL import Image
 from datetime import datetime, timedelta
 import re
+from sqlalchemy.orm import Session
 from app.services.bedrock_service import BedrockService
+from app.services.subscription_service import SubscriptionService
 
 class DocumentAnalysisService:
     """Servicio para análisis automático de documentos usando AI"""
@@ -12,10 +14,37 @@ class DocumentAnalysisService:
     def __init__(self):
         # Inicializar Bedrock para análisis con Claude 3 Haiku
         self.bedrock_service = BedrockService()
+        # Inicializar servicio de suscripción
+        self.subscription_service = SubscriptionService()
     
-    async def analyze_document(self, content: bytes, content_type: str, filename: str) -> Dict[str, Any]:
+    async def analyze_document(self, content: bytes, content_type: str, filename: str, user_id: str, db: Session) -> Dict[str, Any]:
         """Analizar documento y extraer información automáticamente"""
         try:
+            # ✅ VERIFICAR LÍMITE DE ANÁLISIS ANTES DE PROCESAR
+            analysis_check = await self.subscription_service.check_analysis_limit(user_id, db)
+            
+            # Si no puede analizar, devolver respuesta con solicitud de suscripción
+            if not analysis_check["can_analyze"]:
+                return {
+                    "suggested_category": "SUBSCRIPTION_REQUIRED",
+                    "confidence_score": 0.0,
+                    "extracted_text": "",
+                    "metadata": {},
+                    "tags": ["subscription_required"],
+                    "expiry_date": None,
+                    "document_number": None,
+                    "organization": None,
+                    "processing_time_ms": 0,
+                    "ai_model_version": "1.0.0",
+                    "subscription_required_message": "Has alcanzado el límite de 2 análisis gratuitos. Suscríbete para obtener análisis ilimitados.",
+                    "subscription_info": {
+                        "current_plan": analysis_check["plan"],
+                        "analysis_used": analysis_check["analysis_used"],
+                        "analysis_remaining": analysis_check["analysis_remaining"],
+                        "needs_subscription": analysis_check["needs_subscription"]
+                    }
+                }
+            
             # Extraer texto del documento
             extracted_text = await self._extract_text(content, content_type, filename)
             
@@ -56,6 +85,9 @@ class DocumentAnalysisService:
             # Extraer organización
             organization = await self._extract_organization(extracted_text)
             
+            # ✅ INCREMENTAR CONTADOR DE ANÁLISIS USADO
+            await self.subscription_service.increment_analysis_usage(user_id, db)
+            
             return {
                 "suggested_category": suggested_category,
                 "confidence_score": confidence_score,
@@ -66,7 +98,13 @@ class DocumentAnalysisService:
                 "document_number": document_number,
                 "organization": organization,
                 "processing_time_ms": 0,  # TODO: Implementar medición de tiempo
-                "ai_model_version": "1.0.0"
+                "ai_model_version": "1.0.0",
+                "subscription_info": {
+                    "current_plan": analysis_check["plan"],
+                    "analysis_used": analysis_check["analysis_used"] + 1,  # +1 porque acabamos de usar uno
+                    "analysis_remaining": max(0, analysis_check["analysis_remaining"] - 1),
+                    "needs_subscription": False
+                }
             }
             
         except Exception as e:

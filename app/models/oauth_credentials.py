@@ -1,6 +1,7 @@
-from sqlalchemy import Column, String, DateTime, Text, JSON
+from sqlalchemy import Column, String, DateTime, Text, JSON, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from app.config.database import Base
 import uuid
 from datetime import datetime
@@ -12,7 +13,7 @@ class OAuthCredentials(Base):
     __tablename__ = "oauth_credentials"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     provider = Column(String(50), nullable=False, default="google")  # google, microsoft, etc.
     access_token = Column(Text, nullable=False)
     refresh_token = Column(Text, nullable=True)
@@ -23,6 +24,9 @@ class OAuthCredentials(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relación con usuario
+    user = relationship("User", back_populates="oauth_credentials")
     
     def __repr__(self):
         return f"<OAuthCredentials(id={self.id}, user_id={self.user_id}, provider={self.provider})>"

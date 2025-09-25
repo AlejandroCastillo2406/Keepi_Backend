@@ -167,8 +167,22 @@ class DocumentService:
             user_config = await self.user_config_service.get_user_config(user_id)
             storage_preference = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "keepi_cloud"
             
-            # PASO 1: Análisis con Bedrock
-            ai_analysis = await self.ai_analysis_service.analyze_document(file_data, file_type, file_name)
+            # PASO 1: Análisis con Bedrock (verificando límites de suscripción)
+            ai_analysis = await self.ai_analysis_service.analyze_document(file_data, file_type, file_name, user_id, self.db)
+            
+            # Verificar si requiere suscripción
+            if ai_analysis.get('suggested_category') == "SUBSCRIPTION_REQUIRED":
+                # Devolver error de suscripción requerida
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=402,  # Payment Required
+                    detail={
+                        "error": "subscription_required",
+                        "message": ai_analysis.get('subscription_required_message', 'Suscripción requerida'),
+                        "subscription_info": ai_analysis.get('subscription_info', {}),
+                        "code": "SUBSCRIPTION_REQUIRED"
+                    }
+                )
             
             # Verificar si requiere clasificación manual
             if ai_analysis.get('suggested_category') == "MANUAL_CLASSIFICATION_REQUIRED":
