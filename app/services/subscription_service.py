@@ -115,7 +115,22 @@ class SubscriptionService:
             logger.info(f"🔍 Stripe API Key tipo: {type(stripe.api_key)}")
             logger.info(f"🔍 Stripe API Key valor: {stripe.api_key[:10] if stripe.api_key else 'None'}...")
             
-            customer = stripe.Customer.create(**customer_data)
+            # Verificar la configuración de Stripe
+            logger.info(f"🔍 Stripe version: {stripe.__version__}")
+            logger.info(f"🔍 Stripe API base: {stripe.api_base}")
+            logger.info(f"🔍 Stripe API version: {stripe.api_version}")
+            
+            try:
+                logger.info(f"🔍 Llamando a stripe.Customer.create con: {customer_data}")
+                customer = stripe.Customer.create(**customer_data)
+                logger.info(f"🔍 Respuesta de Stripe: {customer}")
+                logger.info(f"🔍 Tipo de respuesta: {type(customer)}")
+            except Exception as stripe_error:
+                logger.error(f"❌ Error en stripe.Customer.create: {stripe_error}")
+                logger.error(f"❌ Tipo de error: {type(stripe_error).__name__}")
+                logger.error(f"❌ Detalles: {str(stripe_error)}")
+                logger.error(f"❌ Traceback completo: {stripe_error.__traceback__}")
+                raise
             
             # Debug detallado del objeto customer
             logger.info(f"🔍 Customer object: {customer}")
