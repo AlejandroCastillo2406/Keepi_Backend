@@ -400,6 +400,7 @@ async def stripe_webhook(
         # Manejar diferentes tipos de eventos
         subscription_service = SubscriptionService()
         
+        logger.info(f"🔍 Verificando tipo de evento: '{event['type']}' == 'checkout.session.completed'")
         if event['type'] == 'checkout.session.completed':
             logger.info(f"🎯 Procesando checkout.session.completed")
             await handle_checkout_session_completed(event['data']['object'], subscription_service, db)
