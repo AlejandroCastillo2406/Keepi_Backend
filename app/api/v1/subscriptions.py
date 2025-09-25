@@ -567,3 +567,4 @@ async def handle_payment_failed(invoice_data: Dict[str, Any], service: Subscript
     except Exception as e:
         logger.error(f"❌ Error procesando payment_failed: {e}")
         db.rollback()
+
