@@ -85,6 +85,15 @@ class SubscriptionService:
     async def create_stripe_customer(self, user: User) -> str:
         """Crear cliente en Stripe"""
         try:
+            # Verificar que stripe.api_key esté configurado
+            if not stripe.api_key:
+                logger.error("❌ stripe.api_key no está configurado")
+                # Intentar configurar nuevamente
+                stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+                if not stripe.api_key:
+                    raise ValueError("STRIPE_SECRET_KEY no encontrada")
+            
+            logger.info(f"🔍 Creando cliente Stripe para {user.email}")
             customer = stripe.Customer.create(
                 email=user.email,
                 name=user.name,
@@ -98,6 +107,7 @@ class SubscriptionService:
             
         except Exception as e:
             logger.error(f"Error creando cliente Stripe: {e}")
+            logger.error(f"stripe.api_key configurado: {bool(stripe.api_key)}")
             raise
     
     async def create_payment_intent(
@@ -128,6 +138,13 @@ class SubscriptionService:
             price_id = self.STRIPE_PRICES.get(request.plan)
             if not price_id:
                 raise ValueError(f"Plan {request.plan} no válido")
+            
+            logger.info(f"🔍 Creando suscripción Stripe con price_id: {price_id}")
+            
+            # Verificar stripe.api_key antes de crear suscripción
+            if not stripe.api_key:
+                logger.error("❌ stripe.api_key no configurado antes de crear suscripción")
+                stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
             
             # Crear suscripción en Stripe
             stripe_subscription = stripe.Subscription.create(
