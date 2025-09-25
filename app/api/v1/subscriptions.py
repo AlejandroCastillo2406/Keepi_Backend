@@ -390,6 +390,7 @@ async def stripe_webhook(
             raise HTTPException(status_code=400, detail="Invalid signature")
         
         logger.info(f"🔔 Webhook recibido: {event['type']}")
+        logger.info(f"🔍 Evento completo: {event}")
         
         # Manejar diferentes tipos de eventos
         subscription_service = SubscriptionService()
@@ -412,8 +413,12 @@ async def stripe_webhook(
         elif event['type'] == 'invoice.payment_failed':
             await handle_payment_failed(event['data']['object'], subscription_service, db)
         
+        elif event['type'] == 'payment_method.attached':
+            await handle_payment_method_attached(event['data']['object'], subscription_service, db)
+        
         else:
             logger.info(f"🔔 Evento no manejado: {event['type']}")
+            logger.info(f"🔍 Datos del evento: {event['data']}")
         
         return {"status": "success"}
         
@@ -618,5 +623,57 @@ async def handle_payment_failed(invoice_data: Dict[str, Any], service: Subscript
                 
     except Exception as e:
         logger.error(f"❌ Error procesando payment_failed: {e}")
+        db.rollback()
+
+async def handle_payment_method_attached(payment_method_data: Dict[str, Any], service: SubscriptionService, db: Session):
+    """Manejar payment method attached - evento que está llegando"""
+    try:
+        payment_method_id = payment_method_data['id']
+        customer_id = payment_method_data.get('customer')
+        
+        logger.info(f"💳 Payment Method attached: {payment_method_id}")
+        logger.info(f"🔍 Customer: {customer_id}")
+        
+        if customer_id:
+            # Buscar la suscripción en nuestra BD
+            subscription = db.query(Subscription).filter(
+                Subscription.stripe_customer_id == customer_id
+            ).first()
+            
+            if subscription:
+                logger.info(f"✅ Suscripción encontrada para customer: {customer_id}")
+                logger.info(f"🔍 Plan actual: {subscription.plan}, Status: {subscription.status}")
+                
+                # Si el plan es FREE, intentar actualizar a PREMIUM
+                if subscription.plan == SubscriptionPlan.FREE:
+                    logger.info("🔄 Intentando actualizar suscripción a Premium...")
+                    
+                    # Verificar si hay una suscripción activa en Stripe
+                    try:
+                        import stripe
+                        stripe_subscriptions = stripe.Subscription.list(customer=customer_id, status='active')
+                        
+                        if stripe_subscriptions.data:
+                            stripe_sub = stripe_subscriptions.data[0]
+                            subscription.stripe_subscription_id = stripe_sub.id
+                            subscription.plan = SubscriptionPlan.PREMIUM
+                            subscription.status = SubscriptionStatus.ACTIVE
+                            subscription.analysis_limit = 999999
+                            subscription.analysis_used = 0
+                            
+                            db.commit()
+                            logger.info(f"✅ Suscripción actualizada a Premium: {subscription.id}")
+                        else:
+                            logger.warning("⚠️ No hay suscripciones activas en Stripe")
+                            
+                    except Exception as e:
+                        logger.error(f"❌ Error verificando suscripciones en Stripe: {e}")
+                else:
+                    logger.info(f"ℹ️ Suscripción ya es {subscription.plan}")
+            else:
+                logger.warning(f"⚠️ No se encontró suscripción para customer: {customer_id}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error procesando payment_method_attached: {e}")
         db.rollback()
 
