@@ -116,9 +116,12 @@ class SubscriptionService:
             logger.info(f"🔍 Stripe API Key valor: {stripe.api_key[:10] if stripe.api_key else 'None'}...")
             
             # Verificar la configuración de Stripe
-            logger.info(f"🔍 Stripe version: {stripe.__version__}")
-            logger.info(f"🔍 Stripe API base: {stripe.api_base}")
-            logger.info(f"🔍 Stripe API version: {stripe.api_version}")
+            try:
+                logger.info(f"🔍 Stripe version: {getattr(stripe, '__version__', 'unknown')}")
+            except:
+                logger.info(f"🔍 Stripe version: No disponible")
+            logger.info(f"🔍 Stripe API base: {getattr(stripe, 'api_base', 'unknown')}")
+            logger.info(f"🔍 Stripe API version: {getattr(stripe, 'api_version', 'unknown')}")
             
             try:
                 logger.info(f"🔍 Llamando a stripe.Customer.create con: {customer_data}")
