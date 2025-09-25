@@ -361,6 +361,8 @@ class SubscriptionService:
                 await self._handle_payment_succeeded(data_object, db)
             elif event_type == 'invoice.payment_failed':
                 await self._handle_payment_failed(data_object, db)
+            elif event_type == 'checkout.session.completed':
+                await self._handle_checkout_session_completed(data_object, db)
             else:
                 logger.info(f"⚠️ Evento webhook no manejado: {event_type}")
             
@@ -369,6 +371,56 @@ class SubscriptionService:
         except Exception as e:
             logger.error(f"Error manejando webhook: {e}")
             return False
+
+    async def _handle_checkout_session_completed(self, session_data: Dict[str, Any], db: Session):
+        """Manejar completación de checkout session"""
+        try:
+            session_id = session_data['id']
+            customer_id = session_data.get('customer')
+            subscription_id = session_data.get('subscription')
+            
+            logger.info(f"🎉 Checkout Session completado: {session_id}")
+            logger.info(f"🔍 Customer: {customer_id}, Subscription: {subscription_id}")
+            
+            if not customer_id:
+                logger.error(f"❌ Checkout session sin customer_id: {session_id}")
+                return
+            
+            # Buscar la suscripción en nuestra BD por stripe_customer_id
+            subscription = db.query(Subscription).filter(
+                Subscription.stripe_customer_id == customer_id
+            ).first()
+            
+            if subscription:
+                if subscription_id:
+                    # Actualizar con los datos de la suscripción
+                    subscription.stripe_subscription_id = subscription_id
+                    subscription.plan = SubscriptionPlan.PREMIUM
+                    subscription.status = SubscriptionStatus.ACTIVE
+                    subscription.analysis_limit = 999999  # Ilimitado para premium
+                    subscription.analysis_used = 0  # Resetear análisis usados
+                    
+                    # Obtener detalles de la suscripción de Stripe
+                    try:
+                        import stripe
+                        stripe_sub = stripe.Subscription.retrieve(subscription_id)
+                        subscription.current_period_start = datetime.fromtimestamp(stripe_sub.current_period_start)
+                        subscription.current_period_end = datetime.fromtimestamp(stripe_sub.current_period_end)
+                        logger.info(f"📅 Período: {subscription.current_period_start} - {subscription.current_period_end}")
+                    except Exception as e:
+                        logger.warning(f"No se pudieron obtener detalles de suscripción: {e}")
+                    
+                    db.commit()
+                    logger.info(f"✅ Suscripción actualizada a Premium: {subscription.id}")
+                    logger.info(f"🎯 Análisis: {subscription.analysis_used}/{subscription.analysis_limit}")
+                else:
+                    logger.warning(f"⚠️ Checkout session sin subscription_id: {session_id}")
+            else:
+                logger.error(f"❌ No se encontró suscripción para customer: {customer_id}")
+                
+        except Exception as e:
+            logger.error(f"❌ Error procesando checkout_session_completed: {e}")
+            db.rollback()
     
     async def _handle_subscription_created(self, data: Dict[str, Any], db: Session):
         """Manejar creación de suscripción"""
