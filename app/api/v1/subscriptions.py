@@ -363,6 +363,11 @@ async def get_usage_statistics(
             detail="Error obteniendo estadísticas de uso"
         )
 
+@router.get("/webhook-test")
+async def webhook_test():
+    """Test simple para verificar que el endpoint funciona"""
+    return {"status": "webhook endpoint working", "timestamp": datetime.now().isoformat()}
+
 @router.post("/webhook")
 async def stripe_webhook(
     request: Request,
