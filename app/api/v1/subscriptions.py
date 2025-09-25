@@ -84,6 +84,14 @@ async def create_payment_intent(
 ):
     """Crear Payment Intent para suscripción"""
     try:
+        # Debug de variables de entorno
+        import os
+        stripe_key = os.getenv("STRIPE_SECRET_KEY")
+        stripe_price = os.getenv("STRIPE_PREMIUM_PRICE_ID")
+        
+        logger.info(f"🔍 Debug Stripe - Secret Key: {'✅ Configurada' if stripe_key else '❌ No encontrada'}")
+        logger.info(f"🔍 Debug Stripe - Price ID: {'✅ Configurada' if stripe_price else '❌ No encontrada'}")
+        
         subscription_service = SubscriptionService()
         
         # Validar plan

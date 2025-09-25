@@ -15,7 +15,14 @@ import os
 logger = logging.getLogger(__name__)
 
 # Configurar Stripe
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "sk_test_...")
+stripe_secret_key = os.getenv("STRIPE_SECRET_KEY")
+if not stripe_secret_key:
+    logger.error("❌ STRIPE_SECRET_KEY no encontrada en variables de entorno")
+    logger.error("Variables disponibles: " + str(list(os.environ.keys())))
+else:
+    logger.info(f"✅ STRIPE_SECRET_KEY configurada: {stripe_secret_key[:10]}...")
+
+stripe.api_key = stripe_secret_key
 
 class SubscriptionService:
     """Servicio para manejo de suscripciones y pagos con Stripe"""
