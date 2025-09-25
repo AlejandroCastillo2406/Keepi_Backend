@@ -110,13 +110,32 @@ class SubscriptionService:
             
             logger.info(f"🔍 Customer data: {customer_data}")
             
+            # Debug de la configuración de Stripe antes de la llamada
+            logger.info(f"🔍 Stripe API Key configurada: {bool(stripe.api_key)}")
+            logger.info(f"🔍 Stripe API Key tipo: {type(stripe.api_key)}")
+            logger.info(f"🔍 Stripe API Key valor: {stripe.api_key[:10] if stripe.api_key else 'None'}...")
+            
             customer = stripe.Customer.create(**customer_data)
             
-            logger.info(f"✅ Cliente Stripe creado: {customer.id} para usuario {user.id}")
+            # Debug detallado del objeto customer
+            logger.info(f"🔍 Customer object: {customer}")
             logger.info(f"🔍 Customer object type: {type(customer)}")
+            logger.info(f"🔍 Customer is None: {customer is None}")
+            
+            if customer is None:
+                logger.error("❌ Stripe retornó None - esto no debería pasar")
+                raise ValueError("Stripe retornó None en lugar de un objeto Customer")
+            
             logger.info(f"🔍 Customer attributes: {dir(customer)}")
             logger.info(f"🔍 Customer id: {getattr(customer, 'id', 'NO_ID')}")
             
+            # Verificar que el objeto tenga el atributo id
+            if not hasattr(customer, 'id'):
+                logger.error("❌ El objeto Customer no tiene atributo 'id'")
+                logger.error(f"Atributos disponibles: {dir(customer)}")
+                raise ValueError("El objeto Customer no tiene atributo 'id'")
+            
+            logger.info(f"✅ Cliente Stripe creado: {customer.id} para usuario {user.id}")
             return customer.id
             
         except Exception as e:
