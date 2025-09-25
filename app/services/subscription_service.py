@@ -47,6 +47,38 @@ class SubscriptionService:
             logger.error(f"Error obteniendo suscripción del usuario {user_id}: {e}")
             return None
     
+    async def get_or_create_subscription(self, user_id: str, db: Session) -> Subscription:
+        """Obtener suscripción existente o crear una nueva (gratuita)"""
+        try:
+            # Buscar suscripción existente
+            subscription = db.query(Subscription).filter(Subscription.user_id == user_id).first()
+            
+            if subscription:
+                logger.info(f"✅ Suscripción existente encontrada: {subscription.id}")
+                return subscription
+            
+            # Crear nueva suscripción gratuita
+            logger.info(f"🆕 Creando nueva suscripción gratuita para usuario: {user_id}")
+            subscription = Subscription(
+                user_id=user_id,
+                plan=SubscriptionPlan.FREE,
+                status=SubscriptionStatus.ACTIVE,
+                analysis_limit=2,
+                analysis_used=0
+            )
+            
+            db.add(subscription)
+            db.commit()
+            db.refresh(subscription)
+            
+            logger.info(f"✅ Suscripción gratuita creada: {subscription.id}")
+            return subscription
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo/creando suscripción: {e}")
+            db.rollback()
+            raise
+
     async def create_free_subscription(self, user_id: str, db: Session) -> SubscriptionResponse:
         """Crear suscripción gratuita para nuevo usuario"""
         try:
