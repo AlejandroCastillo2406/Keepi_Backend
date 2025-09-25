@@ -425,10 +425,34 @@ class SubscriptionService:
     async def _handle_subscription_created(self, data: Dict[str, Any], db: Session):
         """Manejar creación de suscripción"""
         stripe_subscription_id = data.get('id')
+        customer_id = data.get('customer')
         user_id = data.get('metadata', {}).get('user_id')
         
+        if not user_id and customer_id:
+            # Buscar por customer_id si no hay user_id en metadata
+            subscription = db.query(Subscription).filter(
+                Subscription.stripe_customer_id == customer_id
+            ).first()
+            
+            if subscription:
+                subscription.stripe_subscription_id = stripe_subscription_id
+                subscription.status = SubscriptionStatus.ACTIVE
+                subscription.plan = SubscriptionPlan.PREMIUM
+                subscription.analysis_limit = 999999
+                subscription.analysis_used = 0
+                
+                # Solo actualizar fechas si existen
+                if data.get('current_period_start'):
+                    subscription.current_period_start = datetime.fromtimestamp(data.get('current_period_start'))
+                if data.get('current_period_end'):
+                    subscription.current_period_end = datetime.fromtimestamp(data.get('current_period_end'))
+                
+                db.commit()
+                logger.info(f"✅ Suscripción creada y activada: {stripe_subscription_id}")
+                return
+        
         if not user_id:
-            logger.error("No se encontró user_id en metadata de suscripción")
+            logger.warning("No se encontró user_id en metadata de suscripción, pero se manejó por customer_id")
             return
         
         subscription = db.query(Subscription).filter(
@@ -437,8 +461,13 @@ class SubscriptionService:
         
         if subscription:
             subscription.status = SubscriptionStatus.ACTIVE
-            subscription.current_period_start = datetime.fromtimestamp(data.get('current_period_start'))
-            subscription.current_period_end = datetime.fromtimestamp(data.get('current_period_end'))
+            
+            # Solo actualizar fechas si existen
+            if data.get('current_period_start'):
+                subscription.current_period_start = datetime.fromtimestamp(data.get('current_period_start'))
+            if data.get('current_period_end'):
+                subscription.current_period_end = datetime.fromtimestamp(data.get('current_period_end'))
+            
             db.commit()
             logger.info(f"✅ Suscripción activada: {stripe_subscription_id}")
     
@@ -463,8 +492,12 @@ class SubscriptionService:
             }
             
             subscription.status = status_mapping.get(status, SubscriptionStatus.INACTIVE)
-            subscription.current_period_start = datetime.fromtimestamp(data.get('current_period_start'))
-            subscription.current_period_end = datetime.fromtimestamp(data.get('current_period_end'))
+            
+            # Solo actualizar fechas si existen
+            if data.get('current_period_start'):
+                subscription.current_period_start = datetime.fromtimestamp(data.get('current_period_start'))
+            if data.get('current_period_end'):
+                subscription.current_period_end = datetime.fromtimestamp(data.get('current_period_end'))
             
             if status == 'canceled':
                 subscription.canceled_at = datetime.utcnow()
