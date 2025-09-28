@@ -78,23 +78,5 @@ async def switch_cloud_provider(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/first-time-setup")
-async def get_first_time_setup_info(user_token: dict = Depends(verify_token)):
-    """Obtener información para configuración inicial del usuario"""
-    try:
-        config_service = UserConfigService()
-        
-        # Verificar si es la primera vez que el usuario usa Keepi
-        config = await config_service.get_user_config(user_token['uid'])
-        is_first_time = config is None
-        
-        # Obtener proveedores disponibles
-        providers = await config_service.get_available_cloud_providers()
-        
-        return {
-            "is_first_time": is_first_time,
-            "cloud_providers": providers,
-            "message": "¿Usar Keepi Cloud (S3) o Google Drive?" if is_first_time else "Configuración actual"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# ENDPOINT ELIMINADO: /first-time-setup ya no es necesario
+# Los usuarios se configuran automáticamente con Drive al registrarse

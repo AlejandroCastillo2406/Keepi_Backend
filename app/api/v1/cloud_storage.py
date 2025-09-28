@@ -33,6 +33,27 @@ async def setup_cloud_storage(
         if storage_type not in ["keepi_cloud", "google_drive"]:
             raise HTTPException(status_code=400, detail="Tipo de almacenamiento no válido")
         
+        # Validar suscripción para Keepi Cloud
+        if storage_type == "keepi_cloud":
+            from app.services.subscription_service import SubscriptionService
+            from app.config.database import get_db
+            db = next(get_db())
+            subscription_service = SubscriptionService()
+            subscription = await subscription_service.get_user_subscription(str(current_user.id), db)
+            
+            if not subscription or subscription.status.value != "active":
+                raise HTTPException(
+                    status_code=402,  # Payment Required
+                    detail={
+                        "error": "subscription_required",
+                        "message": "Se requiere una suscripción activa para usar Keepi Cloud",
+                        "subscription_info": {
+                            "required_plan": "premium",
+                            "current_status": subscription.status.value if subscription else "none"
+                        }
+                    }
+                )
+        
         # Actualizar preferencia del usuario en PostgreSQL
         from app.services.user_service import UserService
         user_service = UserService()
@@ -371,42 +392,8 @@ async def get_storage_usage(
         logger.error(f"Error obteniendo uso de almacenamiento: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/change-storage-type")
-async def change_storage_type(
-    new_storage_type: str = Form(...),
-    current_user: UserResponse = Depends(get_current_user)
-):
-    """
-    Cambia el tipo de almacenamiento del usuario
-    """
-    try:
-        if new_storage_type not in ["keepi_cloud", "google_drive"]:
-            raise HTTPException(status_code=400, detail="Tipo de almacenamiento no válido")
-        
-        # Actualizar preferencia del usuario en Firestore
-        from app.services.user_service import UserService
-        user_service = UserService()
-        await user_service.update_user_fields(
-            str(current_user.id), 
-            {"storage_preference": new_storage_type}
-        )
-        
-        # Si es Keepi Cloud, crear carpeta del usuario si no existe
-        if new_storage_type == "keepi_cloud":
-            try:
-                await s3_service.create_user_folder(str(current_user.id))
-            except:
-                pass  # La carpeta ya existe
-        
-        return {
-            "success": True,
-            "message": f"Tipo de almacenamiento cambiado a {new_storage_type}",
-            "storage_type": new_storage_type
-        }
-        
-    except Exception as e:
-        logger.error(f"Error cambiando tipo de almacenamiento: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ENDPOINT ELIMINADO: /change-storage-type es duplicado de /setup-cloud-storage
+# Se usa /setup-cloud-storage que ya tiene validación de suscripción
 
 @router.get("/cloud-providers")
 async def get_cloud_providers():
@@ -452,28 +439,8 @@ async def get_cloud_providers():
         logger.error(f"Error obteniendo proveedores: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/first-time-setup")
-async def get_first_time_setup(
-    current_user: UserResponse = Depends(get_current_user)
-):
-    """
-    Verifica si es la primera vez que el usuario configura el almacenamiento
-    """
-    try:
-        is_first_time = not current_user.storage_preference
-        
-        return {
-            "success": True,
-            "data": {
-                "is_first_time": is_first_time,
-                "storage_configured": bool(current_user.storage_preference),
-                "storage_type": current_user.storage_preference
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Error verificando configuración inicial: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ENDPOINT ELIMINADO: /first-time-setup ya no es necesario
+# Los usuarios se configuran automáticamente con Drive al registrarse
 
 @router.get("/storage-status")
 async def get_storage_status(

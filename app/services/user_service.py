@@ -37,7 +37,7 @@ class UserService:
                 hashed_password=get_password_hash(user_data.password) if user_data.password else None,
                 profile_picture=user_data.profile_picture,
                 settings=user_data.settings or {},
-                storage_preference=user_data.storage_preference or "local"
+                storage_preference="google_drive"  # Configurar Drive automáticamente
             )
             
             self.db.add(user)
