@@ -54,6 +54,7 @@ async def setup_cloud_storage(
                 
                 if not subscription or subscription.status.value != "active":
                     logger.warning(f"⚠️ Suscripción no activa para usuario {current_user.id}")
+                    logger.info(f"🔍 Lanzando HTTPException 402 para usuario {current_user.id}")
                     raise HTTPException(
                         status_code=402,  # Payment Required
                         detail={
@@ -122,6 +123,9 @@ async def setup_cloud_storage(
             "storage_type": storage_type
         }
         
+    except HTTPException:
+        # Re-lanzar HTTPException (incluyendo 402) sin modificar
+        raise
     except Exception as e:
         logger.error(f"Error configurando almacenamiento: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
