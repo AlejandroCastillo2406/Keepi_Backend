@@ -41,10 +41,8 @@ class GoogleOAuthService:
             authorization_url, _ = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true',
-                prompt='consent',
+                prompt='consent',  # Usar solo 'prompt' en lugar de 'approval_prompt'
                 state=state,  # Pasar el state explícitamente
-                # Configuraciones para extender la duración
-                approval_prompt='force',  # Forzar consentimiento para obtener refresh_token
                 login_hint=None  # Permitir que el usuario elija cuenta
             )
             
