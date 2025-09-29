@@ -30,44 +30,68 @@ async def setup_cloud_storage(
     Configura el tipo de almacenamiento en la nube para el usuario
     """
     try:
+        logger.info(f"🔍 Recibiendo request: {request}")
         storage_type = request.get('storage_type')
+        logger.info(f"🔍 Storage type extraído: {storage_type}")
+        
         if not storage_type or storage_type not in ["keepi_cloud", "google_drive"]:
+            logger.error(f"❌ Tipo de almacenamiento no válido: {storage_type}")
             raise HTTPException(status_code=400, detail="Tipo de almacenamiento no válido")
         
         # Validar suscripción para Keepi Cloud
         if storage_type == "keepi_cloud":
-            from app.services.subscription_service import SubscriptionService
-            from app.config.database import get_db
-            db = next(get_db())
-            subscription_service = SubscriptionService()
-            subscription = await subscription_service.get_user_subscription(str(current_user.id), db)
-            
-            if not subscription or subscription.status.value != "active":
-                raise HTTPException(
-                    status_code=402,  # Payment Required
-                    detail={
-                        "error": "subscription_required",
-                        "message": "Se requiere una suscripción activa para usar Keepi Cloud",
-                        "subscription_info": {
-                            "required_plan": "premium",
-                            "current_status": subscription.status.value if subscription else "none"
+            logger.info(f"🔍 Validando suscripción para Keepi Cloud - Usuario: {current_user.id}")
+            try:
+                from app.services.subscription_service import SubscriptionService
+                from app.config.database import get_db
+                db = next(get_db())
+                subscription_service = SubscriptionService()
+                subscription = await subscription_service.get_user_subscription(str(current_user.id), db)
+                
+                logger.info(f"🔍 Suscripción encontrada: {subscription}")
+                if subscription:
+                    logger.info(f"🔍 Status de suscripción: {subscription.status.value}")
+                
+                if not subscription or subscription.status.value != "active":
+                    logger.warning(f"⚠️ Suscripción no activa para usuario {current_user.id}")
+                    raise HTTPException(
+                        status_code=402,  # Payment Required
+                        detail={
+                            "error": "subscription_required",
+                            "message": "Se requiere una suscripción activa para usar Keepi Cloud",
+                            "subscription_info": {
+                                "required_plan": "premium",
+                                "current_status": subscription.status.value if subscription else "none"
+                            }
                         }
-                    }
-                )
+                    )
+                else:
+                    logger.info(f"✅ Suscripción activa para usuario {current_user.id}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"❌ Error validando suscripción: {e}")
+                raise HTTPException(status_code=500, detail=f"Error validando suscripción: {str(e)}")
         
         # Actualizar preferencia del usuario en PostgreSQL
-        from app.services.user_service import UserService
-        user_service = UserService()
-        logger.info(f"Actualizando storage_preference para usuario {current_user.id} a {storage_type}")
-        
-        success = await user_service.update_user_fields(
-            str(current_user.id), 
-            {"storage_preference": storage_type}
-        )
-        
-        if not success:
-            logger.error(f"Error actualizando storage_preference para usuario {current_user.id}")
-            raise HTTPException(status_code=500, detail="Error actualizando preferencia de almacenamiento")
+        logger.info(f"🔄 Actualizando storage_preference para usuario {current_user.id} a {storage_type}")
+        try:
+            from app.services.user_service import UserService
+            user_service = UserService()
+            
+            success = await user_service.update_user_fields(
+                str(current_user.id), 
+                {"storage_preference": storage_type}
+            )
+            
+            if not success:
+                logger.error(f"❌ Error actualizando storage_preference para usuario {current_user.id}")
+                raise HTTPException(status_code=500, detail="Error actualizando preferencia de almacenamiento")
+            else:
+                logger.info(f"✅ Storage preference actualizado exitosamente para usuario {current_user.id}")
+        except Exception as e:
+            logger.error(f"❌ Error en update_user_fields: {e}")
+            raise HTTPException(status_code=500, detail=f"Error actualizando preferencia: {str(e)}")
         
         # Si es Keepi Cloud, crear carpeta del usuario
         if storage_type == "keepi_cloud":
