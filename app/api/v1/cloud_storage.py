@@ -23,14 +23,15 @@ comprehend_service = ComprehendService()
 
 @router.post("/setup-cloud-storage")
 async def setup_cloud_storage(
-    storage_type: str = Form(...),  # "keepi_cloud" o "google_drive"
+    request: dict,  # JSON con storage_type
     current_user: UserResponse = Depends(get_current_user)
 ):
     """
     Configura el tipo de almacenamiento en la nube para el usuario
     """
     try:
-        if storage_type not in ["keepi_cloud", "google_drive"]:
+        storage_type = request.get('storage_type')
+        if not storage_type or storage_type not in ["keepi_cloud", "google_drive"]:
             raise HTTPException(status_code=400, detail="Tipo de almacenamiento no válido")
         
         # Validar suscripción para Keepi Cloud
