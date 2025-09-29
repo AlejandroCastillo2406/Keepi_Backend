@@ -52,8 +52,10 @@ async def setup_cloud_storage(
                 if subscription:
                     logger.info(f"🔍 Status de suscripción: {subscription.status.value}")
                 
-                if not subscription or subscription.status.value != "active":
-                    logger.warning(f"⚠️ Suscripción no activa para usuario {current_user.id}")
+                if not subscription or subscription.status.value != "active" or subscription.plan.value != "premium":
+                    logger.warning(f"⚠️ Suscripción no válida para Keepi Cloud - Usuario: {current_user.id}")
+                    logger.info(f"🔍 Plan actual: {subscription.plan.value if subscription else 'none'}")
+                    logger.info(f"🔍 Status actual: {subscription.status.value if subscription else 'none'}")
                     logger.info(f"🔍 Lanzando HTTPException 402 para usuario {current_user.id}")
                     raise HTTPException(
                         status_code=402,  # Payment Required
@@ -62,6 +64,7 @@ async def setup_cloud_storage(
                             "message": "Se requiere una suscripción activa para usar Keepi Cloud",
                             "subscription_info": {
                                 "required_plan": "premium",
+                                "current_plan": subscription.plan.value if subscription else "none",
                                 "current_status": subscription.status.value if subscription else "none"
                             }
                         }
