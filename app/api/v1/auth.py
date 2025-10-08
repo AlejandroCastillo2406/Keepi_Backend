@@ -60,7 +60,7 @@ async def login_user(login_data: UserLogin):
 
 @router.post("/refresh")
 async def refresh_token(refresh_token: str):
-    """Renovar token de acceso usando refresh token"""
+    """Renovar token de acceso usando refresh token """
     try:
         from app.utils.auth import verify_refresh_token, create_access_token
         from app.services.user_service import UserService
