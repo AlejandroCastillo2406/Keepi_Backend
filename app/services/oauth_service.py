@@ -114,12 +114,21 @@ class GoogleOAuthService:
                 scopes=credentials_data.get('scopes', self.scopes)
             )
             
-            # Refrescar si es necesario
-            if credentials.expired and credentials.refresh_token:
-                credentials.refresh(Request())
-                
-                # Actualizar tokens en Firestore
-                await self._update_user_credentials(user_id, credentials)
+            # Siempre intentar refrescar si hay refresh_token
+            if credentials.refresh_token:
+                try:
+                    credentials.refresh(Request())
+                    print(f"✅ Token refrescado exitosamente para usuario: {user_id}")
+                    
+                    # Actualizar tokens en Firestore
+                    await self._update_user_credentials(user_id, credentials)
+                    print(f"✅ Credenciales actualizadas en Firestore para usuario: {user_id}")
+                except Exception as refresh_error:
+                    print(f"❌ Error refrescando token: {refresh_error}")
+                    return None
+            else:
+                print(f"❌ No hay refresh_token disponible para usuario: {user_id}")
+                return None
             
             return credentials
             
