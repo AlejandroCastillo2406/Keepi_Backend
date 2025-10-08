@@ -614,19 +614,16 @@ class AWSService:
             
             logger.info(f"📁 Subiendo archivo a carpeta de categoría: {key}")
             
-            # Limpiar metadatos para S3 (solo ASCII)
-            clean_metadata = {
-                'user_id': user_id,
-                'category': self._sanitize_metadata_value(folder_name),
-                'folder': clean_folder,
-                'uploaded_at': str(int(time.time()))
-            }
-            
             self.s3_client.put_object(
                 Bucket=settings.aws_s3_bucket,
                 Key=key,
                 Body=file_data,
-                Metadata=clean_metadata
+                Metadata={
+                    'user_id': user_id,
+                    'category': folder_name,
+                    'folder': clean_folder,
+                    'uploaded_at': str(int(time.time()))
+                }
             )
             
             file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{key}"
@@ -668,21 +665,3 @@ class AWSService:
         sanitized = re.sub(r'[^a-zA-Z0-9\-_]', '_', folder_name)
         # Limitar longitud
         return sanitized[:50]
-    
-    def _sanitize_metadata_value(self, value: str) -> str:
-        """Sanitizar valor de metadatos para S3 (solo ASCII)"""
-        import unicodedata
-        import re
-        
-        # Normalizar y remover acentos
-        normalized = unicodedata.normalize('NFD', value)
-        ascii_value = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
-        
-        # Remover caracteres no ASCII restantes
-        ascii_value = re.sub(r'[^\x00-\x7F]', '', ascii_value)
-        
-        # Limitar longitud para metadatos S3
-        if len(ascii_value) > 200:
-            ascii_value = ascii_value[:200]
-        
-        return ascii_value

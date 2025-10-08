@@ -59,10 +59,11 @@ class BedrockService:
         return f"""
 Analiza el siguiente texto extraído de un documento llamado "{filename}" y determina:
 
-1. CATEGORÍA: Clasifica el documento en una categoría apropiada basándote en su contenido. 
+1. CATEGORÍA: Clasifica el documento en una categoría apropiada basándote en su contenido(NO categoria tan exacta). 
    - NO uses categorías predefinidas
    - Determina la categoría más apropiada según el contexto del documento
    - Usa un nombre descriptivo pero conciso (máximo 3 palabras)
+   - La categoría debe ser en ASCII.
    - Ejemplos de categorías que podrías usar: "Certificado Académico", "Contrato Laboral", "Factura", "Receta Médica", "DNI", "Seguro Vehículo", etc.
 
 2. FECHA DE VENCIMIENTO: Si encuentras alguna fecha que parezca ser de vencimiento, expírala en formato YYYY-MM-DD. Si no hay fecha de vencimiento, responde "null".
