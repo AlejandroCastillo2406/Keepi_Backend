@@ -165,10 +165,10 @@ async def upload_document(
         
         # Leer el archivo
         file_content = await file.read()
-        file_content.seek(0)  # Resetear el puntero
+        # file_content es bytes, no necesita seek()
         
         # Procesar con OCR
-        ocr_metadata = await ocr_service.extract_document_metadata(
+        ocr_metadata = await ocr_service.extract_document_metadata_from_bytes(
             file_content, 
             file.filename.split('.')[-1] if '.' in file.filename else 'unknown'
         )
@@ -181,7 +181,7 @@ async def upload_document(
         
         # Subir según el tipo de almacenamiento
         if current_user.storage_preference == "keepi_cloud":
-            upload_result = await s3_service.upload_document(
+            upload_result = await s3_service.upload_document_from_bytes(
                 str(current_user.id),
                 file_content,
                 file.filename,

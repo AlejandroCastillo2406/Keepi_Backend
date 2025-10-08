@@ -127,8 +127,36 @@ class S3Service:
             # Leer el contenido del archivo para evitar problemas de I/O
             file_content = file_data.read()
             file_size = len(file_content)
+
+    async def upload_document_from_bytes(self, user_id: str, file_content: bytes, filename: str, 
+                                       content_type: str, folder: str = None) -> Dict[str, Any]:
+        """
+        Sube un documento a S3 desde bytes
+        """
+        try:
+            # Generar nombre único para el archivo
+            file_extension = filename.split('.')[-1] if '.' in filename else ''
+            unique_filename = f"{uuid.uuid4()}.{file_extension}"
             
-            # Subir el archivo usando put_object en lugar de upload_fileobj
+            # Determinar la carpeta de destino
+            if not folder:
+                # Si no se especifica carpeta, usar 'other' como fallback
+                folder = 'other'
+            
+            # Asegurar que la carpeta termine con '/'
+            if not folder.endswith('/'):
+                folder += '/'
+            
+            # Crear la carpeta de categoría si no existe
+            await self._ensure_category_folder_exists(user_id, folder)
+            
+            # Ruta completa del archivo
+            file_path = f"users/{user_id}/{folder}{unique_filename}"
+            
+            # file_content ya es bytes
+            file_size = len(file_content)
+            
+            # Subir el archivo usando put_object
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=file_path,
