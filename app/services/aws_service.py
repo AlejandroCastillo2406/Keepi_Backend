@@ -3,6 +3,7 @@ import asyncio
 import logging
 import tempfile
 import os
+import time
 from typing import Dict, List, Any, Optional
 from botocore.exceptions import ClientError
 from app.config.settings import Settings
@@ -602,6 +603,35 @@ class AWSService:
             
         except Exception as e:
             logger.error(f"❌ Error subiendo archivo a S3: {e}")
+            raise
+    
+    async def upload_to_s3_with_folder(self, file_data: bytes, file_name: str, user_id: str, folder_name: str) -> str:
+        """Subir archivo directamente a carpeta de categoría en S3"""
+        try:
+            # Limpiar nombre de carpeta
+            clean_folder = self._sanitize_folder_name(folder_name)
+            key = f"users/{user_id}/{clean_folder}/{file_name}"
+            
+            logger.info(f"📁 Subiendo archivo a carpeta de categoría: {key}")
+            
+            self.s3_client.put_object(
+                Bucket=settings.aws_s3_bucket,
+                Key=key,
+                Body=file_data,
+                Metadata={
+                    'user_id': user_id,
+                    'category': folder_name,
+                    'folder': clean_folder,
+                    'uploaded_at': str(int(time.time()))
+                }
+            )
+            
+            file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{key}"
+            logger.info(f"✅ Archivo subido a carpeta de categoría: {file_url}")
+            return file_url
+            
+        except Exception as e:
+            logger.error(f"❌ Error subiendo archivo a carpeta de categoría: {e}")
             raise
     
     async def move_file_in_s3(self, user_id: str, file_name: str, from_folder: str, to_folder: str) -> str:

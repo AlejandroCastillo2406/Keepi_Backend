@@ -233,8 +233,13 @@ class DocumentService:
             
             if storage_preference == 'keepi_cloud':
                 # Subir a S3 en la carpeta de categoría
-                folder_path = f"users/{user_id}/{folder_result.get('folder_name', category)}/"
-                file_url = await self.aws_service.upload_to_s3_temp(file_data, file_name, user_id)
+                folder_name = folder_result.get('folder_name', category)
+                folder_path = f"users/{user_id}/{folder_name}/"
+                
+                # Subir archivo directamente a la carpeta de categoría
+                file_url = await self.aws_service.upload_to_s3_with_folder(
+                    file_data, file_name, user_id, folder_name
+                )
                 s3_key = f"{folder_path}{file_name}"
                 
             elif storage_preference == 'google_drive':
