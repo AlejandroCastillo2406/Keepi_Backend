@@ -184,8 +184,8 @@ class GoogleOAuthService:
                         "requires_action": "authorize"
                     }
                 
-                # Si el token expira en menos de 1 hora, considerarlo como expirado
-                if time_until_expiry.total_seconds() < 3600:  # 1 hora
+                # Si el token expira en menos de 5 minutos, considerarlo como expirado
+                if time_until_expiry.total_seconds() < 300:  # 5 minutos
                     return {
                         "has_access": False,
                         "status": "expired",
