@@ -81,8 +81,12 @@ async def setup_cloud_storage(
         logger.info(f"🔄 Actualizando storage_preference para usuario {current_user.id} a {storage_type}")
         try:
             from app.services.user_service import UserService
-            user_service = UserService()
+            from app.services.user_config_service import UserConfigService
             
+            user_service = UserService()
+            config_service = UserConfigService()
+            
+            # Actualizar tabla users
             success = await user_service.update_user_fields(
                 str(current_user.id), 
                 {"storage_preference": storage_type}
@@ -91,8 +95,20 @@ async def setup_cloud_storage(
             if not success:
                 logger.error(f"❌ Error actualizando storage_preference para usuario {current_user.id}")
                 raise HTTPException(status_code=500, detail="Error actualizando preferencia de almacenamiento")
-            else:
-                logger.info(f"✅ Storage preference actualizado exitosamente para usuario {current_user.id}")
+            
+            # Actualizar tabla user_configs
+            logger.info(f"🔄 Actualizando cloud_provider en user_configs para usuario {current_user.id}")
+            cloud_provider = "google_drive" if storage_type == "google_drive" else "keepi_cloud"
+            
+            # Obtener o crear configuración del usuario
+            user_config = await config_service.get_or_create_user_config(str(current_user.id))
+            
+            # Actualizar cloud_provider
+            from app.models.user_config import UserConfigUpdate
+            update_data = UserConfigUpdate(cloud_provider=cloud_provider)
+            await config_service.update_user_config(str(current_user.id), update_data)
+            
+            logger.info(f"✅ Storage preference y cloud_provider actualizados exitosamente para usuario {current_user.id}")
         except Exception as e:
             logger.error(f"❌ Error en update_user_fields: {e}")
             raise HTTPException(status_code=500, detail=f"Error actualizando preferencia: {str(e)}")
