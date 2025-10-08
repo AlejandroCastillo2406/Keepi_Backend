@@ -127,6 +127,37 @@ class S3Service:
             # Leer el contenido del archivo para evitar problemas de I/O
             file_content = file_data.read()
             file_size = len(file_content)
+            
+            # Subir el archivo usando put_object en lugar de upload_fileobj
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=file_path,
+                Body=file_content,
+                ContentType=content_type,
+                Metadata={
+                    'user_id': user_id,
+                    'original_filename': filename,
+                    'uploaded_at': datetime.utcnow().isoformat(),
+                    'folder': folder
+                }
+            )
+            
+            # Generar URL firmada para acceso temporal
+            signed_url = self._generate_signed_url(file_path, expiration=3600)  # 1 hora
+            
+            return {
+                'success': True,
+                'file_path': file_path,
+                'filename': unique_filename,
+                'original_filename': filename,
+                'signed_url': signed_url,
+                'folder': folder,
+                'size': file_size
+            }
+            
+        except Exception as e:
+            logger.error(f"Error subiendo documento: {str(e)}")
+            raise
 
     async def upload_document_from_bytes(self, user_id: str, file_content: bytes, filename: str, 
                                        content_type: str, folder: str = None) -> Dict[str, Any]:
