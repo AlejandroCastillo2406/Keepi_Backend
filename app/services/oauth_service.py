@@ -156,14 +156,24 @@ class GoogleOAuthService:
             current_time = datetime.now()
             
             if expires_at:
-                expiry_time = datetime.fromisoformat(expires_at)
-                # Asegurar que ambas fechas tengan la misma zona horaria
-                if expiry_time.tzinfo is None:
-                    expiry_time = expiry_time.replace(tzinfo=None)
-                if current_time.tzinfo is not None:
-                    current_time = current_time.replace(tzinfo=None)
-                
-                time_until_expiry = expiry_time - current_time
+                try:
+                    expiry_time = datetime.fromisoformat(expires_at)
+                    # Asegurar que ambas fechas tengan la misma zona horaria
+                    if expiry_time.tzinfo is not None:
+                        expiry_time = expiry_time.replace(tzinfo=None)
+                    if current_time.tzinfo is not None:
+                        current_time = current_time.replace(tzinfo=None)
+                    
+                    time_until_expiry = expiry_time - current_time
+                except Exception as e:
+                    print(f"Error procesando fecha de expiración: {e}")
+                    # Si hay error con la fecha, asumir que está expirado
+                    return {
+                        "has_access": False,
+                        "status": "error",
+                        "message": f"Error verificando acceso: {str(e)}",
+                        "requires_action": "authorize"
+                    }
                 
                 # Si el token expira en menos de 1 hora, considerarlo como expirado
                 if time_until_expiry.total_seconds() < 3600:  # 1 hora
