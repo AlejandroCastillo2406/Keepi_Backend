@@ -4,8 +4,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.config.database import Base
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from pydantic import BaseModel, field_validator
+from typing import Optional, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
@@ -59,6 +59,14 @@ class UserConfigResponse(UserConfigBase):
     user_id: str
     created_at: datetime
     updated_at: datetime
+    
+    @field_validator('id', 'user_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        """Convertir UUID a string si es necesario"""
+        if isinstance(v, uuid.UUID):
+            return str(v)
+        return v
     
     class Config:
         from_attributes = True
