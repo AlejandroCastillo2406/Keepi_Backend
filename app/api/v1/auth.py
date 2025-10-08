@@ -9,9 +9,9 @@ from app.models.user import User
 
 router = APIRouter()
 
-@router.post("/register", response_model=UserResponse)
+@router.post("/register")
 async def register_user(user_data: UserCreate):
-    """Registrar nuevo usuario"""
+    """Registrar nuevo usuario y devolver token de acceso"""
     try:
         if not user_data.password:
             raise HTTPException(
@@ -22,7 +22,31 @@ async def register_user(user_data: UserCreate):
         user_service = UserService()
         user = await user_service.create_user(user_data)
         
-        return user
+        # Generar token de acceso para autenticar automáticamente
+        from datetime import timedelta
+        from app.utils.auth import create_access_token
+        
+        access_token_expires = timedelta(minutes=30)
+        access_token = create_access_token(
+            data={
+                "sub": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "picture": user.profile_picture
+            },
+            expires_delta=access_token_expires
+        )
+        
+        # Devolver datos del usuario con el token
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "profile_picture": user.profile_picture,
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        }
         
     except ValueError as e:
         raise HTTPException(
