@@ -158,65 +158,6 @@ class S3Service:
         except Exception as e:
             logger.error(f"Error subiendo documento: {str(e)}")
             raise
-
-    async def upload_document_from_bytes(self, user_id: str, file_content: bytes, filename: str, 
-                                       content_type: str, folder: str = None) -> Dict[str, Any]:
-        """
-        Sube un documento a S3 desde bytes
-        """
-        try:
-            # Generar nombre único para el archivo
-            file_extension = filename.split('.')[-1] if '.' in filename else ''
-            unique_filename = f"{uuid.uuid4()}.{file_extension}"
-            
-            # Determinar la carpeta de destino
-            if not folder:
-                # Si no se especifica carpeta, usar 'other' como fallback
-                folder = 'other'
-            
-            # Asegurar que la carpeta termine con '/'
-            if not folder.endswith('/'):
-                folder += '/'
-            
-            # Crear la carpeta de categoría si no existe
-            await self._ensure_category_folder_exists(user_id, folder)
-            
-            # Ruta completa del archivo
-            file_path = f"users/{user_id}/{folder}{unique_filename}"
-            
-            # file_content ya es bytes
-            file_size = len(file_content)
-            
-            # Subir el archivo usando put_object
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=file_path,
-                Body=file_content,
-                ContentType=content_type,
-                Metadata={
-                    'user_id': user_id,
-                    'original_filename': filename,
-                    'uploaded_at': datetime.utcnow().isoformat(),
-                    'folder': folder
-                }
-            )
-            
-            # Generar URL firmada para acceso temporal
-            signed_url = self._generate_signed_url(file_path, expiration=3600)  # 1 hora
-            
-            return {
-                'success': True,
-                'file_path': file_path,
-                'filename': unique_filename,
-                'original_filename': filename,
-                'signed_url': signed_url,
-                'folder': folder,
-                'size': file_size
-            }
-            
-        except Exception as e:
-            logger.error(f"Error subiendo documento: {str(e)}")
-            raise
     
     async def download_document(self, user_id: str, file_path: str) -> Dict[str, Any]:
         """
