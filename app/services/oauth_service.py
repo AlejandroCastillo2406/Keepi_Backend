@@ -157,6 +157,12 @@ class GoogleOAuthService:
             
             if expires_at:
                 expiry_time = datetime.fromisoformat(expires_at)
+                # Asegurar que ambas fechas tengan la misma zona horaria
+                if expiry_time.tzinfo is None:
+                    expiry_time = expiry_time.replace(tzinfo=None)
+                if current_time.tzinfo is not None:
+                    current_time = current_time.replace(tzinfo=None)
+                
                 time_until_expiry = expiry_time - current_time
                 
                 # Si el token expira en menos de 1 hora, considerarlo como expirado
