@@ -286,3 +286,23 @@ async def revoke_google_drive_access(user_token: dict = Depends(verify_token)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/google/refresh")
+async def refresh_google_drive_tokens(user_token: dict = Depends(verify_token)):
+    """Renovar tokens de Google Drive"""
+    try:
+        oauth_service = GoogleOAuthService()
+        credentials = await oauth_service.refresh_user_tokens(user_token['uid'])
+        
+        if credentials:
+            return {
+                "message": "Tokens renovados exitosamente",
+                "access_token": credentials.token,
+                "expires_at": credentials.expiry.isoformat() if credentials.expiry else None,
+                "refreshed": True
+            }
+        else:
+            raise HTTPException(status_code=400, detail="No se pudieron renovar los tokens")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
