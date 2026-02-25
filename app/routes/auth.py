@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from app.core.security import verify_token, get_current_user
 from app.services.autenticacion import GoogleOAuthService
@@ -8,6 +8,19 @@ from app.models.user import UserCreate, UserLogin, UserResponse
 from app.models.user import User
 
 router = APIRouter()
+
+
+from pydantic import BaseModel
+from datetime import datetime
+
+
+class GoogleMobileAuthRequest(BaseModel):
+    access_token: str
+    refresh_token: Optional[str] = None
+    id_token: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    token_type: Optional[str] = None
+    scopes: Optional[List[str]] = None
 
 @router.post("/register")
 async def register_user(user_data: UserCreate):
@@ -317,3 +330,48 @@ async def refresh_google_drive_tokens(user_token: dict = Depends(verify_token)):
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/google/mobile-auth")
+async def google_mobile_auth(
+    payload: GoogleMobileAuthRequest,
+    user_token: dict = Depends(verify_token),
+):
+    """
+    Recibe los tokens de Google obtenidos desde la app móvil (flutter_appauth),
+    los guarda en la base de datos y marca cloud_provider=google_drive.
+    """
+    try:
+        user_id = user_token["uid"]
+
+        # Guardar credenciales OAuth en la base de datos
+        from app.services.autenticacion import OAuthCredentialsService
+
+        oauth_service = OAuthCredentialsService()
+        await oauth_service.upsert_user_credentials(
+            user_id=user_id,
+            provider="google",
+            access_token=payload.access_token,
+            refresh_token=payload.refresh_token,
+            scopes=payload.scopes,
+            expires_at=payload.expires_at,
+        )
+
+        # Marcar cloud_provider = google_drive en user_configs
+        from app.services.usuarios import UserConfigService
+        from app.models.user_config import UserConfigUpdate, CloudProvider
+
+        config_service = UserConfigService()
+        await config_service.get_or_create_user_config(user_id)
+        update_data = UserConfigUpdate(cloud_provider=CloudProvider.GOOGLE_DRIVE)
+        await config_service.update_user_config(user_id, update_data)
+
+        return {"success": True, "message": "Google Drive vinculado correctamente"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error procesando autenticación móvil de Google: {str(e)}",
+        )
