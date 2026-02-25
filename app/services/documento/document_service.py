@@ -5,6 +5,7 @@ import logging
 
 from app.config.database import get_db, DatabaseConfig
 from app.models.document import Document, DocumentCreate as ModelDocumentCreate, DocumentUpdate as ModelDocumentUpdate, DocumentResponse as ModelDocumentResponse
+from app.models.folder import Folder
 
 DocumentCreate = ModelDocumentCreate
 DocumentResponse = ModelDocumentResponse
@@ -22,6 +23,28 @@ logger = logging.getLogger(__name__)
 def _response_from_orm(doc: Document):
     """Usa el DTO de respuesta del modelo actual para compatibilidad."""
     return ModelDocumentResponse.from_orm(doc)
+
+
+def _get_or_create_folder(db: Session, user_id: str, category: str, drive_folder_id: str) -> Folder:
+    """Obtiene o crea un Folder por user_id, category y drive_folder_id."""
+    import uuid
+    folder = db.query(Folder).filter(
+        Folder.user_id == uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+        Folder.drive_folder_id == drive_folder_id,
+    ).first()
+    if folder:
+        return folder
+    folder = Folder(
+        user_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+        name=category,
+        category=category,
+        drive_folder_id=drive_folder_id,
+        drive_parent_id=None,
+    )
+    db.add(folder)
+    db.commit()
+    db.refresh(folder)
+    return folder
 
 
 class DocumentService:
@@ -65,8 +88,18 @@ class DocumentService:
     async def create_document(self, user_id: str, document_data: ModelDocumentCreate) -> ModelDocumentResponse:
         """Crear nuevo documento."""
         try:
+            folder_id = None
+            drive_folder_id = getattr(document_data, "drive_folder_id", None)
+            if drive_folder_id and document_data.category:
+                folder = _get_or_create_folder(
+                    self.db, user_id, document_data.category, drive_folder_id
+                )
+                folder_id = folder.id
             if self._document_repository:
-                doc = self._document_repository.create(user_id, document_data)
+                data_to_pass = document_data.model_copy(
+                    update={"folder_id": str(folder_id) if folder_id else None}
+                )
+                doc = self._document_repository.create(user_id, data_to_pass)
                 return _response_from_orm(doc)
             document = Document(
                 user_id=user_id,
@@ -81,11 +114,11 @@ class DocumentService:
                 document_metadata=document_data.document_metadata or {},
                 tags=document_data.tags or [],
                 drive_file_id=document_data.drive_file_id,
-                drive_folder_id=document_data.drive_folder_id,
                 cloud_provider=document_data.cloud_provider,
                 s3_key=document_data.s3_key,
                 extracted_text=document_data.extracted_text,
                 ai_analysis=document_data.ai_analysis or {},
+                folder_id=folder_id,
             )
             self.db.add(document)
             self.db.commit()

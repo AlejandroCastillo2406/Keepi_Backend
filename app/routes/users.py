@@ -4,7 +4,7 @@ from typing import List
 
 from app.core.security import get_current_user
 from app.services.usuarios import UserService
-from app.models.user import UserCreate, UserUpdate, UserResponse, UserSettings, User
+from app.models.user import UserCreate, UserUpdate, UserResponse, User
 
 router = APIRouter()
 
@@ -53,26 +53,6 @@ async def update_user_profile(
         
         if updated_user:
             return updated_user
-        else:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.put("/settings")
-async def update_user_settings(
-    settings: UserSettings,
-    current_user: User = Depends(get_current_user)
-):
-    """Actualizar configuración del usuario"""
-    try:
-        user_service = UserService()
-        success = await user_service.update_user_settings(str(current_user.id), settings)
-        
-        if success:
-            return {"message": "Configuración actualizada correctamente"}
         else:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
             

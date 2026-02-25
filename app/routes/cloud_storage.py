@@ -15,6 +15,14 @@ router = APIRouter()
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
 
+
+async def _get_storage_preference(user_id: str) -> str:
+    """Obtiene la preferencia de almacenamiento desde UserConfig."""
+    from app.services.usuarios import UserConfigService
+    config_service = UserConfigService()
+    config = await config_service.get_or_create_user_config(user_id)
+    return config.cloud_provider.value if config and config.cloud_provider else "google_drive"
+
 # Inicializar servicios
 s3_service = S3Service()
 # drive_service se inicializará cuando sea necesario con las credenciales del usuario
@@ -88,40 +96,23 @@ async def setup_cloud_storage(
                 logger.error(f"❌ Error validando suscripción: {e}")
                 raise HTTPException(status_code=500, detail=f"Error validando suscripción: {str(e)}")
         
-        # Actualizar preferencia del usuario en PostgreSQL
-        logger.info(f"🔄 Actualizando storage_preference para usuario {current_user.id} a {storage_type}")
+        # Actualizar preferencia de almacenamiento en user_configs
+        logger.info(f"🔄 Actualizando cloud_provider para usuario {current_user.id} a {storage_type}")
         try:
-            from app.services.usuarios import UserService
             from app.services.usuarios import UserConfigService
-            
-            user_service = UserService()
+            from app.models.user_config import UserConfigUpdate, CloudProvider
+
             config_service = UserConfigService()
-            
-            # Actualizar tabla users
-            success = await user_service.update_user_fields(
-                str(current_user.id), 
-                {"storage_preference": storage_type}
-            )
-            
-            if not success:
-                logger.error(f"❌ Error actualizando storage_preference para usuario {current_user.id}")
-                raise HTTPException(status_code=500, detail="Error actualizando preferencia de almacenamiento")
-            
-            # Actualizar tabla user_configs
-            logger.info(f"🔄 Actualizando cloud_provider en user_configs para usuario {current_user.id}")
-            cloud_provider = "google_drive" if storage_type == "google_drive" else "keepi_cloud"
-            
-            # Obtener o crear configuración del usuario
             user_config = await config_service.get_or_create_user_config(str(current_user.id))
-            
-            # Actualizar cloud_provider
-            from app.models.user_config import UserConfigUpdate
+            cloud_provider = CloudProvider.GOOGLE_DRIVE if storage_type == "google_drive" else CloudProvider.KEEPI_CLOUD
+
+            # Actualizar cloud_provider en user_configs
             update_data = UserConfigUpdate(cloud_provider=cloud_provider)
             await config_service.update_user_config(str(current_user.id), update_data)
             
             logger.info(f"✅ Storage preference y cloud_provider actualizados exitosamente para usuario {current_user.id}")
         except Exception as e:
-            logger.error(f"❌ Error en update_user_fields: {e}")
+            logger.error(f"❌ Error actualizando cloud_provider: {e}")
             raise HTTPException(status_code=500, detail=f"Error actualizando preferencia: {str(e)}")
         
         # Si es Keepi Cloud, crear carpeta del usuario
@@ -170,10 +161,10 @@ async def upload_document(
     Sube un documento al almacenamiento configurado del usuario
     """
     try:
-        # Verificar que el usuario tenga configurado el almacenamiento
-        if not current_user.storage_preference:
+        storage_preference = await _get_storage_preference(str(current_user.id))
+        if not storage_preference:
             raise HTTPException(status_code=400, detail="Debe configurar el tipo de almacenamiento primero")
-        
+
         # Leer el archivo
         file_content = await file.read()
         file_content.seek(0)  # Resetear el puntero
@@ -191,7 +182,7 @@ async def upload_document(
         )
         
         # Subir según el tipo de almacenamiento
-        if current_user.storage_preference == "keepi_cloud":
+        if storage_preference == "keepi_cloud":
             upload_result = await s3_service.upload_document(
                 str(current_user.id),
                 file_content,
@@ -246,10 +237,10 @@ async def upload_document(
             "category": categorization['category'],
             "tags": categorization['tags'],
             "extracted_text": ocr_metadata['extracted_text'][:500],  # Primeros 500 caracteres
-            "storage_type": current_user.storage_preference,
+            "storage_type": storage_preference,
             "upload_result": upload_result
         }
-        
+
     except Exception as e:
         logger.error(f"Error subiendo documento: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -284,19 +275,20 @@ async def get_folders(
     Obtiene la lista de carpetas del usuario
     """
     try:
-        if not current_user.storage_preference:
+        storage_preference = await _get_storage_preference(str(current_user.id))
+        if not storage_preference:
             raise HTTPException(status_code=400, detail="Debe configurar el tipo de almacenamiento primero")
-        
-        if current_user.storage_preference == "keepi_cloud":
+
+        if storage_preference == "keepi_cloud":
             result = await s3_service.list_user_documents(str(current_user.id))
         else:  # google_drive
             # TODO: Implementar listado de carpetas de Google Drive
             result = {'folders': []}
-        
+
         return {
             "success": True,
             "folders": result.get('folders', []),
-            "storage_type": current_user.storage_preference
+            "storage_type": storage_preference
         }
         
     except Exception as e:
@@ -313,10 +305,11 @@ async def create_folder(
     Crea una nueva carpeta
     """
     try:
-        if not current_user.storage_preference:
+        storage_preference = await _get_storage_preference(str(current_user.id))
+        if not storage_preference:
             raise HTTPException(status_code=400, detail="Debe configurar el tipo de almacenamiento primero")
-        
-        if current_user.storage_preference == "keepi_cloud":
+
+        if storage_preference == "keepi_cloud":
             result = await s3_service.create_folder(
                 str(current_user.id),
                 folder_name,
@@ -400,10 +393,11 @@ async def get_storage_usage(
     Obtiene el uso de almacenamiento del usuario
     """
     try:
-        if not current_user.storage_preference:
+        storage_preference = await _get_storage_preference(str(current_user.id))
+        if not storage_preference:
             raise HTTPException(status_code=400, detail="Debe configurar el tipo de almacenamiento primero")
-        
-        if current_user.storage_preference == "keepi_cloud":
+
+        if storage_preference == "keepi_cloud":
             result = await s3_service.get_storage_usage(str(current_user.id))
         else:  # google_drive
             # Implementar uso de almacenamiento de Google Drive
@@ -503,15 +497,16 @@ async def get_storage_status(
     Obtiene el estado actual del almacenamiento configurado
     """
     try:
-        if not current_user.storage_preference:
+        storage_preference = await _get_storage_preference(str(current_user.id))
+        if not storage_preference:
             return {
                 "configured": False,
                 "storage_type": None,
                 "message": "No hay tipo de almacenamiento configurado"
             }
-        
+
         # Verificar estado según el tipo de almacenamiento
-        if current_user.storage_preference == "keepi_cloud":
+        if storage_preference == "keepi_cloud":
             try:
                 # Verificar acceso a S3
                 await s3_service.get_storage_usage(str(current_user.id))
@@ -576,13 +571,14 @@ async def get_drive_auth_status(
     """
     try:
         from app.services.autenticacion import GoogleOAuthService
-        
+
+        storage_preference = await _get_storage_preference(str(current_user.id))
         oauth_service = GoogleOAuthService()
         auth_status = await oauth_service.check_user_drive_access(str(current_user.id))
-        
+
         return {
             "user_id": str(current_user.id),
-            "storage_preference": current_user.storage_preference,
+            "storage_preference": storage_preference,
             "drive_auth_status": auth_status,
             "timestamp": datetime.now().isoformat()
         }

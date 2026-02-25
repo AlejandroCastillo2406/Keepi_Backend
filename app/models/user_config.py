@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, String, DateTime, JSON, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -15,9 +15,7 @@ class UserConfig(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True, unique=True)
-    cloud_provider = Column(String(50), nullable=False, default="google_drive")
-    auto_categorization = Column(Boolean, default=True, nullable=False)
-    aws_analysis_enabled = Column(Boolean, default=True, nullable=False)
+    cloud_provider = Column(String(50), nullable=False, default="not_configured")
     notification_preferences = Column(JSON, nullable=True, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -31,15 +29,14 @@ class UserConfig(Base):
 # Enums para Pydantic
 class CloudProvider(str, Enum):
     """Enum para proveedores de nube"""
+    NOT_CONFIGURED = "not_configured"  # Primera vez / sin configurar
     GOOGLE_DRIVE = "google_drive"
     KEEPI_CLOUD = "keepi_cloud"  # S3
 
 # Modelos Pydantic para la API
 class UserConfigBase(BaseModel):
     """Modelo base para configuración de usuario"""
-    cloud_provider: CloudProvider = CloudProvider.GOOGLE_DRIVE
-    auto_categorization: bool = True
-    aws_analysis_enabled: bool = True
+    cloud_provider: CloudProvider = CloudProvider.NOT_CONFIGURED
     notification_preferences: Optional[Dict[str, Any]] = None
 
 class UserConfigCreate(UserConfigBase):
@@ -49,8 +46,6 @@ class UserConfigCreate(UserConfigBase):
 class UserConfigUpdate(BaseModel):
     """Modelo para actualizar configuración de usuario"""
     cloud_provider: Optional[CloudProvider] = None
-    auto_categorization: Optional[bool] = None
-    aws_analysis_enabled: Optional[bool] = None
     notification_preferences: Optional[Dict[str, Any]] = None
 
 class UserConfigResponse(UserConfigBase):

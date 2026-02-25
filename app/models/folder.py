@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -16,14 +16,9 @@ class Folder(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     category = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
     parent_folder_id = Column(UUID(as_uuid=True), ForeignKey("folders.id"), nullable=True, index=True)
     drive_folder_id = Column(String(255), nullable=False)
     drive_parent_id = Column(String(255), nullable=True)
-    color = Column(String(7), nullable=True)  # Hex color code
-    icon = Column(String(50), nullable=True)
-    is_archived = Column(Boolean, default=False, nullable=False)
-    is_favorite = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
@@ -41,26 +36,18 @@ class FolderBase(BaseModel):
     """Modelo base para carpeta"""
     name: str
     category: str
-    description: Optional[str] = None
     parent_folder_id: Optional[str] = None
 
 class FolderCreate(FolderBase):
     """Modelo para crear carpeta"""
     drive_folder_id: str
     drive_parent_id: Optional[str] = None
-    color: Optional[str] = None
-    icon: Optional[str] = None
 
 class FolderUpdate(BaseModel):
     """Modelo para actualizar carpeta"""
     name: Optional[str] = None
     category: Optional[str] = None
-    description: Optional[str] = None
     parent_folder_id: Optional[str] = None
-    color: Optional[str] = None
-    icon: Optional[str] = None
-    is_archived: Optional[bool] = None
-    is_favorite: Optional[bool] = None
 
 class FolderResponse(FolderBase):
     """Modelo de respuesta para carpeta"""
@@ -68,12 +55,8 @@ class FolderResponse(FolderBase):
     user_id: str
     drive_folder_id: str
     drive_parent_id: Optional[str] = None
-    color: Optional[str] = None
-    icon: Optional[str] = None
     documents_count: int = 0
     subfolders_count: int = 0
-    is_archived: bool = False
-    is_favorite: bool = False
     created_at: datetime
     updated_at: datetime
     

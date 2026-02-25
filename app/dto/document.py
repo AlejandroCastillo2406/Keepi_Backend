@@ -90,7 +90,7 @@ class DocumentResponse(DocumentBase):
             document_metadata=obj.document_metadata,
             tags=obj.tags,
             drive_file_id=obj.drive_file_id,
-            drive_folder_id=obj.drive_folder_id,
+            drive_folder_id=obj.folder.drive_folder_id if obj.folder else None,
             cloud_provider=obj.cloud_provider,
             s3_key=obj.s3_key,
             extracted_text=obj.extracted_text,

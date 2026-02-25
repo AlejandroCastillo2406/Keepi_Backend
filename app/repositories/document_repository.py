@@ -38,6 +38,7 @@ class DocumentRepository(IDocumentRepository):
 
     def create(self, user_id: str, data: BaseModel) -> Document:
         payload = data.model_dump(exclude_unset=True)
+        payload.pop("drive_folder_id", None)  # no existe en Document; se usa folder_id
         payload.setdefault("document_metadata", {})
         payload.setdefault("tags", [])
         payload.setdefault("ai_analysis", {})

@@ -25,7 +25,6 @@ class Document(Base):
     document_metadata = Column(JSON, nullable=True, default=dict)
     tags = Column(ARRAY(String), nullable=True, default=list)
     drive_file_id = Column(String(255), nullable=True)
-    drive_folder_id = Column(String(255), nullable=True)
     cloud_provider = Column(String(50), nullable=True)
     s3_key = Column(String(500), nullable=True)
     extracted_text = Column(Text, nullable=True)
@@ -38,7 +37,6 @@ class Document(Base):
     
     # Relaciones
     user = relationship("User", back_populates="documents")
-    ai_analyses = relationship("AIAnalysis", back_populates="document")
     folder = relationship("Folder", back_populates="documents")
     
     def __repr__(self):
@@ -61,7 +59,8 @@ class DocumentCreate(DocumentBase):
     document_metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     drive_file_id: Optional[str] = None
-    drive_folder_id: Optional[str] = None
+    drive_folder_id: Optional[str] = None  # se resuelve a folder_id al crear
+    folder_id: Optional[str] = None
     cloud_provider: Optional[str] = None
     s3_key: Optional[str] = None
     extracted_text: Optional[str] = None
@@ -94,7 +93,6 @@ class DocumentResponse(DocumentBase):
     document_metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     drive_file_id: Optional[str] = None
-    drive_folder_id: Optional[str] = None
     cloud_provider: Optional[str] = None
     s3_key: Optional[str] = None
     extracted_text: Optional[str] = None
@@ -124,7 +122,7 @@ class DocumentResponse(DocumentBase):
             "document_metadata": obj.document_metadata,
             "tags": obj.tags,
             "drive_file_id": obj.drive_file_id,
-            "drive_folder_id": obj.drive_folder_id,
+            "drive_folder_id": obj.folder.drive_folder_id if obj.folder else None,
             "cloud_provider": obj.cloud_provider,
             "s3_key": obj.s3_key,
             "extracted_text": obj.extracted_text,

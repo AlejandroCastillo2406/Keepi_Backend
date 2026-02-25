@@ -30,8 +30,6 @@ class UserConfigService:
             config = UserConfig(
                 user_id=user_id,
                 cloud_provider=config_data.cloud_provider.value,
-                auto_categorization=config_data.auto_categorization,
-                aws_analysis_enabled=config_data.aws_analysis_enabled,
                 notification_preferences=config_data.notification_preferences or {}
             )
             
@@ -58,12 +56,6 @@ class UserConfigService:
             if config_data.cloud_provider is not None:
                 config.cloud_provider = config_data.cloud_provider.value
             
-            if config_data.auto_categorization is not None:
-                config.auto_categorization = config_data.auto_categorization
-            
-            if config_data.aws_analysis_enabled is not None:
-                config.aws_analysis_enabled = config_data.aws_analysis_enabled
-            
             if config_data.notification_preferences is not None:
                 config.notification_preferences = config_data.notification_preferences
             
@@ -84,11 +76,9 @@ class UserConfigService:
             config = await self.get_user_config(user_id)
             
             if not config:
-                # Crear configuración por defecto
+                # Crear configuración por defecto: sin configurar (primera vez)
                 default_config = UserConfigCreate(
-                    cloud_provider=CloudProvider.GOOGLE_DRIVE,
-                    auto_categorization=True,
-                    aws_analysis_enabled=True,
+                    cloud_provider=CloudProvider.NOT_CONFIGURED,
                     notification_preferences={}
                 )
                 config = await self.create_user_config(user_id, default_config)

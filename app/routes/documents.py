@@ -413,12 +413,14 @@ async def manual_classify_document(
             user_config_service = UserConfigService()
             user_config = await user_config_service.get_user_config(user_token['uid'])
             
-            if not user_config or not user_config.storage_preference:
+            if not user_config or not user_config.cloud_provider:
                 raise HTTPException(status_code=400, detail="Usuario debe configurar preferencia de almacenamiento primero")
-            
+
+            storage_preference = user_config.cloud_provider.value
+
             # Crear documento con clasificación manual
             document_service = DocumentService()
-            
+
             # Crear datos del documento con clasificación manual
             document_data = DocumentCreate(
                 name=file.filename,
@@ -430,9 +432,9 @@ async def manual_classify_document(
                 metadata={"manual_classification": True, "user_provided_category": category},
                 tags=[category.lower(), "manual_classification"]
             )
-            
+
             # Subir archivo según la configuración del usuario
-            if user_config.storage_preference == "keepi_cloud":
+            if storage_preference == "keepi_cloud":
                 # Subir a S3
                 from app.services.aws import AWSService
                 aws_service = AWSService()
@@ -489,7 +491,7 @@ async def manual_classify_document(
                 "message": f"Documento clasificado manualmente como '{category}' y guardado exitosamente",
                 "document": document,
                 "category": category,
-                "storage_location": user_config.storage_preference
+                "storage_location": storage_preference
             }
             
         except Exception as e:
@@ -510,19 +512,22 @@ async def get_mobile_dashboard(
 ):
     """Dashboard optimizado para móviles con información resumida"""
     try:
-        from app.services.usuarios import UserService
+        from app.services.usuarios import UserService, UserConfigService
         from app.services.almacenamiento import S3Service, GoogleDriveService
 
         user_service = UserService()
         user = await user_service.get_user_by_uid(user_token['uid'])
-        
         if not user:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        
+
+        config_service = UserConfigService()
+        user_config = await config_service.get_or_create_user_config(user_token['uid'])
+        storage_preference = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "google_drive"
+
         # Obtener documentos recientes
         document_service = DocumentService()
         all_documents = await document_service.get_user_documents(user_token['uid'])
-        
+
         # Documentos por vencer (próximos 30 días)
         from datetime import datetime, timedelta
         expiring_soon = []
@@ -532,12 +537,12 @@ async def get_mobile_dashboard(
                     expiry = datetime.fromisoformat(doc.expiry_date.replace('Z', '+00:00'))
                     if expiry <= datetime.now() + timedelta(days=30):
                         expiring_soon.append(doc)
-                except:
+                except Exception:
                     continue
-        
+
         # Obtener carpetas según el almacenamiento configurado
         folders = []
-        if user.storage_preference == 'keepi_cloud':
+        if storage_preference == 'keepi_cloud':
             # Leer carpetas de S3
             s3_service = S3Service()
             try:
@@ -554,8 +559,8 @@ async def get_mobile_dashboard(
             except Exception as e:
                 print(f"Error leyendo carpetas de S3: {e}")
                 folders = []
-                
-        elif user.storage_preference == 'google_drive':
+
+        elif storage_preference == 'google_drive':
             # Leer carpetas de Google Drive
             try:
                 from app.services.autenticacion import GoogleOAuthService

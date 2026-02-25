@@ -2,7 +2,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.config.database import get_db, DatabaseConfig
-from app.models.user import User, UserCreate, UserUpdate, UserResponse, UserSettings, UserLogin
+from app.models.user import User, UserCreate, UserUpdate, UserResponse, UserLogin
 from app.utils.auth import get_password_hash, verify_password, create_access_token, create_refresh_token
 
 class UserService:
@@ -11,6 +11,14 @@ class UserService:
     def __init__(self, db: Session = None):
         self.db = db or next(get_db())
     
+    def get_user_orm_by_uid(self, uid: str) -> Optional[User]:
+        """Obtener usuario ORM por UID (para verificar refresh_token, etc.)."""
+        try:
+            return self.db.query(User).filter(User.id == uid).first()
+        except Exception as e:
+            print(f"Error obteniendo usuario: {e}")
+            return None
+
     async def get_user_by_uid(self, uid: str) -> Optional[UserResponse]:
         """Obtener usuario por UID"""
         try:
@@ -35,9 +43,6 @@ class UserService:
                 email=user_data.email,
                 name=user_data.name,
                 hashed_password=get_password_hash(user_data.password) if user_data.password else None,
-                profile_picture=user_data.profile_picture,
-                settings=user_data.settings or {},
-                storage_preference="google_drive"  # Configurar Drive automáticamente
             )
             
             self.db.add(user)
@@ -79,7 +84,6 @@ class UserService:
                     "sub": str(user.id),
                     "email": user.email,
                     "name": user.name,
-                    "picture": user.profile_picture
                 },
                 expires_delta=access_token_expires
             )
@@ -168,16 +172,3 @@ class UserService:
             self.db.rollback()
             return False
     
-    async def update_user_settings(self, uid: str, settings: UserSettings) -> bool:
-        """Actualizar configuración de usuario"""
-        try:
-            user = self.db.query(User).filter(User.id == uid).first()
-            if user:
-                user.settings = settings.dict()
-                self.db.commit()
-                return True
-            return False
-        except Exception as e:
-            print(f"Error actualizando configuración: {e}")
-            self.db.rollback()
-            return False

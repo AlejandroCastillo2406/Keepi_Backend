@@ -277,10 +277,8 @@ async def get_usage_statistics(
 ):
     """Estadísticas de uso del usuario."""
     try:
-        from app.models.ai_analysis import AIAnalysis
         subscription = await service.get_user_subscription(str(current_user.id), db)
         limits = await service.check_analysis_limit(str(current_user.id), db)
-        total_analyses = db.query(AIAnalysis).filter(AIAnalysis.user_id == current_user.id).count()
         return {
             "current_period": {
                 "analysis_used": limits["analysis_used"],
@@ -288,7 +286,7 @@ async def get_usage_statistics(
                 "analysis_remaining": limits["analysis_remaining"],
             },
             "all_time": {
-                "total_analyses": total_analyses,
+                "total_analyses": limits.get("analysis_used", 0),
                 "account_created": current_user.created_at,
                 "current_plan": limits["plan"],
             },

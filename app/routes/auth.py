@@ -32,11 +32,10 @@ async def register_user(user_data: UserCreate):
                 "sub": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "picture": user.profile_picture
             },
             expires_delta=access_token_expires
         )
-        
+
         # Devolver datos del usuario con el token
         return {
             "access_token": access_token,
@@ -44,7 +43,6 @@ async def register_user(user_data: UserCreate):
             "id": user.id,
             "email": user.email,
             "name": user.name,
-            "profile_picture": user.profile_picture,
             "created_at": user.created_at.isoformat() if user.created_at else None
         }
         
@@ -106,20 +104,19 @@ async def refresh_token(refresh_token: str):
         
         # Verificar que el usuario existe y el refresh token coincide
         user_service = UserService()
-        user = await user_service.get_user_by_uid(user_id)
-        
+        user = user_service.get_user_orm_by_uid(user_id)
+
         if not user or user.refresh_token != refresh_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token inválido"
             )
-        
+
         # Crear nuevo access token
         access_token = create_access_token({
             "sub": str(user.id),
             "email": user.email,
             "name": user.name,
-            "picture": user.profile_picture or ""
         })
         
         return {
