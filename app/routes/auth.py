@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import RedirectResponse
 from typing import Dict, Any, List, Optional
 
 from app.core.security import verify_token, get_current_user
@@ -6,8 +7,19 @@ from app.services.autenticacion import GoogleOAuthService
 from app.services.usuarios import UserService
 from app.models.user import UserCreate, UserLogin, UserResponse
 from app.models.user import User
+from app.config.settings import settings
 
 router = APIRouter()
+
+# Base URL pública del backend (para callback móvil HTTPS)
+def _mobile_callback_base_url() -> str:
+    uri = settings.google_redirect_uri or ""
+    if "/api" in uri:
+        return uri.rsplit("/api", 1)[0].rstrip("/")
+    return "https://keepi.onrender.com"
+
+MOBILE_CALLBACK_PATH = "/api/v1/auth/google/mobile-callback"
+APP_DEEP_LINK_SCHEME = "com.example.keepi"
 
 
 from pydantic import BaseModel
@@ -205,6 +217,75 @@ async def authorize_google_drive(user_token: dict = Depends(verify_token)):
     except Exception as e:
         print(f"❌ Error en autorización Google Drive: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/google/mobile-authorize")
+async def mobile_authorize_google_drive(user_token: dict = Depends(verify_token)):
+    """
+    URL de autorización para la app móvil.
+    Usa redirect_uri HTTPS (mobile-callback) para cumplir con Google; luego el backend redirige a la app.
+    """
+    try:
+        import base64
+        user_id = user_token["uid"]
+        base_url = _mobile_callback_base_url()
+        redirect_uri = f"{base_url}{MOBILE_CALLBACK_PATH}"
+        oauth_service = GoogleOAuthService()
+        auth_data = await oauth_service.get_authorization_url(user_id, redirect_uri=redirect_uri)
+        return {
+            "authorization_url": auth_data["authorization_url"],
+            "state": auth_data["state"],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/google/mobile-callback")
+async def google_mobile_callback(
+    code: str = Query(..., description="Código de autorización"),
+    state: str = Query(..., description="State con user_id"),
+):
+    """
+    Callback HTTPS para OAuth móvil. Intercambia code por tokens, guarda en BD,
+    marca cloud_provider=google_drive y redirige a la app (deep link).
+    """
+    try:
+        import base64
+        user_id = None
+        if state:
+            try:
+                padding = 4 - (len(state) % 4)
+                if padding != 4:
+                    state_padded = state + "=" * padding
+                else:
+                    state_padded = state
+                user_id = base64.b64decode(state_padded).decode("utf-8")
+            except Exception:
+                pass
+        if not user_id:
+            return RedirectResponse(
+                url=f"{APP_DEEP_LINK_SCHEME}:/oauth2redirect?error=invalid_state"
+            )
+        base_url = _mobile_callback_base_url()
+        redirect_uri = f"{base_url}{MOBILE_CALLBACK_PATH}"
+        oauth_service = GoogleOAuthService()
+        tokens = await oauth_service.exchange_code_for_tokens(
+            code, user_id, redirect_uri=redirect_uri
+        )
+        from app.services.usuarios import UserConfigService
+        from app.models.user_config import UserConfigUpdate, CloudProvider
+        config_service = UserConfigService()
+        await config_service.get_or_create_user_config(user_id)
+        await config_service.update_user_config(
+            user_id, UserConfigUpdate(cloud_provider=CloudProvider.GOOGLE_DRIVE)
+        )
+        return RedirectResponse(
+            url=f"{APP_DEEP_LINK_SCHEME}:/oauth2redirect?success=1"
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"{APP_DEEP_LINK_SCHEME}:/oauth2redirect?error=1"
+        )
 
 @router.get("/google/callback")
 async def google_oauth_callback(

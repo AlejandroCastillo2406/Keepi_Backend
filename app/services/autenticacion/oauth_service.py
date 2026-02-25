@@ -26,13 +26,18 @@ class GoogleOAuthService:
         # URL de callback desde variables de entorno
         self.redirect_uri = settings.google_redirect_uri or f"{settings.host}/api/v1/auth/google/callback"
     
-    async def get_authorization_url(self, user_id: str) -> Dict[str, str]:
-        """Generar URL de autorización para Google Drive"""
+    async def get_authorization_url(
+        self, user_id: str, redirect_uri: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Generar URL de autorización para Google Drive.
+        redirect_uri: si se pasa (ej. para móvil), se usa en lugar del por defecto.
+        """
         try:
+            uri = redirect_uri or self.redirect_uri
             flow = Flow.from_client_secrets_file(
                 self.client_secrets_file,
                 scopes=self.scopes,
-                redirect_uri=self.redirect_uri
+                redirect_uri=uri
             )
             
             # Generar state personalizado con el user_id
@@ -62,17 +67,23 @@ class GoogleOAuthService:
             print(f"Error generando URL de autorización: {e}")
             raise
     
-    async def exchange_code_for_tokens(self, authorization_code: str, user_id: str) -> Dict[str, Any]:
-        """Intercambiar código de autorización por tokens"""
+    async def exchange_code_for_tokens(
+        self,
+        authorization_code: str,
+        user_id: str,
+        redirect_uri: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Intercambiar código de autorización por tokens.
+        redirect_uri debe coincidir con el usado en get_authorization_url (ej. callback móvil).
+        """
         try:
-            # Crear nuevo flow para intercambiar tokens
+            uri = redirect_uri or self.redirect_uri
             flow = Flow.from_client_secrets_file(
                 self.client_secrets_file,
                 scopes=self.scopes,
-                redirect_uri=self.redirect_uri
+                redirect_uri=uri
             )
             
-            # Intercambiar código por tokens
             flow.fetch_token(code=authorization_code)
             
             credentials = flow.credentials
