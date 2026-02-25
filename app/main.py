@@ -3,9 +3,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 
-from app.config.settings import settings
-from app.config.database import DatabaseConfig
-from app.utils.auth import verify_token
+from app.core.config import settings
+from app.core.database import DatabaseConfig
 
 # Inicializar PostgreSQL
 DatabaseConfig.initialize_database()
@@ -46,8 +45,8 @@ async def health_check():
         "version": settings.api_version
     }
 
-# Importar routers
-from app.api.v1 import auth, documents, notifications, users, aws_documents, user_config, cloud_storage, subscriptions
+# Importar routers (capa Routes)
+from app.routes import auth, documents, notifications, users, aws_documents, user_config, cloud_storage, subscriptions
 
 # Incluir routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
@@ -57,7 +56,6 @@ app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["
 app.include_router(aws_documents.router, prefix="/api/v1/aws", tags=["AWS Documents"])
 app.include_router(user_config.router, prefix="/api/v1/config", tags=["User Configuration"])
 app.include_router(cloud_storage.router, prefix="/api/v1/cloud-storage", tags=["Cloud Storage"])
-# ROUTER ELIMINADO: test_flow ya no existe
 app.include_router(subscriptions.router, prefix="/api/v1", tags=["Subscriptions & Payments"])
 
 # Endpoints de pago fuera del prefix de API para URLs más limpias
