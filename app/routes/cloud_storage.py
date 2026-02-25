@@ -96,23 +96,32 @@ async def setup_cloud_storage(
                 logger.error(f"❌ Error validando suscripción: {e}")
                 raise HTTPException(status_code=500, detail=f"Error validando suscripción: {str(e)}")
         
-        # Actualizar preferencia de almacenamiento en user_configs
-        logger.info(f"🔄 Actualizando cloud_provider para usuario {current_user.id} a {storage_type}")
+        # Asegurar que exista user_config, pero:
+        # - Para Keepi Cloud: sí actualizamos cloud_provider inmediatamente.
+        # - Para Google Drive: SOLO se actualizará a google_drive en el callback
+        #   de OAuth, cuando el usuario complete la autorización.
+        logger.info(f"🔄 Preparando configuración de almacenamiento para usuario {current_user.id}")
         try:
             from app.services.usuarios import UserConfigService
             from app.models.user_config import UserConfigUpdate, CloudProvider
 
             config_service = UserConfigService()
             user_config = await config_service.get_or_create_user_config(str(current_user.id))
-            cloud_provider = CloudProvider.GOOGLE_DRIVE if storage_type == "google_drive" else CloudProvider.KEEPI_CLOUD
 
-            # Actualizar cloud_provider en user_configs
-            update_data = UserConfigUpdate(cloud_provider=cloud_provider)
-            await config_service.update_user_config(str(current_user.id), update_data)
-            
-            logger.info(f"✅ Storage preference y cloud_provider actualizados exitosamente para usuario {current_user.id}")
+            if storage_type == "keepi_cloud":
+                logger.info(f"🔄 Estableciendo cloud_provider=keepi_cloud para usuario {current_user.id}")
+                update_data = UserConfigUpdate(cloud_provider=CloudProvider.KEEPI_CLOUD)
+                await config_service.update_user_config(str(current_user.id), update_data)
+                logger.info(f"✅ cloud_provider actualizado a keepi_cloud para usuario {current_user.id}")
+            else:
+                # storage_type == "google_drive"
+                logger.info(
+                    "👀 Solicitud de Google Drive: se mantiene cloud_provider en su estado actual "
+                    "(ej. not_configured) hasta que el usuario complete la autorización OAuth."
+                )
+
         except Exception as e:
-            logger.error(f"❌ Error actualizando cloud_provider: {e}")
+            logger.error(f"❌ Error preparando/actualizando cloud_provider: {e}")
             raise HTTPException(status_code=500, detail=f"Error actualizando preferencia: {str(e)}")
         
         # Si es Keepi Cloud, crear carpeta del usuario

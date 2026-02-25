@@ -239,6 +239,20 @@ async def google_oauth_callback(
             print(f"⚠️ Usando user_id por defecto para testing: {user_id}")
         
         tokens = await oauth_service.exchange_code_for_tokens(code, user_id)
+
+        # Si la autorización fue exitosa, marcar al usuario como configurado con Google Drive
+        try:
+            if user_id and user_id != "default_user":
+                from app.services.usuarios import UserConfigService
+                from app.models.user_config import UserConfigUpdate, CloudProvider
+
+                config_service = UserConfigService()
+                await config_service.get_or_create_user_config(user_id)
+                update_data = UserConfigUpdate(cloud_provider=CloudProvider.GOOGLE_DRIVE)
+                await config_service.update_user_config(user_id, update_data)
+        except Exception as cfg_err:
+            # No romper el flujo de OAuth si falla solo la actualización de config
+            print(f"⚠️ Error actualizando cloud_provider a google_drive para user_id={user_id}: {cfg_err}")
         
         return {
             "message": "Autorización exitosa",
