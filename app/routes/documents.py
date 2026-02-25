@@ -231,6 +231,65 @@ async def get_drive_folder_structure(user_token: dict = Depends(verify_token)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/drive/folders/{folder_id}/contents")
+async def get_drive_folder_contents(
+    folder_id: str,
+    user_token: dict = Depends(verify_token),
+):
+    """Obtener contenido de una carpeta: subcarpetas y archivos."""
+    try:
+        from app.services.autenticacion import GoogleOAuthService
+
+        oauth_service = GoogleOAuthService()
+        user_credentials = await oauth_service.refresh_user_tokens(user_token["uid"])
+
+        if not user_credentials:
+            raise HTTPException(
+                status_code=401,
+                detail="Usuario no ha autorizado acceso a Google Drive.",
+            )
+
+        drive_service = GoogleDriveService(user_credentials)
+        parent_id = None if folder_id == "root" else folder_id
+
+        # Subcarpetas
+        subfolders = await drive_service.get_folder_structure(parent_id)
+        for folder in subfolders:
+            files = await drive_service.get_files_in_folder(folder["id"])
+            folder["files_count"] = len(files)
+
+        # Archivos en esta carpeta (Drive API acepta "root" como id de la raíz)
+        files = await drive_service.get_files_in_folder(
+            parent_id if parent_id is not None else "root"
+        )
+
+        # Nombre de la carpeta actual (para breadcrumb)
+        folder_name = "Mi unidad"
+        if parent_id:
+            try:
+                meta = (
+                    drive_service.service.files()
+                    .get(fileId=parent_id, fields="name")
+                    .execute()
+                )
+                folder_name = meta.get("name", folder_id)
+            except Exception:
+                folder_name = folder_id
+
+        return {
+            "folder": {"id": folder_id, "name": folder_name},
+            "folders": subfolders,
+            "files": files,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error listando contenido: {str(e)}"
+        )
+
+
 @router.get("/drive/scan-unclassified")
 async def scan_unclassified_documents(user_token: dict = Depends(verify_token)):
     """Escanear Google Drive para encontrar documentos no clasificados por KIPI"""
