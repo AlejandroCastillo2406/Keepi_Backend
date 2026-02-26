@@ -81,11 +81,15 @@ Analiza el siguiente texto extraído de un documento llamado "{filename}" y devu
    - NO uses categorías muy específicas como "DNI" o "INE"
 {folders_instruction}
 
-2. FECHA DE VENCIMIENTO: Si hay fecha de vencimiento/expiración/validez, en formato YYYY-MM-DD. Si no hay, null.
+2. FECHA DE VENCIMIENTO: Si hay fecha de vencimiento/expiración, en formato YYYY-MM-DD. Si no hay, null. Es importante NO confundir la fecha de expedicion con la fecha de vencimiento..
 
 3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
 
-4. NOMBRE RECOMENDADO DEL ARCHIVO: Sugiere un nombre corto y descriptivo (sin ruta, solo nombre con extensión). Usa la categoría amplia + algo identificador. Ejemplo: "Documentos personales_Identificacion.pdf". Respeta la extensión del archivo original.
+4. NOMBRE RECOMENDADO DEL ARCHIVO: Debe ser MUY ESPECÍFICO. Extrae del texto el dato principal que identifica el documento y úsalo en el nombre. Formato: "[Tipo documento] [Dato identificador].ext".
+   - Documentos personales (RFC, CURP, INE, pasaporte): usa el NOMBRE COMPLETO del titular. Ejemplo: "RFC Cesar Alejandro Castillo Garces.pdf", "INE Maria Lopez Hernandez.pdf".
+   - Facturas/comprobantes: razón social o nombre del proveedor + folio o fecha. Ejemplo: "Factura CFE 2024-01.pdf".
+   - Contratos: partes o objeto + fecha. Ejemplo: "Contrato arrendamiento 2024-03.pdf".
+   - Sin guiones bajos; usa espacios. Respeta la extensión del archivo original.
 
 5. TAGS: Lista de 1 a 5 etiquetas en minúsculas. Sin duplicar la categoría.
 
@@ -94,7 +98,7 @@ Responde SOLO con este JSON válido (sin markdown ni texto extra):
     "category": "nombre_categoria_amplia",
     "confidence": 0.95,
     "expiry_date": "2024-12-31" o null,
-    "recommended_name": "NombreSugerido.pdf",
+    "recommended_name": "RFC Cesar Alejandro Castillo Garces.pdf",
     "tags": ["tag1", "tag2"]
 }}
 
