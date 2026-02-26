@@ -126,8 +126,6 @@ class SubscriptionRepository:
         self._db.refresh(subscription)
 
     def increment_analysis_used(self, subscription: Subscription) -> bool:
-        if subscription.plan != SubscriptionPlan.FREE:
-            return True
         subscription.analysis_used += 1
         self._db.commit()
         self._db.refresh(subscription)

@@ -808,11 +808,23 @@ async def get_mobile_dashboard(
         document_service = DocumentService()
         all_documents = await document_service.get_user_documents(user_token['uid'])
 
-        # KPI: total de documentos clasificados con Keepi (guardados desde el flujo Keepi)
+        # KPI: total de documentos "Con Keepi" solo del almacenamiento configurado (user_config)
+        def _doc_matches_storage(doc, storage: str) -> bool:
+            if not (isinstance(getattr(doc, 'ai_analysis', None), dict) and doc.ai_analysis.get('keepi_classified') is True):
+                return False
+            doc_provider = getattr(doc, 'cloud_provider', None) or ''
+            if doc_provider:
+                return doc_provider == storage
+            # Inferir por campos: Drive tiene drive_file_id; Keepi Cloud tiene s3_key sin drive_file_id
+            if storage == 'google_drive':
+                return bool(getattr(doc, 'drive_file_id', None))
+            if storage == 'keepi_cloud':
+                return bool(getattr(doc, 's3_key', None)) and not getattr(doc, 'drive_file_id', None)
+            return False
+
         total_keepi = sum(
             1 for doc in all_documents
-            if isinstance(getattr(doc, 'ai_analysis', None), dict)
-            and doc.ai_analysis.get('keepi_classified') is True
+            if _doc_matches_storage(doc, storage_preference)
         )
 
         # Documentos por vencer (próximos 30 días)
