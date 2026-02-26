@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 import tempfile
 import os
 from datetime import datetime
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.core.security import verify_token
 from app.services.documento import DocumentService
@@ -287,6 +287,110 @@ async def get_drive_folder_contents(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error listando contenido: {str(e)}"
+        )
+
+
+@router.get("/drive/files/{file_id}/view-url")
+async def get_drive_file_view_url(
+    file_id: str,
+    user_token: dict = Depends(verify_token),
+):
+    """Obtener URL para vista previa/descarga de un archivo de Google Drive."""
+    try:
+        from app.services.autenticacion import GoogleOAuthService
+
+        oauth_service = GoogleOAuthService()
+        user_credentials = await oauth_service.refresh_user_tokens(user_token["uid"])
+
+        if not user_credentials:
+            raise HTTPException(
+                status_code=401,
+                detail="Usuario no ha autorizado acceso a Google Drive.",
+            )
+
+        drive_service = GoogleDriveService(user_credentials)
+        info = await drive_service.get_file_view_info(file_id)
+        if not info.get("view_url"):
+            raise HTTPException(
+                status_code=404,
+                detail="No se pudo obtener la URL de vista previa para este archivo.",
+            )
+        return info
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error obteniendo URL: {str(e)}"
+        )
+
+
+@router.get("/drive/files/{file_id}/content")
+async def get_drive_file_content(
+    file_id: str,
+    user_token: dict = Depends(verify_token),
+):
+    """Descargar contenido del archivo de Google Drive (para guardar en dispositivo)."""
+    try:
+        from app.services.autenticacion import GoogleOAuthService
+
+        oauth_service = GoogleOAuthService()
+        user_credentials = await oauth_service.refresh_user_tokens(user_token["uid"])
+
+        if not user_credentials:
+            raise HTTPException(
+                status_code=401,
+                detail="Usuario no ha autorizado acceso a Google Drive.",
+            )
+
+        drive_service = GoogleDriveService(user_credentials)
+        file_content, file_name, mime_type = await drive_service.download_file(file_id)
+
+        return Response(
+            content=file_content,
+            media_type=mime_type or "application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_name}"',
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error descargando archivo: {str(e)}"
+        )
+
+
+@router.delete("/drive/files/{file_id}")
+async def delete_drive_file(
+    file_id: str,
+    user_token: dict = Depends(verify_token),
+):
+    """Eliminar archivo de Google Drive (permanente)."""
+    try:
+        from app.services.autenticacion import GoogleOAuthService
+
+        oauth_service = GoogleOAuthService()
+        user_credentials = await oauth_service.refresh_user_tokens(user_token["uid"])
+
+        if not user_credentials:
+            raise HTTPException(
+                status_code=401,
+                detail="Usuario no ha autorizado acceso a Google Drive.",
+            )
+
+        drive_service = GoogleDriveService(user_credentials)
+        success = await drive_service.delete_file(file_id)
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="No se pudo eliminar el archivo.",
+            )
+        return {"success": True, "message": "Archivo eliminado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error eliminando archivo: {str(e)}"
         )
 
 

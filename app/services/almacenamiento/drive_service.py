@@ -177,7 +177,24 @@ class GoogleDriveService:
         except HttpError as error:
             print(f'Error obteniendo URL de descarga: {error}')
             return ''
-    
+
+    async def get_file_view_info(self, file_id: str) -> Dict[str, Any]:
+        """Obtener URLs para vista previa y descarga del archivo"""
+        try:
+            file = self.service.files().get(
+                fileId=file_id,
+                fields='name, mimeType, webViewLink, webContentLink'
+            ).execute()
+            return {
+                'view_url': file.get('webViewLink') or file.get('webContentLink') or '',
+                'download_url': file.get('webContentLink', ''),
+                'name': file.get('name', ''),
+                'mime_type': file.get('mimeType', ''),
+            }
+        except HttpError as error:
+            print(f'Error obteniendo info de archivo: {error}')
+            raise
+
     async def get_all_files(self) -> List[Dict[str, Any]]:
         """Obtener todos los archivos del usuario en Google Drive"""
         try:
