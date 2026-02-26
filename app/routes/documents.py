@@ -235,6 +235,47 @@ async def get_drive_folder_structure(user_token: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/s3/folders/contents")
+async def get_s3_folder_contents(
+    path: str = Query(..., description="Ruta de carpeta S3 (ej. users/{uid}/Documentos personales)"),
+    user_token: dict = Depends(verify_token),
+):
+    """Contenido de una carpeta en Keepi Cloud (S3). path debe empezar con users/{uid}/."""
+    try:
+        uid = user_token["uid"]
+        if not path.startswith(f"users/{uid}/") and path != f"users/{uid}":
+            raise HTTPException(status_code=403, detail="Ruta no permitida")
+        from app.services.almacenamiento import S3Service
+        s3 = S3Service()
+        folder_suffix = path.replace(f"users/{uid}/", "", 1).strip("/")
+        result = await s3.list_user_documents(uid, folder=folder_suffix if folder_suffix else None)
+        documents = result.get("documents", [])
+        subfolders = result.get("folders", [])
+        folder_name = path.split("/")[-1] if "/" in path else "Keepi Cloud"
+        files = [
+            {
+                "id": d.get("file_path", ""),
+                "name": d.get("filename", d.get("file_path", "").split("/")[-1]),
+                "size": str(d.get("size", 0)),
+                "keepi_verified": True,
+            }
+            for d in documents
+        ]
+        folders_for_response = [
+            {"id": f.get("path", f.get("name", "")).rstrip("/"), "name": f.get("name", ""), "files_count": 0}
+            for f in subfolders
+        ]
+        return {
+            "folder": {"id": path, "name": folder_name},
+            "folders": folders_for_response,
+            "files": files,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/drive/folders/{folder_id}/contents")
 async def get_drive_folder_contents(
     folder_id: str,
