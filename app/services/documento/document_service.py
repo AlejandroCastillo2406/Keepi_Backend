@@ -393,29 +393,28 @@ class DocumentService:
                 "subscription_info": ai_analysis.get("subscription_info", {}),
             }
         if ai_analysis.get("suggested_category") == "MANUAL_CLASSIFICATION_REQUIRED":
-            base, ext = file_name.rsplit(".", 1) if "." in file_name else (file_name, "")
             return {
                 "manual_classification_required": True,
                 "message": ai_analysis.get("manual_classification_message", "Clasificación manual"),
                 "category": "Pendiente de clasificación",
                 "recommended_name": file_name,
                 "expiry_date": None,
-                "document_number": ai_analysis.get("document_number"),
-                "organization": ai_analysis.get("organization"),
                 "tags": ai_analysis.get("tags", []),
                 "confidence_score": 0,
             }
         category = ai_analysis.get("suggested_category", "Documento")
-        safe_cat = re.sub(r"[^\w\s\-]", "", category).strip().replace(" ", "_")[:40]
-        base = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
-        ext = file_name.rsplit(".", 1)[-1] if "." in file_name else ""
-        recommended_name = f"{safe_cat}_{base}.{ext}" if ext else f"{safe_cat}_{base}"
+        recommended_name = ai_analysis.get("recommended_name")
+        if not recommended_name or not recommended_name.strip():
+            safe_cat = re.sub(r"[^\w\s\-]", "", category).strip().replace(" ", "_")[:40]
+            base = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+            ext = file_name.rsplit(".", 1)[-1] if "." in file_name else ""
+            recommended_name = f"{safe_cat}_{base}.{ext}" if ext else f"{safe_cat}_{base}"
+        else:
+            recommended_name = recommended_name.strip()
         return {
             "category": category,
             "recommended_name": recommended_name,
             "expiry_date": ai_analysis.get("expiry_date"),
-            "document_number": ai_analysis.get("document_number"),
-            "organization": ai_analysis.get("organization"),
             "tags": ai_analysis.get("tags", []),
             "confidence_score": ai_analysis.get("confidence_score", 0.5),
             "manual_classification_required": False,
@@ -436,7 +435,8 @@ class DocumentService:
         organization: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> ModelDocumentResponse:
-        """Guardar documento ya analizado: crear carpeta de categoría si no existe, subir archivo y crear registro."""
+        """Guardar documento ya analizado: crear carpeta de categoría si no existe (categoría normalizada), subir archivo y crear registro."""
+        category = category.strip().title() if category else category
         user_config = await self.user_config_service.get_user_config(user_id)
         storage_preference = (
             user_config.cloud_provider.value if user_config and user_config.cloud_provider else "keepi_cloud"
@@ -485,8 +485,6 @@ class DocumentService:
             s3_key = f"drive/{drive_folder_id}/{drive_file_id}"
         ai_analysis = {
             "keepi_classified": True,
-            "document_number": document_number,
-            "organization": organization,
         }
         document_data = DocumentCreate(
             name=save_as_name,

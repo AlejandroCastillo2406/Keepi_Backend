@@ -32,8 +32,6 @@ class DocumentAnalysisService:
                     "metadata": {},
                     "tags": ["subscription_required"],
                     "expiry_date": None,
-                    "document_number": None,
-                    "organization": None,
                     "processing_time_ms": 0,
                     "ai_model_version": "1.0.0",
                     "subscription_required_message": "Has alcanzado el límite de 2 análisis gratuitos. Suscríbete para obtener análisis ilimitados.",
@@ -57,8 +55,6 @@ class DocumentAnalysisService:
                     "metadata": {},
                     "tags": ["manual_classification_required"],
                     "expiry_date": None,
-                    "document_number": None,
-                    "organization": None,
                     "processing_time_ms": 0,
                     "ai_model_version": "1.0.0",
                     "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?"
@@ -75,8 +71,6 @@ class DocumentAnalysisService:
                     "metadata": {},
                     "tags": ["manual_classification_required"],
                     "expiry_date": None,
-                    "document_number": None,
-                    "organization": None,
                     "processing_time_ms": 0,
                     "ai_model_version": "1.0.0",
                     "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?"
@@ -84,8 +78,7 @@ class DocumentAnalysisService:
 
             confidence_score = bedrock_result.get("confidence", 0.5)
             expiry_date = bedrock_result.get("expiry_date") or self._extract_expiry_date_regex_only(extracted_text)
-            document_number = bedrock_result.get("document_number") or await self._extract_document_number(extracted_text)
-            organization = bedrock_result.get("organization") or await self._extract_organization(extracted_text)
+            recommended_name = bedrock_result.get("recommended_name")
             tags = list(bedrock_result.get("tags") or [])
             if suggested_category.lower() not in [t.lower() for t in tags]:
                 tags.insert(0, suggested_category.lower())
@@ -102,8 +95,7 @@ class DocumentAnalysisService:
                 "metadata": metadata,
                 "tags": tags[:10],
                 "expiry_date": expiry_date,
-                "document_number": document_number,
-                "organization": organization,
+                "recommended_name": recommended_name,
                 "processing_time_ms": 0,
                 "ai_model_version": "1.0.0",
                 "subscription_info": {
@@ -124,8 +116,6 @@ class DocumentAnalysisService:
                 "metadata": {},
                 "tags": ["error"],
                 "expiry_date": None,
-                "document_number": None,
-                "organization": None,
                 "processing_time_ms": 0,
                 "ai_model_version": "1.0.0"
             }

@@ -30,8 +30,7 @@ class BedrockService:
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
-                "document_number": None,
-                "organization": None,
+                "recommended_name": None,
                 "tags": [],
                 "error": "Bedrock no disponible"
             }
@@ -54,8 +53,7 @@ class BedrockService:
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
-                "document_number": None,
-                "organization": None,
+                "recommended_name": None,
                 "tags": [],
                 "error": str(e)
             }
@@ -71,19 +69,16 @@ Analiza el siguiente texto extraído de un documento llamado "{filename}" y devu
 
 3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
 
-4. NÚMERO DE DOCUMENTO: Folio, código, número de contrato o identificador principal si aparece. Si no, null.
+4. NOMBRE RECOMENDADO DEL ARCHIVO: Sugiere un nombre corto y descriptivo para guardar el archivo (sin ruta, solo nombre con extensión). Usa la categoría + algo identificador si aplica. Ejemplo: "Factura_Electricidad_2024.pdf", "DNI_Frontal.jpg". Si el nombre original tiene extensión, respétala.
 
-5. ORGANIZACIÓN: Empresa, institución, banco o entidad que emite el documento si aparece. Si no, null.
-
-6. TAGS: Lista de 1 a 5 etiquetas en minúsculas (ej: ["factura", "tributario"], ["identificación"], ["académico"]). Sin duplicar la categoría.
+5. TAGS: Lista de 1 a 5 etiquetas en minúsculas (ej: ["factura", "tributario"], ["identificación"]). Sin duplicar la categoría.
 
 Responde SOLO con este JSON válido (sin markdown ni texto extra):
 {{
     "category": "nombre_categoria",
     "confidence": 0.95,
     "expiry_date": "2024-12-31" o null,
-    "document_number": "XXX-123" o null,
-    "organization": "Nombre entidad" o null,
+    "recommended_name": "NombreSugerido.pdf",
     "tags": ["tag1", "tag2"]
 }}
 
@@ -157,12 +152,11 @@ TEXTO DEL DOCUMENTO:
             else:
                 expiry_date = None
             
-            document_number = result.get('document_number')
-            if document_number is not None and (not isinstance(document_number, str) or document_number.strip() in ('', 'null')):
-                document_number = None
-            organization = result.get('organization')
-            if organization is not None and (not isinstance(organization, str) or organization.strip() in ('', 'null')):
-                organization = None
+            recommended_name = result.get('recommended_name')
+            if recommended_name is not None and isinstance(recommended_name, str) and recommended_name.strip():
+                recommended_name = recommended_name.strip()
+            else:
+                recommended_name = None
             tags = result.get('tags')
             if not isinstance(tags, list):
                 tags = []
@@ -172,8 +166,7 @@ TEXTO DEL DOCUMENTO:
                 "category": category,
                 "confidence": confidence,
                 "expiry_date": expiry_date,
-                "document_number": document_number,
-                "organization": organization,
+                "recommended_name": recommended_name,
                 "tags": tags,
                 "error": None
             }
@@ -184,8 +177,7 @@ TEXTO DEL DOCUMENTO:
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
-                "document_number": None,
-                "organization": None,
+                "recommended_name": None,
                 "tags": [],
                 "error": "Error parseando respuesta de Claude"
             }
@@ -195,8 +187,7 @@ TEXTO DEL DOCUMENTO:
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
-                "document_number": None,
-                "organization": None,
+                "recommended_name": None,
                 "tags": [],
                 "error": str(e)
             }

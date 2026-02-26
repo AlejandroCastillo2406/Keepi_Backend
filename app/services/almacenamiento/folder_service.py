@@ -15,9 +15,8 @@ class FolderService:
         # drive_service se inicializará cuando sea necesario con las credenciales del usuario
     
     async def create_category_folder(self, user_id: str, category: str, storage_preference: str) -> Dict[str, Any]:
-        """
-        Crea una carpeta para la categoría en el almacenamiento configurado
-        """
+        """Crea una carpeta para la categoría. La categoría se normaliza (primera letra mayúscula por palabra)."""
+        category = self._normalize_category_name(category) or category
         try:
             # Limpiar nombre de categoría para usar como nombre de carpeta
             # Pasar storage_preference para usar el método correcto de sanitización
@@ -180,11 +179,17 @@ class FolderService:
             logger.error(traceback.format_exc())
             return None
     
+    def _normalize_category_name(self, category: str) -> str:
+        """Normaliza el nombre de categoría: primera letra de cada palabra en mayúscula, resto en minúscula."""
+        return category.strip().title() if category else ""
+
     async def ensure_category_folder_exists(self, user_id: str, category: str, storage_preference: str) -> Dict[str, Any]:
         """
-        Asegura que existe una carpeta para la categoría, la crea si no existe
+        Asegura que existe una carpeta para la categoría, la crea si no existe.
+        La categoría se normaliza (primera letra mayúscula por palabra) para no depender de mayúsculas/minúsculas.
         """
         try:
+            category = self._normalize_category_name(category) or category
             if storage_preference == 'keepi_cloud':
                 # Para keepi_cloud, usar sanitización completa (sin espacios ni caracteres especiales)
                 folder_name = self._clean_folder_name(category, storage_preference)
