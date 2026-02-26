@@ -48,10 +48,25 @@ class DocumentAnalysisService:
             # Extraer texto del documento
             extracted_text = await self._extract_text(content, content_type, filename)
             
-            # Clasificar documento
-            suggested_category = await self._classify_document(extracted_text, filename)
-            
-            # Si requiere clasificación manual, devolver respuesta especial
+            # Si no se pudo extraer texto suficiente, clasificación manual
+            if extracted_text == "MANUAL_CLASSIFICATION_REQUIRED" or not extracted_text or len(extracted_text.strip()) < 30:
+                return {
+                    "suggested_category": "MANUAL_CLASSIFICATION_REQUIRED",
+                    "confidence_score": 0.0,
+                    "extracted_text": "",
+                    "metadata": {},
+                    "tags": ["manual_classification_required"],
+                    "expiry_date": None,
+                    "document_number": None,
+                    "organization": None,
+                    "processing_time_ms": 0,
+                    "ai_model_version": "1.0.0",
+                    "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?"
+                }
+
+            # Una sola llamada a Bedrock: categoría, confianza, fecha, número, organización, tags
+            bedrock_result = await self.bedrock_service.analyze_document_content(extracted_text, filename)
+            suggested_category = bedrock_result.get("category", "Documento")
             if suggested_category == "MANUAL_CLASSIFICATION_REQUIRED":
                 return {
                     "suggested_category": "MANUAL_CLASSIFICATION_REQUIRED",
@@ -66,42 +81,34 @@ class DocumentAnalysisService:
                     "ai_model_version": "1.0.0",
                     "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?"
                 }
-            
-            # Extraer metadatos
+
+            confidence_score = bedrock_result.get("confidence", 0.5)
+            expiry_date = bedrock_result.get("expiry_date") or self._extract_expiry_date_regex_only(extracted_text)
+            document_number = bedrock_result.get("document_number") or await self._extract_document_number(extracted_text)
+            organization = bedrock_result.get("organization") or await self._extract_organization(extracted_text)
+            tags = list(bedrock_result.get("tags") or [])
+            if suggested_category.lower() not in [t.lower() for t in tags]:
+                tags.insert(0, suggested_category.lower())
+            tags = self._merge_keyword_tags(extracted_text, tags)
+
             metadata = await self._extract_metadata(extracted_text)
-            
-            # Generar tags
-            tags = await self._generate_tags(extracted_text, suggested_category)
-            
-            # Calcular confianza
-            confidence_score = await self._calculate_confidence(extracted_text, suggested_category)
-            
-            # Extraer fecha de vencimiento
-            expiry_date = await self._extract_expiry_date(extracted_text)
-            
-            # Extraer número de documento
-            document_number = await self._extract_document_number(extracted_text)
-            
-            # Extraer organización
-            organization = await self._extract_organization(extracted_text)
-            
-            # ✅ INCREMENTAR CONTADOR DE ANÁLISIS USADO
+
             await self.subscription_service.increment_analysis_usage(user_id, db)
-            
+
             return {
                 "suggested_category": suggested_category,
                 "confidence_score": confidence_score,
                 "extracted_text": extracted_text,
                 "metadata": metadata,
-                "tags": tags,
+                "tags": tags[:10],
                 "expiry_date": expiry_date,
                 "document_number": document_number,
                 "organization": organization,
-                "processing_time_ms": 0,  # TODO: Implementar medición de tiempo
+                "processing_time_ms": 0,
                 "ai_model_version": "1.0.0",
                 "subscription_info": {
                     "current_plan": analysis_check["plan"],
-                    "analysis_used": analysis_check["analysis_used"] + 1,  # +1 porque acabamos de usar uno
+                    "analysis_used": analysis_check["analysis_used"] + 1,
                     "analysis_remaining": max(0, analysis_check["analysis_remaining"] - 1),
                     "needs_subscription": False
                 }
@@ -462,34 +469,57 @@ class DocumentAnalysisService:
             length_confidence = min(text_length / 1000, 1.0)
             return round(length_confidence, 2)
     
-    async def _extract_expiry_date(self, text: str) -> Optional[str]:
-        """Extraer fecha de vencimiento del texto usando Bedrock"""
-        try:
-            # Usar Bedrock para extraer fecha de vencimiento
-            bedrock_result = await self.bedrock_service.analyze_document_content(text, "temp")
-            expiry_date = bedrock_result.get('expiry_date')
-            
-            if expiry_date and expiry_date != "null":
-                return expiry_date
-            
-            # Fallback: buscar patrones de fecha de vencimiento
-            expiry_patterns = [
+    def _extract_expiry_date_regex_only(self, text: str) -> Optional[str]:
+        """Solo regex para fecha de vencimiento (sin Bedrock). Usado como fallback."""
+        expiry_patterns = [
             r'venc[ei]miento[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
             r'expir[ae][:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
             r'validez[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
             r'vigencia[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})'
-            ]
-            
-            for pattern in expiry_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    return match.group(1)
-            
-            return None
-                
+        ]
+        for pattern in expiry_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
+
+    def _merge_keyword_tags(self, text: str, tags: List[str]) -> List[str]:
+        """Añade tags por palabras clave en el texto (sin Bedrock)."""
+        text_lower = text.lower()
+        basic_tags = {
+            "urgente": ["urgente", "inmediato", "asap"],
+            "importante": ["importante", "crítico", "prioritario"],
+            "confidencial": ["confidencial", "privado", "secreto"],
+            "borrador": ["borrador", "draft", "temporal"]
+        }
+        for tag, keywords in basic_tags.items():
+            if tag not in tags and any(kw in text_lower for kw in keywords):
+                tags.append(tag)
+        keyword_map = [
+            (["certificado", "diploma", "título", "académico"], "académico"),
+            (["contrato", "nómina", "trabajo", "empleo"], "laboral"),
+            (["receta", "análisis", "médico", "salud"], "médico"),
+            (["factura", "estado", "cuenta", "pago"], "financiero"),
+            (["dni", "pasaporte", "licencia", "identidad"], "identificación"),
+            (["matrícula", "seguro", "itv", "auto"], "vehículo"),
+            (["alquiler", "escritura", "casa", "hogar"], "vivienda"),
+        ]
+        for words, tag in keyword_map:
+            if tag not in tags and any(w in text_lower for w in words):
+                tags.append(tag)
+        return list(dict.fromkeys(tags))[:10]
+
+    async def _extract_expiry_date(self, text: str) -> Optional[str]:
+        """Extraer fecha de vencimiento del texto usando Bedrock (legacy: varias llamadas)."""
+        try:
+            bedrock_result = await self.bedrock_service.analyze_document_content(text, "temp")
+            expiry_date = bedrock_result.get('expiry_date')
+            if expiry_date and expiry_date != "null":
+                return expiry_date
+            return self._extract_expiry_date_regex_only(text)
         except Exception as e:
             print(f"Error extrayendo fecha de vencimiento con Bedrock: {e}")
-            return None
+            return self._extract_expiry_date_regex_only(text)
     
     async def _extract_document_number(self, text: str) -> Optional[str]:
         """Extraer número de documento del texto"""

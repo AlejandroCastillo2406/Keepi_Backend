@@ -382,6 +382,7 @@ class DocumentService:
     ) -> Dict[str, Any]:
         """Solo analizar documento con Bedrock. No guarda ni sube. Para flujo móvil en 2 pasos."""
         import re
+        logger.info("analyze_document_only: usuario=%s, archivo=%s, tamaño=%s bytes", user_id, file_name, len(file_data))
         ai_analysis = await self.ai_analysis_service.analyze_document(
             file_data, file_type, file_name, user_id, self.db
         )

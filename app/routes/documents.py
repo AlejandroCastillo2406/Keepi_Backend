@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from typing import List, Optional, Dict, Any
+import logging
 import tempfile
 import os
 from datetime import datetime
 from fastapi.responses import JSONResponse, Response
 
 from app.core.security import verify_token
+
+logger = logging.getLogger(__name__)
 from app.services.documento import DocumentService
 from app.services.almacenamiento import GoogleDriveService
 from app.services.aws import DocumentAnalysisService
@@ -905,10 +908,14 @@ async def mobile_analyze_document(
     user_token: dict = Depends(verify_token),
 ):
     """Paso 1: Solo analizar archivo con Bedrock. No guarda. Devuelve resumen para el modal."""
+    user_id = user_token.get("uid", "unknown")
+    logger.info("[mobile/analyze] Solicitud recibida: usuario=%s, archivo=%s", user_id, file.filename)
     try:
         if not file.filename:
+            logger.warning("[mobile/analyze] Archivo sin nombre")
             raise HTTPException(status_code=400, detail="Nombre de archivo requerido")
         content = await file.read()
+        logger.info("[mobile/analyze] Archivo leído: %s bytes. Iniciando análisis Bedrock...", len(content))
         document_service = DocumentService()
         result = await document_service.analyze_document_only(
             user_token["uid"],
@@ -917,11 +924,14 @@ async def mobile_analyze_document(
             file.content_type or "application/octet-stream",
         )
         if result.get("subscription_required"):
+            logger.info("[mobile/analyze] Respuesta 402: suscripción requerida para usuario=%s", user_id)
             return JSONResponse(status_code=402, content=result)
+        logger.info("[mobile/analyze] Análisis completado para usuario=%s, categoría=%s", user_id, result.get("category"))
         return result
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("[mobile/analyze] Error analizando documento: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

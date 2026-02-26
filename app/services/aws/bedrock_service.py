@@ -30,6 +30,9 @@ class BedrockService:
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
+                "document_number": None,
+                "organization": None,
+                "tags": [],
                 "error": "Bedrock no disponible"
             }
 
@@ -51,34 +54,41 @@ class BedrockService:
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
+                "document_number": None,
+                "organization": None,
+                "tags": [],
                 "error": str(e)
             }
 
     def _create_analysis_prompt(self, text: str, filename: str) -> str:
-        """Crea el prompt para Claude 3 Haiku"""
+        """Crea el prompt para Claude 3 Haiku (una sola llamada con todo)."""
         return f"""
-Analiza el siguiente texto extraído de un documento llamado "{filename}" y determina:
+Analiza el siguiente texto extraído de un documento llamado "{filename}" y devuelve en UN solo JSON:
 
-1. CATEGORÍA: Clasifica el documento en una categoría apropiada basándote en su contenido(NO categoria tan exacta). 
-   - NO uses categorías predefinidas
-   - Determina la categoría más apropiada según el contexto del documento
-   - Usa un nombre descriptivo pero conciso (máximo 3 palabras)
-   - La categoría debe ser en ASCII.
-   - Ejemplos de categorías que podrías usar: "Certificado Académico", "Contrato Laboral", "Factura", "Receta Médica", "DNI", "Seguro Vehículo", etc.
+1. CATEGORÍA: Clasifica el documento (máximo 3 palabras, ASCII). Ejemplos: "Certificado Académico", "Contrato Laboral", "Factura", "Receta Médica", "DNI", "Seguro Vehículo".
 
-2. FECHA DE VENCIMIENTO: Si encuentras alguna fecha que parezca ser de vencimiento, expírala en formato YYYY-MM-DD. Si no hay fecha de vencimiento, responde "null".
+2. FECHA DE VENCIMIENTO: Si hay fecha de vencimiento/expiración/validez, en formato YYYY-MM-DD. Si no hay, null.
 
-3. CONFIANZA: Evalúa qué tan seguro estás de la categorización (0.0 a 1.0).
+3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
 
-Responde SOLO en formato JSON válido:
+4. NÚMERO DE DOCUMENTO: Folio, código, número de contrato o identificador principal si aparece. Si no, null.
+
+5. ORGANIZACIÓN: Empresa, institución, banco o entidad que emite el documento si aparece. Si no, null.
+
+6. TAGS: Lista de 1 a 5 etiquetas en minúsculas (ej: ["factura", "tributario"], ["identificación"], ["académico"]). Sin duplicar la categoría.
+
+Responde SOLO con este JSON válido (sin markdown ni texto extra):
 {{
-    "category": "nombre_de_la_categoria_dinamica",
+    "category": "nombre_categoria",
     "confidence": 0.95,
-    "expiry_date": "2024-12-31" o null
+    "expiry_date": "2024-12-31" o null,
+    "document_number": "XXX-123" o null,
+    "organization": "Nombre entidad" o null,
+    "tags": ["tag1", "tag2"]
 }}
 
 TEXTO DEL DOCUMENTO:
-{text[:4000]}  # Limitar a 4000 caracteres para evitar límites de tokens
+{text[:4000]}
 """
 
     async def _call_claude(self, prompt: str) -> str:
@@ -147,19 +157,36 @@ TEXTO DEL DOCUMENTO:
             else:
                 expiry_date = None
             
+            document_number = result.get('document_number')
+            if document_number is not None and (not isinstance(document_number, str) or document_number.strip() in ('', 'null')):
+                document_number = None
+            organization = result.get('organization')
+            if organization is not None and (not isinstance(organization, str) or organization.strip() in ('', 'null')):
+                organization = None
+            tags = result.get('tags')
+            if not isinstance(tags, list):
+                tags = []
+            tags = [str(t).strip().lower() for t in tags if t and str(t).strip()][:10]
+
             return {
                 "category": category,
                 "confidence": confidence,
                 "expiry_date": expiry_date,
+                "document_number": document_number,
+                "organization": organization,
+                "tags": tags,
                 "error": None
             }
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"Error parseando respuesta de Claude: {e}")
             return {
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
+                "document_number": None,
+                "organization": None,
+                "tags": [],
                 "error": "Error parseando respuesta de Claude"
             }
         except Exception as e:
@@ -168,6 +195,9 @@ TEXTO DEL DOCUMENTO:
                 "category": "Sin categoría",
                 "confidence": 0.0,
                 "expiry_date": None,
+                "document_number": None,
+                "organization": None,
+                "tags": [],
                 "error": str(e)
             }
 
