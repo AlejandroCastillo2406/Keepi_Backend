@@ -131,12 +131,8 @@ async def setup_cloud_storage(
                 update_data = UserConfigUpdate(cloud_provider=CloudProvider.KEEPI_CLOUD)
                 await config_service.update_user_config(str(current_user.id), update_data)
                 logger.info(f"✅ cloud_provider actualizado a keepi_cloud para usuario {current_user.id}")
-            else:
-                # storage_type == "google_drive"
-                logger.info(
-                    "👀 Solicitud de Google Drive: se mantiene cloud_provider en su estado actual "
-                    "(ej. not_configured) hasta que el usuario complete la autorización OAuth."
-                )
+            # Para google_drive se actualiza más abajo solo si ya tiene credenciales;
+            # si no, el callback OAuth actualizará al completar la autorización.
 
         except Exception as e:
             logger.error(f"❌ Error preparando/actualizando cloud_provider: {e}")
@@ -151,11 +147,13 @@ async def setup_cloud_storage(
         # Si es Google Drive, verificar si necesita autorización
         if storage_type == "google_drive":
             from app.services.autenticacion import GoogleOAuthService
+            from app.models.user_config import UserConfigUpdate, CloudProvider
+
             oauth_service = GoogleOAuthService()
             credentials = await oauth_service.refresh_user_tokens(str(current_user.id))
-            
+
             if not credentials:
-                # Generar URL de autorización
+                # Generar URL de autorización; cloud_provider se actualizará en el callback OAuth
                 auth_data = await oauth_service.get_authorization_url(str(current_user.id))
                 return {
                     "success": True,
@@ -164,7 +162,10 @@ async def setup_cloud_storage(
                     "authorization_required": True,
                     "authorization_url": auth_data.get('authorization_url')
                 }
-        
+            # Ya tiene credenciales: actualizar cloud_provider a google_drive para que la UI muestre Google Drive seleccionado
+            update_data = UserConfigUpdate(cloud_provider=CloudProvider.GOOGLE_DRIVE)
+            await config_service.update_user_config(str(current_user.id), update_data)
+            logger.info(f"✅ cloud_provider actualizado a google_drive (ya tenía credenciales) para usuario {current_user.id}")
         return {
             "success": True,
             "message": f"Almacenamiento configurado como {storage_type}",
