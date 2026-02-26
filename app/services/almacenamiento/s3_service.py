@@ -8,12 +8,15 @@ from botocore.exceptions import ClientError
 import uuid
 from datetime import datetime, timedelta
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
+
 
 class S3Service:
     def __init__(self):
         self.s3_client = boto3.client('s3')
-        self.bucket_name = 'keepi-bucket'  # Bucket principal de Keepi
+        self.bucket_name = (settings.aws_s3_bucket or 'keepi-bucket').strip() or 'keepi-bucket'
         
     async def ensure_bucket_exists(self) -> bool:
         """
@@ -222,49 +225,68 @@ class S3Service:
     
     async def list_user_documents(self, user_id: str, folder: str = None) -> List[Dict[str, Any]]:
         """
-        Lista todos los documentos del usuario
+        Lista todos los documentos del usuario (con paginación).
+        Si head_object falla en un objeto, se incluye igual con datos básicos del listado.
         """
         try:
             prefix = f"users/{user_id}/"
             if folder:
                 prefix += f"{folder}/"
             
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket_name,
-                Prefix=prefix,
-                Delimiter='/'
-            )
-            
             documents = []
-            
-            # Procesar archivos
-            for obj in response.get('Contents', []):
-                if obj['Key'].endswith('/'):  # Saltar carpetas
-                    continue
-                
-                # Obtener metadatos
-                metadata_response = self.s3_client.head_object(
-                    Bucket=self.bucket_name,
-                    Key=obj['Key']
-                )
-                
-                documents.append({
-                    'file_path': obj['Key'],
-                    'filename': metadata_response['Metadata'].get('original_filename', obj['Key'].split('/')[-1]),
-                    'size': obj['Size'],
-                    'last_modified': obj['LastModified'].isoformat(),
-                    'content_type': metadata_response['ContentType'],
-                    'folder': metadata_response['Metadata'].get('folder', 'other')
-                })
-            
-            # Procesar carpetas
             folders = []
-            for prefix_obj in response.get('CommonPrefixes', []):
-                folder_name = prefix_obj['Prefix'].split('/')[-2]  # Obtener nombre de la carpeta
-                folders.append({
-                    'name': folder_name,
-                    'path': prefix_obj['Prefix']
-                })
+            continuation_token = None
+            
+            while True:
+                kwargs = {
+                    'Bucket': self.bucket_name,
+                    'Prefix': prefix,
+                    'Delimiter': '/'
+                }
+                if continuation_token:
+                    kwargs['ContinuationToken'] = continuation_token
+                response = self.s3_client.list_objects_v2(**kwargs)
+                
+                for obj in response.get('Contents', []):
+                    if obj['Key'].endswith('/'):
+                        continue
+                    filename = obj['Key'].split('/')[-1]
+                    size = obj.get('Size', 0)
+                    try:
+                        metadata_response = self.s3_client.head_object(
+                            Bucket=self.bucket_name,
+                            Key=obj['Key']
+                        )
+                        meta = metadata_response.get('Metadata') or {}
+                        documents.append({
+                            'file_path': obj['Key'],
+                            'filename': meta.get('original_filename', filename),
+                            'size': size,
+                            'last_modified': obj.get('LastModified').isoformat() if obj.get('LastModified') else '',
+                            'content_type': metadata_response.get('ContentType', ''),
+                            'folder': meta.get('folder', 'other')
+                        })
+                    except Exception as head_err:
+                        logger.warning("head_object falló para %s: %s", obj['Key'], head_err)
+                        documents.append({
+                            'file_path': obj['Key'],
+                            'filename': filename,
+                            'size': size,
+                            'last_modified': obj.get('LastModified').isoformat() if obj.get('LastModified') else '',
+                            'content_type': '',
+                            'folder': 'other'
+                        })
+                
+                for prefix_obj in response.get('CommonPrefixes', []):
+                    folder_name = prefix_obj['Prefix'].rstrip('/').split('/')[-1]
+                    folders.append({
+                        'name': folder_name,
+                        'path': prefix_obj['Prefix']
+                    })
+                
+                continuation_token = response.get('NextContinuationToken')
+                if not continuation_token:
+                    break
             
             return {
                 'documents': documents,

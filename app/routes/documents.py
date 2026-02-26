@@ -315,6 +315,10 @@ async def get_keepi_cloud_root(
                 "size": str(doc.get("size", 0)),
                 "keepi_verified": True,
             })
+        logger.info(
+            "keepi-cloud/root uid=%s prefix=%s folders=%s root_files=%s",
+            uid, user_prefix, len(folders), len(root_files)
+        )
         return {"folders": folders, "root_files": root_files}
     except Exception as e:
         logger.exception("Error leyendo Keepi Cloud root: %s", e)
