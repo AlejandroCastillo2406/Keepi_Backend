@@ -21,9 +21,12 @@ class BedrockService:
             logger.error(f"Error inicializando Bedrock: {e}")
             self.bedrock_client = None
 
-    async def analyze_document_content(self, text: str, filename: str) -> Dict[str, Any]:
+    async def analyze_document_content(
+        self, text: str, filename: str, existing_folder_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
-        Analiza el contenido del documento usando Claude 3 Haiku
+        Analiza el contenido del documento usando Claude 3 Haiku.
+        existing_folder_names: nombres de carpetas existentes del usuario; si el documento encaja en una, usarla.
         """
         if not self.bedrock_client:
             return {
@@ -36,8 +39,7 @@ class BedrockService:
             }
 
         try:
-            # Crear prompt para Claude
-            prompt = self._create_analysis_prompt(text, filename)
+            prompt = self._create_analysis_prompt(text, filename, existing_folder_names or [])
             
             # Llamar a Claude
             response = await self._call_claude(prompt)
@@ -58,24 +60,38 @@ class BedrockService:
                 "error": str(e)
             }
 
-    def _create_analysis_prompt(self, text: str, filename: str) -> str:
+    def _create_analysis_prompt(
+        self, text: str, filename: str, existing_folder_names: List[str]
+    ) -> str:
         """Crea el prompt para Claude 3 Haiku (una sola llamada con todo)."""
+        folders_instruction = ""
+        if existing_folder_names:
+            folders_list = ", ".join(f'"{n}"' for n in existing_folder_names[:50])
+            folders_instruction = f"""
+CARPETAS EXISTENTES DEL USUARIO: [{folders_list}]
+- Si el documento encaja claramente en UNA de estas categorías, usa EXACTAMENTE ese nombre en "category".
+- Si no encaja en ninguna, propón una NUEVA categoría amplia (máximo 3 palabras).
+"""
+
         return f"""
 Analiza el siguiente texto extraído de un documento llamado "{filename}" y devuelve en UN solo JSON:
 
-1. CATEGORÍA: Clasifica el documento (máximo 3 palabras, ASCII). Ejemplos: "Certificado Académico", "Contrato Laboral", "Factura", "Receta Médica", "DNI", "Seguro Vehículo".
+1. CATEGORÍA: Usa categorías AMPLIAS que agrupen varios tipos de documento (máximo 3 palabras, ASCII).
+   - Ejemplos de categorías amplias: "Documentos personales" (para DNI, RFC, CURP, INE, pasaporte, cédula), "Facturas", "Contratos", "Recetas médicas", "Certificados académicos", "Seguros", "Comprobantes fiscales".
+   - NO uses categorías muy específicas como "DNI" o "INE"
+{folders_instruction}
 
 2. FECHA DE VENCIMIENTO: Si hay fecha de vencimiento/expiración/validez, en formato YYYY-MM-DD. Si no hay, null.
 
 3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
 
-4. NOMBRE RECOMENDADO DEL ARCHIVO: Sugiere un nombre corto y descriptivo para guardar el archivo (sin ruta, solo nombre con extensión). Usa la categoría + algo identificador si aplica. Ejemplo: "Factura_Electricidad_2024.pdf", "DNI_Frontal.jpg". Si el nombre original tiene extensión, respétala.
+4. NOMBRE RECOMENDADO DEL ARCHIVO: Sugiere un nombre corto y descriptivo (sin ruta, solo nombre con extensión). Usa la categoría amplia + algo identificador. Ejemplo: "Documentos personales_Identificacion.pdf". Respeta la extensión del archivo original.
 
-5. TAGS: Lista de 1 a 5 etiquetas en minúsculas (ej: ["factura", "tributario"], ["identificación"]). Sin duplicar la categoría.
+5. TAGS: Lista de 1 a 5 etiquetas en minúsculas. Sin duplicar la categoría.
 
 Responde SOLO con este JSON válido (sin markdown ni texto extra):
 {{
-    "category": "nombre_categoria",
+    "category": "nombre_categoria_amplia",
     "confidence": 0.95,
     "expiry_date": "2024-12-31" o null,
     "recommended_name": "NombreSugerido.pdf",

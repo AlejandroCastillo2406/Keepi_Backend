@@ -718,14 +718,21 @@ async def get_mobile_dashboard(
         document_service = DocumentService()
         all_documents = await document_service.get_user_documents(user_token['uid'])
 
+        # KPI: total de documentos clasificados con Keepi (guardados desde el flujo Keepi)
+        total_keepi = sum(
+            1 for doc in all_documents
+            if isinstance(getattr(doc, 'ai_analysis', None), dict)
+            and doc.ai_analysis.get('keepi_classified') is True
+        )
+
         # Documentos por vencer (próximos 30 días)
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         expiring_soon = []
         for doc in all_documents:
             if doc.expiry_date:
                 try:
-                    expiry = datetime.fromisoformat(doc.expiry_date.replace('Z', '+00:00'))
-                    if expiry <= datetime.now() + timedelta(days=30):
+                    expiry = datetime.fromisoformat(str(doc.expiry_date).replace('Z', '+00:00'))
+                    if expiry <= datetime.now(timezone.utc) + timedelta(days=30):
                         expiring_soon.append(doc)
                 except Exception:
                     continue
@@ -778,8 +785,9 @@ async def get_mobile_dashboard(
         
         return {
             "folders": folders,
+            "total_keepi": total_keepi,
             "expiring_soon_count": len(expiring_soon),
-            "expiring_soon": expiring_soon[:5],  # Solo los próximos 5
+            "expiring_soon": expiring_soon[:20],
             "last_updated": datetime.now().isoformat()
         }
         

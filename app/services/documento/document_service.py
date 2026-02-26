@@ -377,14 +377,35 @@ class DocumentService:
             print(f"Error procesando documento con Bedrock: {e}")
             raise
 
+    async def _get_existing_folder_names(self, user_id: str) -> List[str]:
+        """Obtiene los nombres de carpetas existentes del usuario (Drive) para pasarlos al prompt de análisis."""
+        try:
+            from app.models.user_config import CloudProvider
+            from app.services.almacenamiento import GoogleDriveService
+            from app.services.autenticacion import GoogleOAuthService
+            user_config = await self.user_config_service.get_user_config(user_id)
+            if not user_config or user_config.cloud_provider != CloudProvider.GOOGLE_DRIVE:
+                return []
+            oauth = GoogleOAuthService()
+            credentials = await oauth.refresh_user_tokens(user_id)
+            if not credentials:
+                return []
+            drive = GoogleDriveService(credentials)
+            folders = await drive.get_folder_structure()
+            return [f["name"] for f in folders if f.get("name")]
+        except Exception as e:
+            logger.warning("No se pudieron listar carpetas existentes para análisis: %s", e)
+            return []
+
     async def analyze_document_only(
         self, user_id: str, file_data: bytes, file_name: str, file_type: str
     ) -> Dict[str, Any]:
         """Solo analizar documento con Bedrock. No guarda ni sube. Para flujo móvil en 2 pasos."""
         import re
         logger.info("analyze_document_only: usuario=%s, archivo=%s, tamaño=%s bytes", user_id, file_name, len(file_data))
+        existing_folders = await self._get_existing_folder_names(user_id)
         ai_analysis = await self.ai_analysis_service.analyze_document(
-            file_data, file_type, file_name, user_id, self.db
+            file_data, file_type, file_name, user_id, self.db, existing_category_names=existing_folders
         )
         if ai_analysis.get("suggested_category") == "SUBSCRIPTION_REQUIRED":
             return {

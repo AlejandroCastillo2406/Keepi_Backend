@@ -17,8 +17,16 @@ class DocumentAnalysisService:
         # Inicializar servicio de suscripción
         self.subscription_service = SubscriptionService()
     
-    async def analyze_document(self, content: bytes, content_type: str, filename: str, user_id: str, db: Session) -> Dict[str, Any]:
-        """Analizar documento y extraer información automáticamente"""
+    async def analyze_document(
+        self,
+        content: bytes,
+        content_type: str,
+        filename: str,
+        user_id: str,
+        db: Session,
+        existing_category_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Analizar documento y extraer información automáticamente. existing_category_names: carpetas existentes del usuario para reutilizar si aplica."""
         try:
             # ✅ VERIFICAR LÍMITE DE ANÁLISIS ANTES DE PROCESAR
             analysis_check = await self.subscription_service.check_analysis_limit(user_id, db)
@@ -60,8 +68,10 @@ class DocumentAnalysisService:
                     "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?"
                 }
 
-            # Una sola llamada a Bedrock: categoría, confianza, fecha, número, organización, tags
-            bedrock_result = await self.bedrock_service.analyze_document_content(extracted_text, filename)
+            # Una sola llamada a Bedrock: categoría (amplia o existente), confianza, fecha, nombre recomendado, tags
+            bedrock_result = await self.bedrock_service.analyze_document_content(
+                extracted_text, filename, existing_folder_names=existing_category_names or []
+            )
             suggested_category = bedrock_result.get("category", "Documento")
             if suggested_category == "MANUAL_CLASSIFICATION_REQUIRED":
                 return {
