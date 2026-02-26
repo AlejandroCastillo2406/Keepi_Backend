@@ -263,6 +263,30 @@ async def get_drive_folder_contents(
         files = await drive_service.get_files_in_folder(
             parent_id if parent_id is not None else "root"
         )
+        # Marcar archivos clasificados por Keepi (tienen registro en documents con ai_analysis.keepi_classified)
+        import uuid
+        from app.config.database import get_db
+        from app.models.document import Document
+        file_ids = [f["id"] for f in files]
+        if file_ids:
+            db = next(get_db())
+            try:
+                user_uuid = uuid.UUID(user_token["uid"])
+                docs = db.query(Document).filter(
+                    Document.user_id == user_uuid,
+                    Document.drive_file_id.in_(file_ids),
+                ).all()
+                verified = {
+                    d.drive_file_id for d in docs
+                    if d.drive_file_id and isinstance(d.ai_analysis, dict) and d.ai_analysis.get("keepi_classified")
+                }
+                for f in files:
+                    f["keepi_verified"] = f["id"] in verified
+            finally:
+                db.close()
+        else:
+            for f in files:
+                f["keepi_verified"] = False
 
         # Nombre de la carpeta actual (para breadcrumb)
         folder_name = "Mi unidad"
@@ -874,6 +898,83 @@ async def get_mobile_document(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/mobile/analyze")
+async def mobile_analyze_document(
+    file: UploadFile = File(...),
+    user_token: dict = Depends(verify_token),
+):
+    """Paso 1: Solo analizar archivo con Bedrock. No guarda. Devuelve resumen para el modal."""
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Nombre de archivo requerido")
+        content = await file.read()
+        document_service = DocumentService()
+        result = await document_service.analyze_document_only(
+            user_token["uid"],
+            content,
+            file.filename,
+            file.content_type or "application/octet-stream",
+        )
+        if result.get("subscription_required"):
+            return JSONResponse(status_code=402, content=result)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/mobile/save-analyzed")
+async def mobile_save_analyzed_document(
+    file: UploadFile = File(...),
+    category: str = Form(...),
+    file_name: str = Form(..., description="Nombre con el que se guardará el archivo"),
+    expiry_date: Optional[str] = Form(None),
+    document_number: Optional[str] = Form(None),
+    organization: Optional[str] = Form(None),
+    user_token: dict = Depends(verify_token),
+):
+    """Paso 2: Guardar archivo ya analizado en la carpeta de la categoría (crear carpeta si no existe)."""
+    from datetime import datetime as dt
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Nombre de archivo requerido")
+        content = await file.read()
+        parsed_expiry = None
+        if expiry_date:
+            try:
+                parsed_expiry = dt.fromisoformat(expiry_date.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        document_service = DocumentService()
+        document = await document_service.save_analyzed_document(
+            user_id=user_token["uid"],
+            file_data=content,
+            file_name=file.filename,
+            file_type=file.content_type or "application/octet-stream",
+            category=category.strip(),
+            save_as_name=file_name.strip() or file.filename,
+            expiry_date=parsed_expiry,
+            document_number=document_number or None,
+            organization=organization or None,
+            tags=None,
+        )
+        return {
+            "message": "Documento guardado correctamente",
+            "document_id": str(document.id),
+            "category": document.category,
+            "file_name": document.file_name,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        if "DriveAuthRequiredException" in str(type(e).__name__):
+            from app.exceptions import DriveAuthRequiredException
+            if isinstance(e, DriveAuthRequiredException):
+                raise HTTPException(status_code=401, detail={"requires_drive_auth": True, "message": str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/mobile/quick-upload")
 async def mobile_quick_upload(

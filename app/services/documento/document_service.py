@@ -376,7 +376,135 @@ class DocumentService:
         except Exception as e:
             print(f"Error procesando documento con Bedrock: {e}")
             raise
-    
+
+    async def analyze_document_only(
+        self, user_id: str, file_data: bytes, file_name: str, file_type: str
+    ) -> Dict[str, Any]:
+        """Solo analizar documento con Bedrock. No guarda ni sube. Para flujo móvil en 2 pasos."""
+        import re
+        ai_analysis = await self.ai_analysis_service.analyze_document(
+            file_data, file_type, file_name, user_id, self.db
+        )
+        if ai_analysis.get("suggested_category") == "SUBSCRIPTION_REQUIRED":
+            return {
+                "subscription_required": True,
+                "message": ai_analysis.get("subscription_required_message", "Suscripción requerida"),
+                "subscription_info": ai_analysis.get("subscription_info", {}),
+            }
+        if ai_analysis.get("suggested_category") == "MANUAL_CLASSIFICATION_REQUIRED":
+            base, ext = file_name.rsplit(".", 1) if "." in file_name else (file_name, "")
+            return {
+                "manual_classification_required": True,
+                "message": ai_analysis.get("manual_classification_message", "Clasificación manual"),
+                "category": "Pendiente de clasificación",
+                "recommended_name": file_name,
+                "expiry_date": None,
+                "document_number": ai_analysis.get("document_number"),
+                "organization": ai_analysis.get("organization"),
+                "tags": ai_analysis.get("tags", []),
+                "confidence_score": 0,
+            }
+        category = ai_analysis.get("suggested_category", "Documento")
+        safe_cat = re.sub(r"[^\w\s\-]", "", category).strip().replace(" ", "_")[:40]
+        base = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+        ext = file_name.rsplit(".", 1)[-1] if "." in file_name else ""
+        recommended_name = f"{safe_cat}_{base}.{ext}" if ext else f"{safe_cat}_{base}"
+        return {
+            "category": category,
+            "recommended_name": recommended_name,
+            "expiry_date": ai_analysis.get("expiry_date"),
+            "document_number": ai_analysis.get("document_number"),
+            "organization": ai_analysis.get("organization"),
+            "tags": ai_analysis.get("tags", []),
+            "confidence_score": ai_analysis.get("confidence_score", 0.5),
+            "manual_classification_required": False,
+            "subscription_required": False,
+            "subscription_info": ai_analysis.get("subscription_info"),
+        }
+
+    async def save_analyzed_document(
+        self,
+        user_id: str,
+        file_data: bytes,
+        file_name: str,
+        file_type: str,
+        category: str,
+        save_as_name: str,
+        expiry_date: Optional[datetime] = None,
+        document_number: Optional[str] = None,
+        organization: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> ModelDocumentResponse:
+        """Guardar documento ya analizado: crear carpeta de categoría si no existe, subir archivo y crear registro."""
+        user_config = await self.user_config_service.get_user_config(user_id)
+        storage_preference = (
+            user_config.cloud_provider.value if user_config and user_config.cloud_provider else "keepi_cloud"
+        )
+        folder_result = await self.folder_service.ensure_category_folder_exists(
+            user_id, category, storage_preference
+        )
+        if not folder_result.get("success"):
+            if folder_result.get("requires_drive_auth"):
+                from app.exceptions import DriveAuthRequiredException
+                raise DriveAuthRequiredException(
+                    message=folder_result.get("error", "Se requiere autorización de Google Drive"),
+                    drive_auth_url=folder_result.get("drive_auth_url", ""),
+                )
+            raise ValueError(folder_result.get("error", "No se pudo crear o acceder a la carpeta"))
+        file_url = None
+        s3_key = None
+        drive_file_id = None
+        drive_folder_id = None
+        if storage_preference == "keepi_cloud":
+            folder_name = folder_result.get("folder_name", category)
+            file_url = await self.aws_service.upload_to_s3_with_folder(
+                file_data, save_as_name, user_id, folder_name
+            )
+            s3_key = f"users/{user_id}/{folder_name}/{save_as_name}"
+        elif storage_preference == "google_drive":
+            from app.services.autenticacion import GoogleOAuthService
+            from app.services.almacenamiento import GoogleDriveService
+            oauth_service = GoogleOAuthService()
+            user_credentials = await oauth_service.refresh_user_tokens(user_id)
+            if not user_credentials:
+                raise ValueError("Usuario no ha autorizado acceso a Google Drive")
+            drive_service = GoogleDriveService(user_credentials)
+            drive_folder_id = folder_result.get("folder_id")
+            if not drive_folder_id:
+                folder_creation = await self.folder_service.create_category_folder(
+                    user_id, category, storage_preference
+                )
+                drive_folder_id = folder_creation.get("folder_id")
+                if not drive_folder_id:
+                    drive_folder_id = await drive_service.get_or_create_folder("General")
+            drive_file_id = await drive_service.upload_file(
+                file_data, save_as_name, drive_folder_id, file_type
+            )
+            file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
+            s3_key = f"drive/{drive_folder_id}/{drive_file_id}"
+        ai_analysis = {
+            "keepi_classified": True,
+            "document_number": document_number,
+            "organization": organization,
+        }
+        document_data = DocumentCreate(
+            name=save_as_name,
+            category=category,
+            description="Documento clasificado y guardado con Keepi",
+            file_url=file_url,
+            file_name=save_as_name,
+            file_size=len(file_data),
+            file_type=file_type,
+            expiry_date=expiry_date,
+            cloud_provider=storage_preference,
+            s3_key=s3_key,
+            ai_analysis=ai_analysis,
+            tags=tags or [],
+            drive_file_id=drive_file_id,
+            drive_folder_id=drive_folder_id,
+        )
+        return await self.create_document(user_id, document_data)
+
     async def process_document_with_aws(self, user_id: str, file_data: bytes, file_name: str, file_type: str) -> DocumentResponse:
         """Procesar documento con AWS Textract y Comprehend - Flujo dinámico"""
         try:
