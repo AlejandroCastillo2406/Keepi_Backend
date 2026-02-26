@@ -276,6 +276,51 @@ async def get_s3_folder_contents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/keepi-cloud/root")
+async def get_keepi_cloud_root(
+    user_token: dict = Depends(verify_token),
+):
+    """Contenido raíz de Keepi Cloud (S3) del usuario: subcarpetas y archivos en users/{uid}/.
+    Para que el Home muestre la carpeta «abierta» sin ver la carpeta con el id."""
+    try:
+        from app.services.usuarios import UserConfigService
+        from app.services.almacenamiento import S3Service
+
+        uid = user_token["uid"]
+        config_service = UserConfigService()
+        user_config = await config_service.get_or_create_user_config(uid)
+        if not user_config or user_config.cloud_provider.value != "keepi_cloud":
+            return {"folders": [], "root_files": []}
+
+        s3_service = S3Service()
+        user_prefix = f"users/{uid}/"
+        # Subcarpetas dentro de users/uid/
+        s3_folders = await s3_service.list_folders(user_prefix)
+        folders = [
+            {
+                "id": folder["name"],
+                "name": folder["name"].split("/")[-1],
+                "document_count": folder.get("document_count", 0),
+                "path": folder["name"],
+            }
+            for folder in s3_folders
+        ]
+        # Archivos en la raíz users/uid/
+        root_result = await s3_service.list_user_documents(uid)
+        root_files = []
+        for doc in root_result.get("documents", []):
+            root_files.append({
+                "id": doc.get("file_path", ""),
+                "name": doc.get("filename", doc.get("file_path", "").split("/")[-1]),
+                "size": str(doc.get("size", 0)),
+                "keepi_verified": True,
+            })
+        return {"folders": folders, "root_files": root_files}
+    except Exception as e:
+        logger.exception("Error leyendo Keepi Cloud root: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/drive/folders/{folder_id}/contents")
 async def get_drive_folder_contents(
     folder_id: str,
@@ -784,9 +829,9 @@ async def get_mobile_dashboard(
         if storage_preference == 'keepi_cloud':
             s3_service = S3Service()
             try:
-                user_prefix = f"users/{user_token['uid']}"
+                # Prefijo con barra para listar contenido dentro de users/uid/
+                user_prefix = f"users/{user_token['uid']}/"
                 s3_folders = await s3_service.list_folders(user_prefix)
-                # No mostrar la carpeta raíz del usuario (users/uid): solo subcarpetas y root_files
                 folders = [
                     {
                         "id": folder['name'],
@@ -795,9 +840,7 @@ async def get_mobile_dashboard(
                         "path": folder['name']
                     }
                     for folder in s3_folders
-                    if folder['name'].rstrip('/') != user_prefix
                 ]
-                # Contenido de la carpeta del usuario (raíz): archivos para mostrarla "abierta"
                 root_result = await s3_service.list_user_documents(user_token['uid'])
                 for doc in root_result.get('documents', []):
                     root_files.append({
@@ -807,7 +850,7 @@ async def get_mobile_dashboard(
                         "keepi_verified": True,
                     })
             except Exception as e:
-                print(f"Error leyendo S3: {e}")
+                logger.exception("Error leyendo S3 en dashboard: %s", e)
                 folders = []
                 root_files = []
 
