@@ -29,33 +29,51 @@ s3_service = S3Service()
 ocr_service = OCRService()
 comprehend_service = ComprehendService()
 
-# Modelo para el request de setup-cloud-storage
+# Modelo para el request de configuración de almacenamiento
 class SetupCloudStorageRequest(BaseModel):
-    storage_type: str  # "keepi_cloud" o "google_drive"
-    
+    storage_type: str  # "keepi_cloud" | "google_drive" | "not_configured"
+
     class Config:
-        json_schema_extra = {
-            "example": {
-                "storage_type": "keepi_cloud"
-            }
-        }
+        json_schema_extra = {"example": {"storage_type": "keepi_cloud"}}
+
 
 @router.post("/setup-cloud-storage")
+@router.post("/configure")
 async def setup_cloud_storage(
     request: SetupCloudStorageRequest,
     current_user: UserResponse = Depends(get_current_user)
 ):
     """
-    Configura el tipo de almacenamiento en la nube para el usuario
+    Configura el tipo de almacenamiento: keepi_cloud (requiere pago Stripe),
+    google_drive (OAuth) o not_configured (p. ej. si se cancela el pago).
     """
     try:
         logger.info(f"🔍 Recibiendo request: {request}")
         storage_type = request.storage_type
         logger.info(f"🔍 Storage type extraído: {storage_type}")
-        
-        if not storage_type or storage_type not in ["keepi_cloud", "google_drive"]:
+
+        if not storage_type or storage_type not in ["keepi_cloud", "google_drive", "not_configured"]:
             logger.error(f"❌ Tipo de almacenamiento no válido: {storage_type}")
             raise HTTPException(status_code=400, detail="Tipo de almacenamiento no válido")
+
+        # not_configured: solo actualizar preferencia (p. ej. tras cancelar pago Stripe)
+        if storage_type == "not_configured":
+            try:
+                from app.services.usuarios import UserConfigService
+                from app.models.user_config import UserConfigUpdate, CloudProvider
+                config_service = UserConfigService()
+                await config_service.get_or_create_user_config(str(current_user.id))
+                update_data = UserConfigUpdate(cloud_provider=CloudProvider.NOT_CONFIGURED)
+                await config_service.update_user_config(str(current_user.id), update_data)
+                logger.info(f"✅ cloud_provider actualizado a not_configured para usuario {current_user.id}")
+                return {
+                    "success": True,
+                    "message": "Almacenamiento restablecido a sin configurar",
+                    "storage_type": "not_configured",
+                }
+            except Exception as e:
+                logger.error(f"Error actualizando a not_configured: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
         
         # Validar suscripción para Keepi Cloud
         if storage_type == "keepi_cloud":
