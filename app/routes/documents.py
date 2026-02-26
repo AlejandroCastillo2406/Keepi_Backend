@@ -778,25 +778,38 @@ async def get_mobile_dashboard(
                 except Exception:
                     continue
 
-        # Obtener carpetas según el almacenamiento configurado
+        # Obtener carpetas (y para Keepi Cloud, contenido raíz) según el almacenamiento
         folders = []
+        root_files = []  # Archivos en la raíz de la carpeta del usuario (S3); carpeta "abierta"
         if storage_preference == 'keepi_cloud':
-            # Leer carpetas de S3
             s3_service = S3Service()
             try:
-                s3_folders = await s3_service.list_folders(f"users/{user_token['uid']}")
+                user_prefix = f"users/{user_token['uid']}"
+                s3_folders = await s3_service.list_folders(user_prefix)
+                # No mostrar la carpeta raíz del usuario (users/uid): solo subcarpetas y root_files
                 folders = [
                     {
                         "id": folder['name'],
-                        "name": folder['name'].split('/')[-1],  # Solo el nombre de la carpeta
+                        "name": folder['name'].split('/')[-1],
                         "document_count": folder.get('document_count', 0),
                         "path": folder['name']
                     }
                     for folder in s3_folders
+                    if folder['name'].rstrip('/') != user_prefix
                 ]
+                # Contenido de la carpeta del usuario (raíz): archivos para mostrarla "abierta"
+                root_result = await s3_service.list_user_documents(user_token['uid'])
+                for doc in root_result.get('documents', []):
+                    root_files.append({
+                        "id": doc.get('file_path', ''),
+                        "name": doc.get('filename', doc.get('file_path', '').split('/')[-1]),
+                        "size": str(doc.get('size', 0)),
+                        "keepi_verified": True,
+                    })
             except Exception as e:
-                print(f"Error leyendo carpetas de S3: {e}")
+                print(f"Error leyendo S3: {e}")
                 folders = []
+                root_files = []
 
         elif storage_preference == 'google_drive':
             # Leer carpetas de Google Drive
@@ -824,13 +837,16 @@ async def get_mobile_dashboard(
                 print(f"Error leyendo carpetas de Drive: {e}")
                 folders = []
         
-        return {
+        out = {
             "folders": folders,
             "total_keepi": total_keepi,
             "expiring_soon_count": len(expiring_soon),
             "expiring_soon": expiring_soon[:20],
-            "last_updated": datetime.now().isoformat()
+            "last_updated": datetime.now().isoformat(),
         }
+        if storage_preference == 'keepi_cloud':
+            out["root_files"] = root_files
+        return out
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
