@@ -27,7 +27,6 @@ class SetupCloudStorageRequest(BaseModel):
 
 
 @router.post("/setup-cloud-storage")
-@router.post("/configure")
 async def setup_cloud_storage(
     request: SetupCloudStorageRequest,
     current_user: UserResponse = Depends(get_current_user),

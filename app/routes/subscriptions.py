@@ -24,7 +24,7 @@ from app.core.security import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
+router = APIRouter(prefix="/subscriptions")
 
 
 def _webhook_secret() -> str:
@@ -304,7 +304,3 @@ async def get_usage_statistics(
         ) from e
 
 
-@router.get("/webhook-test")
-async def webhook_test():
-    """Comprueba que el endpoint de webhook responde."""
-    return {"status": "webhook endpoint working", "timestamp": datetime.now().isoformat()}

@@ -15,7 +15,7 @@ from app.routes import auth, cloud_storage, documents, subscriptions, user_confi
 from app.services.usuarios import UserConfigService
 
 logger = logging.getLogger(__name__)
-APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS", "com.example.keepi://stripe-success")
+APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS")
 
 DatabaseConfig.initialize_database()
 

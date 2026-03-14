@@ -65,23 +65,6 @@ async def _get_drive_service_or_raise(uid: str) -> GoogleDriveService:
     return GoogleDriveService(credentials)
 
 
-@router.get("/drive/structure")
-async def get_drive_folder_structure(user_token: TokenPayload = Depends(verify_token)):
-    """Obtener estructura de carpetas de Google Drive"""
-    try:
-        drive_service = await _get_drive_service_or_raise(user_token["uid"])
-        folders = await drive_service.get_folder_structure()
-        for folder in folders:
-            files = await drive_service.get_files_in_folder(folder["id"])
-            folder["files_count"] = len(files)
-        return {"folders": folders}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error obteniendo estructura Drive")
-        raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
-
-
 @router.get("/s3/folders/contents")
 async def get_s3_folder_contents(
     path: str = Query(..., description="Ruta de carpeta S3 (ej. users/{uid}/Documentos personales)"),
