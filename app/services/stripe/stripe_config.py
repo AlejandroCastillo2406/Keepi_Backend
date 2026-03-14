@@ -29,11 +29,14 @@ def get_price_id_for_plan(plan: str) -> str:
 
 
 def get_payment_urls() -> Tuple[str, str]:
-    """Devuelve (success_url, cancel_url) para checkout."""
-    return (
-        settings.stripe_payment_success_url,
-        settings.stripe_payment_cancel_url,
-    )
+    """Devuelve (success_url, cancel_url) para checkout. Requiere STRIPE_*_URL en .env."""
+    success = settings.stripe_payment_success_url
+    cancel = settings.stripe_payment_cancel_url
+    if not success or not cancel:
+        raise ValueError(
+            "Configura STRIPE_PAYMENT_SUCCESS_URL y STRIPE_PAYMENT_CANCEL_URL en .env"
+        )
+    return (success, cancel)
 
 
 # Configurar API key al importar el módulo (para uso directo de stripe en rutas, p. ej. Invoice.list)

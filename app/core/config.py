@@ -67,11 +67,11 @@ class Settings(BaseSettings):
     stripe_secret_key: Optional[str] = None
     stripe_premium_price_id: Optional[str] = None
     stripe_webhook_secret: Optional[str] = None
-    stripe_payment_success_url: str = os.getenv(
-        "STRIPE_PAYMENT_SUCCESS_URL",
-        "https://keepi.onrender.com/payment/success?session_id={CHECKOUT_SESSION_ID}",
-    )
-    stripe_payment_cancel_url: str = os.getenv("STRIPE_PAYMENT_CANCEL_URL", "https://keepi.onrender.com/payment/cancel")
+    """URL de éxito de Stripe Checkout. Debe contener {CHECKOUT_SESSION_ID}. Definir STRIPE_PAYMENT_SUCCESS_URL en .env."""
+    stripe_payment_success_url: Optional[str] = os.getenv("STRIPE_PAYMENT_SUCCESS_URL")
+    """URL de cancelación de Stripe Checkout. Definir STRIPE_PAYMENT_CANCEL_URL en .env."""
+    stripe_payment_cancel_url: Optional[str] = os.getenv("STRIPE_PAYMENT_CANCEL_URL")
+    public_base_url: Optional[str] = os.getenv("PUBLIC_BASE_URL")
 
     echo_sql: bool = os.getenv("ECHO_SQL", "False").lower() == "true"
 
