@@ -156,8 +156,8 @@ class FolderService:
             escaped_name = folder_name.replace("'", "\\'").replace('"', '\\"')
             query = f"name='{escaped_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
             
-            logger.info(f"🔍 Buscando carpeta en Google Drive: '{folder_name}'")
-            logger.info(f"🔍 Query: {query}")
+            logger.info("Buscando carpeta en Drive: '%s'", folder_name)
+            logger.debug("Query Drive: %s", query)
             
             results = drive_service.service.files().list(
                 q=query,
@@ -167,14 +167,14 @@ class FolderService:
             
             folders = results.get('files', [])
             if folders:
-                logger.info(f"✅ Carpeta encontrada: '{folders[0]['name']}' (ID: {folders[0]['id']})")
+                logger.info("Carpeta encontrada: '%s' (ID: %s)", folders[0]['name'], folders[0]['id'])
                 return folders[0]  # Retornar la primera carpeta encontrada
             
-            logger.info(f"⚠️ Carpeta '{folder_name}' no encontrada en Google Drive")
+            logger.warning("Carpeta '%s' no encontrada en Drive", folder_name)
             return None
             
         except Exception as e:
-            logger.error(f"❌ Error buscando carpeta en Drive: {e}")
+            logger.exception("Error buscando carpeta en Drive")
             import traceback
             logger.error(traceback.format_exc())
             return None
@@ -230,7 +230,7 @@ class FolderService:
                     
                     # Si existe, retornar inmediatamente con el folder_id
                     if existing_folder:
-                        logger.info(f"✅ Carpeta '{folder_name}' ya existe en Google Drive (ID: {existing_folder['id']})")
+                        logger.info("Carpeta '%s' ya existe en Drive (ID: %s)", folder_name, existing_folder['id'])
                         return {
                             "success": True,
                             "folder_exists": True,
@@ -241,10 +241,10 @@ class FolderService:
                         }
                     
                     # Si no existe, crear la carpeta directamente usando el drive_service
-                    logger.info(f"📁 Carpeta '{folder_name}' no existe, creando en Google Drive...")
+                    logger.info("Carpeta '%s' no existe, creando en Drive", folder_name)
                     try:
                         folder_id = await drive_service.create_folder(folder_name)
-                        logger.info(f"✅ Carpeta '{folder_name}' creada exitosamente (ID: {folder_id})")
+                        logger.info("Carpeta '%s' creada (ID: %s)", folder_name, folder_id)
                         return {
                             "success": True,
                             "folder_exists": False,

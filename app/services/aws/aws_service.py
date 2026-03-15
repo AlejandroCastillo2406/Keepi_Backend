@@ -49,22 +49,22 @@ class AWSService:
             Dict con texto extraído y metadatos
         """
         try:
-            logger.info(f"🔍 Extrayendo texto de {file_name} (tipo: {file_type})")
+            logger.info("Extrayendo texto de %s (tipo: %s)", file_name, file_type)
             logger.info(f"📊 Tamaño del archivo: {len(file_data)} bytes")
             
             # Para PDFs, usar solo AWS Textract asíncrono (principal)
             if file_type.lower() in ['pdf', 'application/pdf']:
-                logger.info("📄 Procesando PDF con AWS Textract asíncrono...")
+                logger.info("Procesando PDF con Textract asíncrono")
                 
                 try:
                     textract_result = await self._extract_text_with_textract_async(file_data, file_name)
                     if textract_result and len(textract_result.get('text', '').strip()) > 100:
-                        logger.info(f"✅ AWS Textract asíncrono extrajo {len(textract_result['text'])} caracteres exitosamente")
+                        logger.info("Textract extrajo %d caracteres", len(textract_result['text']))
                         logger.info(f"📝 Primeros 500 caracteres: {textract_result['text'][:500]}...")
                         logger.info(f"📝 Últimos 200 caracteres: ...{textract_result['text'][-200:]}")
                         return textract_result
                     else:
-                        logger.warning("⚠️ AWS Textract asíncrono no pudo extraer texto suficiente")
+                        logger.warning("Textract no extrajo texto suficiente")
                         return {
                             'text': '',
                             'confidence': 0.0,
@@ -76,7 +76,7 @@ class AWSService:
                             'raw_response': {}
                         }
                 except Exception as e:
-                    logger.error(f"❌ Error en AWS Textract asíncrono: {e}")
+                    logger.exception("Error en Textract asíncrono")
                     return {
                         'text': '',
                         'confidence': 0.0,
@@ -94,7 +94,7 @@ class AWSService:
                 return await self._extract_text_from_image(file_data)
             
             else:
-                logger.warning(f"⚠️ Tipo de archivo no soportado: {file_type}")
+                logger.warning("Tipo de archivo no soportado: %s", file_type)
                 return {
                     'text': '',
                     'confidence': 0.0,
@@ -107,7 +107,7 @@ class AWSService:
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Error inesperado en extracción de texto: {e}")
+            logger.exception("Error en extracción de texto")
             raise
     
     
@@ -116,7 +116,7 @@ class AWSService:
         Extraer texto de PDFs multipágina usando AWS Textract asíncrono
         """
         try:
-            logger.info("🔄 Iniciando análisis asíncrono con AWS Textract...")
+            logger.info("Iniciando análisis asíncrono con Textract")
             
             # 1. Subir archivo a S3 temporalmente
             temp_s3_key = f"temp/{file_name}"
@@ -156,14 +156,14 @@ class AWSService:
                 logger.info(f"📊 Estado del análisis (intento {attempt + 1}): {status}")
                 
                 if status == 'SUCCEEDED':
-                    logger.info("✅ Análisis completado exitosamente")
+                    logger.info("Análisis completado")
                     break
                 elif status == 'FAILED':
                     error_message = response.get('StatusMessage', 'Error desconocido')
-                    logger.error(f"❌ Análisis falló: {error_message}")
+                    logger.error("Análisis falló: %s", error_message)
                     raise Exception(f"Análisis de Textract falló: {error_message}")
                 elif status == 'PARTIAL_SUCCESS':
-                    logger.warning("⚠️ Análisis completado parcialmente")
+                    logger.warning("Análisis completado parcialmente")
                     break
                 
                 await asyncio.sleep(5)  # Esperar 5 segundos
@@ -207,7 +207,7 @@ class AWSService:
                 self.s3_client.delete_object(Bucket=settings.aws_s3_bucket, Key=temp_s3_key)
                 logger.info("🗑️ Archivo temporal eliminado de S3")
             except Exception as e:
-                logger.warning(f"⚠️ No se pudo eliminar archivo temporal: {e}")
+                logger.warning("No se pudo eliminar archivo temporal: %s", e)
             
             # 6. Calcular estadísticas
             line_blocks = [b for b in all_blocks if b['BlockType'] == 'LINE']
@@ -241,7 +241,7 @@ class AWSService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error en AWS Textract asíncrono: {e}")
+            logger.exception("Error en Textract asíncrono")
             raise
     
     async def _extract_text_from_image(self, image_data: bytes) -> Dict[str, Any]:
@@ -282,7 +282,7 @@ class AWSService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error procesando imagen: {e}")
+            logger.exception("Error procesando imagen")
             raise
     
     
@@ -297,7 +297,7 @@ class AWSService:
             Dict con categorías detectadas
         """
         try:
-            logger.info(f"🔍 ANALIZANDO TEXTO CON AWS COMPREHEND")
+            logger.info("Analizando texto con Comprehend")
             logger.info(f"📊 Longitud del texto: {len(text)} caracteres")
             logger.info(f"📝 Primeros 200 caracteres: {text[:200]}...")
             logger.info(f"📝 Últimos 200 caracteres: ...{text[-200:]}")
@@ -313,7 +313,7 @@ class AWSService:
             
             # Procesar cada chunk
             for i, chunk in enumerate(chunks):
-                logger.info(f"🔄 Procesando chunk {i+1}/{len(chunks)} ({len(chunk)} caracteres)")
+                logger.debug("Procesando chunk %d/%d (%d caracteres)", i + 1, len(chunks), len(chunk))
                 
                 try:
                     # Detectar entidades
@@ -344,7 +344,7 @@ class AWSService:
                     logger.info(f"   - Sentimiento: {sentiment_response.get('Sentiment', 'NEUTRAL')}")
                     
                 except Exception as e:
-                    logger.error(f"❌ Error procesando chunk {i+1}: {e}")
+                    logger.warning("Error procesando chunk %d: %s", i + 1, e)
                     continue
             
             # Determinar categoría dinámicamente
@@ -373,7 +373,7 @@ class AWSService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error en categorización: {e}")
+            logger.exception("Error en categorización")
             return {
                 'category': 'Documento',
                 'confidence': 0.0,
@@ -447,23 +447,23 @@ class AWSService:
         # Método 1: Análisis dinámico basado en entidades más relevantes
         entity_category = self._analyze_entities_dynamically(entities)
         if entity_category and entity_category != 'Documento':
-            logger.info(f"✅ Categoría determinada por análisis dinámico de entidades: {entity_category}")
+            logger.info("Categoría por entidades: %s", entity_category)
             return entity_category
         
         # Método 2: Análisis dinámico basado en frases clave más relevantes
         phrase_category = self._analyze_phrases_dynamically(key_phrases)
         if phrase_category and phrase_category != 'Documento':
-            logger.info(f"✅ Categoría determinada por análisis dinámico de frases: {phrase_category}")
+            logger.info("Categoría por frases: %s", phrase_category)
             return phrase_category
         
         # Método 3: Análisis combinado dinámico
         combined_category = self._analyze_combined_dynamically(entities, key_phrases)
         if combined_category and combined_category != 'Documento':
-            logger.info(f"✅ Categoría determinada por análisis combinado dinámico: {combined_category}")
+            logger.info("Categoría combinada: %s", combined_category)
             return combined_category
         
         # Fallback: usar "Documento" como categoría genérica
-        logger.info("⚠️ No se pudo determinar categoría específica, usando Documento")
+        logger.warning("No se pudo determinar categoría, usando Documento")
         return 'Documento'
     
     def _analyze_entities_dynamically(self, entities: List[Dict]) -> str:
@@ -567,13 +567,13 @@ class AWSService:
             categorias_key = f"users/{user_id}/categorias/"
             self.s3_client.put_object(Bucket=settings.aws_s3_bucket, Key=categorias_key)
             
-            logger.info(f"✅ Carpetas creadas para usuario {user_id}")
+            logger.info("Carpetas creadas para usuario %s", user_id)
             return {
                 'temp_folder': temp_key,
                 'categorias_folder': categorias_key
             }
         except Exception as e:
-            logger.error(f"❌ Error creando carpetas: {e}")
+            logger.exception("Error creando carpetas")
             raise
     
     async def create_category_folder(self, user_id: str, category: str) -> str:
@@ -583,10 +583,10 @@ class AWSService:
             category_key = f"users/{user_id}/categorias/{sanitized_category}/"
             self.s3_client.put_object(Bucket=settings.aws_s3_bucket, Key=category_key)
             
-            logger.info(f"✅ Carpeta de categoría creada: {category_key}")
+            logger.info("Carpeta de categoría creada: %s", category_key)
             return category_key
         except Exception as e:
-            logger.error(f"❌ Error creando carpeta de categoría: {e}")
+            logger.exception("Error creando carpeta de categoría")
             raise
     
     async def upload_to_s3_temp(self, file_data: bytes, file_name: str, user_id: str) -> str:
@@ -600,11 +600,11 @@ class AWSService:
             )
             
             file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{key}"
-            logger.info(f"✅ Archivo subido a S3: {file_url}")
+            logger.info("Archivo subido a S3: %s", file_url)
             return file_url
             
         except Exception as e:
-            logger.error(f"❌ Error subiendo archivo a S3: {e}")
+            logger.exception("Error subiendo archivo a S3")
             raise
     
     async def upload_to_s3_with_folder(self, file_data: bytes, file_name: str, user_id: str, folder_name: str) -> str:
@@ -616,7 +616,7 @@ class AWSService:
             category_ascii = self._to_ascii_safe(folder_name)
             key = f"users/{user_id}/{clean_folder}/{file_name}"
             
-            logger.info(f"📁 Subiendo archivo a carpeta de categoría: {key}")
+            logger.info("Subiendo archivo a carpeta de categoría: %s", key)
             
             self.s3_client.put_object(
                 Bucket=settings.aws_s3_bucket,
@@ -631,11 +631,11 @@ class AWSService:
             )
             
             file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{key}"
-            logger.info(f"✅ Archivo subido a carpeta de categoría: {file_url}")
+            logger.info("Archivo subido a carpeta de categoría: %s", file_url)
             return file_url
             
         except Exception as e:
-            logger.error(f"❌ Error subiendo archivo a carpeta de categoría: {e}")
+            logger.exception("Error subiendo archivo a carpeta de categoría")
             raise
     
     async def move_file_in_s3(self, user_id: str, file_name: str, from_folder: str, to_folder: str) -> str:
@@ -656,10 +656,10 @@ class AWSService:
             self.s3_client.delete_object(Bucket=settings.aws_s3_bucket, Key=source_key)
             
             file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{dest_key}"
-            logger.info(f"✅ Archivo movido: {source_key} -> {dest_key}")
+            logger.info("Archivo movido: %s -> %s", source_key, dest_key)
             return file_url
         except Exception as e:
-            logger.error(f"❌ Error moviendo archivo: {e}")
+            logger.exception("Error moviendo archivo")
             raise
     
     def _sanitize_folder_name(self, folder_name: str) -> str:

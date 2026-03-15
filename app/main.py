@@ -14,6 +14,11 @@ from app.models.user_config import CloudProvider, UserConfigUpdate
 from app.routes import auth, cloud_storage, documents, subscriptions, user_config
 from app.services.usuarios import UserConfigService
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS")
 
@@ -108,7 +113,7 @@ async def payment_cancel():
     </head>
     <body>
         <div class="container">
-            <div class="cancel">❌</div>
+            <div class="cancel">X</div>
             <h1>Pago Cancelado</h1>
             <p>No se procesó ningún cargo.</p>
             <p>Puedes intentar nuevamente cuando gustes.</p>

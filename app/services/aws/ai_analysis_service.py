@@ -1,12 +1,18 @@
-from typing import Dict, Any, List, Optional
-import tempfile
+import logging
 import os
-from PIL import Image
-from datetime import datetime, timedelta
 import re
+import tempfile
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from PIL import Image
 from sqlalchemy.orm import Session
+
 from app.services.aws.bedrock_service import BedrockService
 from app.services.subscription import SubscriptionService
+
+logger = logging.getLogger(__name__)
+
 
 class DocumentAnalysisService:
     """Servicio para análisis automático de documentos usando AI"""
@@ -28,7 +34,7 @@ class DocumentAnalysisService:
     ) -> Dict[str, Any]:
         """Analizar documento y extraer información automáticamente. existing_category_names: carpetas existentes del usuario para reutilizar si aplica."""
         try:
-            # ✅ VERIFICAR LÍMITE DE ANÁLISIS ANTES DE PROCESAR
+            # Verificar límite de análisis antes de procesar
             analysis_check = await self.subscription_service.check_analysis_limit(user_id, db)
             
             # Si no puede analizar, devolver respuesta con solicitud de suscripción
@@ -117,7 +123,7 @@ class DocumentAnalysisService:
             }
             
         except Exception as e:
-            print(f"Error analizando documento: {e}")
+            logger.warning("Error analizando documento: %s", e)
             # Retornar análisis básico en caso de error
             return {
                 "suggested_category": "Documento",
@@ -156,7 +162,7 @@ class DocumentAnalysisService:
                     return f"Archivo: {filename}"
                     
         except Exception as e:
-            print(f"Error extrayendo texto: {e}")
+            logger.warning("Error extrayendo texto: %s", e)
             return f"Error extrayendo texto: {filename}"
     
     async def _extract_text_from_image(self, content: bytes, filename: str) -> str:
@@ -169,19 +175,19 @@ class DocumentAnalysisService:
                 result = await aws_service._extract_text_from_image(content)
                 extracted_text = result.get('text', '')
                 if extracted_text and len(extracted_text.strip()) > 50:
-                    print(f"✅ Textract extrajo texto de imagen {filename}: {len(extracted_text)} caracteres")
+                    logger.info("Textract extrajo texto de imagen %s: %d caracteres", filename, len(extracted_text))
                     return extracted_text
                 else:
-                    print(f"⚠️ Textract no pudo extraer texto suficiente de {filename}")
+                    logger.warning("Textract no extrajo texto suficiente de %s", filename)
             except Exception as e:
-                print(f"❌ Error en Textract para imagen {filename}: {e}")
+                logger.warning("Error en Textract para imagen %s: %s", filename, e)
             
             # Estrategia 2: Fallback manual
-            print(f"⚠️ No se pudo extraer texto de imagen {filename}, requiere clasificación manual")
+            logger.warning("Imagen %s requiere clasificación manual", filename)
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
         except Exception as e:
-            print(f"Error procesando imagen {filename}: {e}")
+            logger.warning("Error procesando imagen %s: %s", filename, e)
             return "MANUAL_CLASSIFICATION_REQUIRED"
     
     async def _extract_text_from_pdf(self, content: bytes, filename: str) -> str:
@@ -194,19 +200,19 @@ class DocumentAnalysisService:
                 result = await aws_service.extract_text_from_document(content, filename, 'application/pdf')
                 extracted_text = result.get('text', '')
                 if extracted_text and len(extracted_text.strip()) > 100:
-                    print(f"✅ Textract asíncrono extrajo texto de PDF {filename}: {len(extracted_text)} caracteres")
+                    logger.info("Textract extrajo texto de PDF %s: %d caracteres", filename, len(extracted_text))
                     return extracted_text
                 else:
-                    print(f"⚠️ Textract asíncrono no pudo extraer texto suficiente de {filename}")
+                    logger.warning("Textract no extrajo texto suficiente de PDF %s", filename)
             except Exception as e:
-                print(f"❌ Error en Textract asíncrono para PDF {filename}: {e}")
+                logger.warning("Error en Textract para PDF %s: %s", filename, e)
             
             # Estrategia 2: Fallback manual
-            print(f"⚠️ PDF {filename} requiere clasificación manual")
+            logger.warning("PDF %s requiere clasificación manual", filename)
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
         except Exception as e:
-            print(f"Error procesando PDF {filename}: {e}")
+            logger.warning("Error procesando PDF %s: %s", filename, e)
             return "MANUAL_CLASSIFICATION_REQUIRED"
     
     async def _extract_text_from_word(self, content: bytes, filename: str) -> str:
@@ -234,20 +240,20 @@ class DocumentAnalysisService:
                 text = '\n'.join(all_text)
                 
                 if text and len(text.strip()) > 50:
-                    print(f"✅ python-docx extrajo texto de Word {filename}: {len(text)} caracteres")
+                    logger.info("python-docx extrajo texto de Word %s: %d caracteres", filename, len(text))
                     return text.strip()
                 else:
-                    print(f"⚠️ python-docx no pudo extraer texto suficiente de {filename}")
+                    logger.warning("python-docx no extrajo texto suficiente de %s", filename)
                     
             except Exception as e:
-                print(f"❌ Error en python-docx para Word {filename}: {e}")
+                logger.warning("Error en python-docx para Word %s: %s", filename, e)
             
             # Estrategia 2: Fallback manual
-            print(f"⚠️ No se pudo extraer texto de Word {filename}, requiere clasificación manual")
+            logger.warning("Word %s requiere clasificación manual", filename)
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
         except Exception as e:
-            print(f"Error procesando Word {filename}: {e}")
+            logger.warning("Error procesando Word %s: %s", filename, e)
             return "MANUAL_CLASSIFICATION_REQUIRED"
     
     async def _extract_text_from_excel(self, content: bytes, filename: str) -> str:
@@ -274,20 +280,20 @@ class DocumentAnalysisService:
                 text = '\n'.join(all_text)
                 
                 if text and len(text.strip()) > 50:
-                    print(f"✅ openpyxl extrajo texto de Excel {filename}: {len(text)} caracteres")
+                    logger.info("openpyxl extrajo texto de Excel %s: %d caracteres", filename, len(text))
                     return text.strip()
                 else:
-                    print(f"⚠️ openpyxl no pudo extraer texto suficiente de {filename}")
+                    logger.warning("openpyxl no extrajo texto suficiente de %s", filename)
                     
             except Exception as e:
-                print(f"❌ Error en openpyxl para Excel {filename}: {e}")
+                logger.warning("Error en openpyxl para Excel %s: %s", filename, e)
             
             # Estrategia 2: Fallback manual
-            print(f"⚠️ No se pudo extraer texto de Excel {filename}, requiere clasificación manual")
+            logger.warning("Excel %s requiere clasificación manual", filename)
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
         except Exception as e:
-            print(f"Error procesando Excel {filename}: {e}")
+            logger.warning("Error procesando Excel %s: %s", filename, e)
             return "MANUAL_CLASSIFICATION_REQUIRED"
     
     async def _extract_text_from_powerpoint(self, content: bytes, filename: str) -> str:
@@ -309,20 +315,20 @@ class DocumentAnalysisService:
                 text = '\n'.join(all_text)
                 
                 if text and len(text.strip()) > 50:
-                    print(f"✅ python-pptx extrajo texto de PowerPoint {filename}: {len(text)} caracteres")
+                    logger.info("python-pptx extrajo texto de PowerPoint %s: %d caracteres", filename, len(text))
                     return text.strip()
                 else:
-                    print(f"⚠️ python-pptx no pudo extraer texto suficiente de {filename}")
+                    logger.warning("python-pptx no extrajo texto suficiente de %s", filename)
                 
             except Exception as e:
-                print(f"❌ Error en python-pptx para PowerPoint {filename}: {e}")
+                logger.warning("Error en python-pptx para PowerPoint %s: %s", filename, e)
             
             # Estrategia 2: Fallback manual
-            print(f"⚠️ No se pudo extraer texto de PowerPoint {filename}, requiere clasificación manual")
+            logger.warning("PowerPoint %s requiere clasificación manual", filename)
             return "MANUAL_CLASSIFICATION_REQUIRED"
                 
         except Exception as e:
-            print(f"Error procesando PowerPoint {filename}: {e}")
+            logger.warning("Error procesando PowerPoint %s: %s", filename, e)
             return "MANUAL_CLASSIFICATION_REQUIRED"
     
     async def _classify_document(self, text: str, filename: str) -> str:
@@ -339,7 +345,7 @@ class DocumentAnalysisService:
             return category
             
         except Exception as e:
-            print(f"Error en clasificación con Bedrock: {e}")
+            logger.warning("Error en clasificación con Bedrock: %s", e)
             # Fallback: clasificación básica por extensión si Bedrock falla
             if filename.endswith('.pdf'):
                 return "Documento PDF"
@@ -445,7 +451,7 @@ class DocumentAnalysisService:
             return list(set(tags))[:10]  # Máximo 10 tags únicos
             
         except Exception as e:
-            print(f"Error generando tags con Bedrock: {e}")
+            logger.warning("Error generando tags con Bedrock: %s", e)
             # Fallback: tags básicos
             return [category.lower(), "documento"]
     
@@ -463,7 +469,7 @@ class DocumentAnalysisService:
             return round(min(max(confidence, 0.0), 1.0), 2)
             
         except Exception as e:
-            print(f"Error calculando confianza con Bedrock: {e}")
+            logger.warning("Error calculando confianza con Bedrock: %s", e)
             # Fallback: confianza básica basada en longitud del texto
             text_length = len(text)
             length_confidence = min(text_length / 1000, 1.0)
@@ -518,7 +524,7 @@ class DocumentAnalysisService:
                 return expiry_date
             return self._extract_expiry_date_regex_only(text)
         except Exception as e:
-            print(f"Error extrayendo fecha de vencimiento con Bedrock: {e}")
+            logger.warning("Error extrayendo fecha de vencimiento con Bedrock: %s", e)
             return self._extract_expiry_date_regex_only(text)
     
     async def _extract_document_number(self, text: str) -> Optional[str]:

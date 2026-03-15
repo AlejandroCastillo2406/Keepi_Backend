@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from typing import List, Optional, Dict, Any
-import tempfile
+import logging
 import os
+import tempfile
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from datetime import datetime
 
 from app.core.security import verify_token
@@ -11,6 +13,8 @@ from app.services.usuarios import UserConfigService
 from app.services.documento import DocumentService
 from app.models.document import DocumentCreate
 from app.models.user_config import CloudProvider
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -54,7 +58,7 @@ async def upload_document_with_aws_analysis(
             document_service = DocumentService()
             
             # Procesar documento con AWS (Textract asíncrono + Comprehend)
-            print(f"🔍 Procesando documento con AWS Textract asíncrono...")
+            logger.info("AWS: Procesando documento con Textract asíncrono")
             
             # Usar el nuevo método que implementa la estrategia completa
             document = await document_service.process_document_with_aws(
@@ -111,7 +115,7 @@ async def upload_document_with_aws_analysis(
                 os.unlink(temp_file_path)
                 
     except Exception as e:
-        print(f"❌ Error procesando documento: {str(e)}")
+        logger.exception("AWS: Error procesando documento")
         raise HTTPException(
             status_code=500, 
             detail=f"Error procesando documento: {str(e)}"

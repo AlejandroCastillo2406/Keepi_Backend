@@ -277,7 +277,7 @@ class DocumentService:
                         drive_auth_url=folder_result.get('drive_auth_url', '')
                     )
                 else:
-                    print(f"⚠️ Error creando carpeta de categoría: {folder_result.get('error')}")
+                    logger.warning("Error creando carpeta de categoría: %s", folder_result.get('error'))
                     # Continuar sin carpeta específica
             
             # PASO 4: Subir archivo a la carpeta de categoría
@@ -320,7 +320,7 @@ class DocumentService:
                 # Verificar que tenemos un folder_id válido
                 if not drive_folder_id:
                     # Si no hay folder_id en el resultado, intentar crear la carpeta de nuevo
-                    logger.warning(f"⚠️ No se obtuvo folder_id para categoría '{category}', creando carpeta...")
+                    logger.warning("No se obtuvo folder_id para categoría '%s', creando carpeta", category)
                     folder_creation = await self.folder_service.create_category_folder(
                         user_id, category, storage_preference
                     )
@@ -328,19 +328,19 @@ class DocumentService:
                     
                     # Si aún no hay folder_id, usar General como fallback
                     if not drive_folder_id:
-                        logger.warning(f"⚠️ No se pudo crear carpeta para '{category}', usando General como fallback")
+                        logger.warning("No se pudo crear carpeta para '%s', usando General como fallback", category)
                         drive_folder_id = await drive_service.get_or_create_folder("General")
                         category = "General"  # Actualizar categoría para consistencia
                 
                 # Subir archivo directamente a la carpeta de categoría
-                logger.info(f"📁 Subiendo archivo '{file_name}' a carpeta '{category}' (ID: {drive_folder_id})")
+                logger.info("Subiendo archivo '%s' a carpeta '%s' (ID: %s)", file_name, category, drive_folder_id)
                 drive_file_id = await drive_service.upload_file(
                     file_data, 
                     file_name, 
                     drive_folder_id, 
                     file_type
                 )
-                logger.info(f"✅ Archivo subido exitosamente a Google Drive (File ID: {drive_file_id})")
+                logger.info("Archivo subido a Google Drive (File ID: %s)", drive_file_id)
                 
                 # Obtener URL del archivo
                 file_url = await drive_service.get_file_download_url(drive_file_id)
@@ -552,15 +552,12 @@ class DocumentService:
             ai_analysis = None
             category = 'General'
             
-            print(f"🔍 DEBUG: Texto extraído: {len(extracted_text)} caracteres")
-            print(f"🔍 DEBUG: Primeros 200 chars: {extracted_text[:200]}...")
-            
+            logger.debug("Texto extraído: %d caracteres", len(extracted_text))
             if extracted_text and len(extracted_text.strip()) > 10:  # Solo si hay texto significativo
                 try:
-                    print(f"🔍 DEBUG: Llamando a categorize_document...")
                     # Usar AWS Comprehend para análisis dinámico
                     comprehend_result = await self.aws_service.categorize_document(extracted_text)
-                    print(f"🔍 DEBUG: Comprehend result: {comprehend_result.get('category', 'N/A')}")
+                    logger.debug("Comprehend categoría: %s", comprehend_result.get('category', 'N/A'))
                     ai_analysis = {
                         'extraction': extraction_result,
                         'comprehend': comprehend_result
@@ -587,7 +584,7 @@ class DocumentService:
                         s3_key = f"users/{user_id}/categorias/{self.aws_service._sanitize_folder_name(category)}/{file_name}"
                     
                 except Exception as e:
-                    print(f"Error en categorización: {e}")
+                    logger.warning("Error en categorización: %s", e)
                     ai_analysis = {
                         'extraction': extraction_result,
                         'comprehend_error': str(e)
@@ -627,5 +624,5 @@ class DocumentService:
             return await self.create_document(user_id, document_data)
             
         except Exception as e:
-            print(f"Error procesando documento con AWS: {e}")
+            logger.exception("Error procesando documento con AWS")
             raise

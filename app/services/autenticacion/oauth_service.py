@@ -1,14 +1,16 @@
-from typing import Dict, Any, Optional
+import base64
+import logging
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
+
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
-import json
-import os
-from datetime import datetime, timedelta
-from app.config.settings import settings
-import base64
 
+from app.config.settings import settings
 from app.services.autenticacion.oauth_credentials_service import OAuthCredentialsService
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleOAuthService:
@@ -54,19 +56,16 @@ class GoogleOAuthService:
                 login_hint=None  # Permitir que el usuario elija cuenta
             )
             
-            print(f"🔐 URL de autorización generada para usuario: {user_id}")
-            print(f"🔐 State configurado: {state}")
-            print(f"🔐 URL completa: {authorization_url}")
-            
+            logger.info("OAuth: URL de autorización generada para user_id=%s", user_id)
             return {
                 "authorization_url": authorization_url,
                 "state": state
             }
             
         except Exception as e:
-            print(f"Error generando URL de autorización: {e}")
+            logger.exception("OAuth: Error generando URL de autorización")
             raise
-    
+
     async def exchange_code_for_tokens(
         self,
         authorization_code: str,
@@ -91,9 +90,8 @@ class GoogleOAuthService:
             # Usar el user_id que se pasa como parámetro
             if not user_id:
                 user_id = "default_user"
-                print("⚠️ Usando user_id por defecto para testing")
-            
-            print(f"✅ Guardando credenciales para usuario: {user_id}")
+                logger.warning("OAuth: user_id vacío, usando valor por defecto")
+            logger.info("OAuth: Guardando credenciales para user_id=%s", user_id)
             
             # Guardar credenciales en Firestore
             await self._save_user_credentials(user_id, credentials)
@@ -107,9 +105,9 @@ class GoogleOAuthService:
             }
             
         except Exception as e:
-            print(f"Error intercambiando código por tokens: {e}")
+            logger.exception("OAuth: Error intercambiando código por tokens")
             raise
-    
+
     async def refresh_user_tokens(self, user_id: str) -> Optional[Credentials]:
         """Refrescar tokens del usuario"""
         try:
@@ -132,24 +130,22 @@ class GoogleOAuthService:
             if credentials.refresh_token:
                 try:
                     credentials.refresh(Request())
-                    print(f"✅ Token refrescado exitosamente para usuario: {user_id}")
-                    
-                    # Actualizar tokens en Firestore
+                    logger.info("OAuth: Token Google refrescado para user_id=%s", user_id)
                     await self._update_user_credentials(user_id, credentials)
-                    print(f"✅ Credenciales actualizadas en Firestore para usuario: {user_id}")
+                    logger.info("OAuth: Credenciales actualizadas para user_id=%s", user_id)
                 except Exception as refresh_error:
-                    print(f"❌ Error refrescando token: {refresh_error}")
+                    logger.warning("OAuth: Error refrescando token Google para user_id=%s: %s", user_id, refresh_error)
                     return None
             else:
-                print(f"❌ No hay refresh_token disponible para usuario: {user_id}")
+                logger.warning("OAuth: Sin refresh_token para user_id=%s", user_id)
                 return None
             
             return credentials
             
         except Exception as e:
-            print(f"Error refrescando tokens: {e}")
+            logger.exception("OAuth: Error refrescando tokens")
             return None
-    
+
     async def revoke_user_access(self, user_id: str) -> bool:
         """Revocar acceso del usuario a Google Drive"""
         try:
@@ -158,9 +154,9 @@ class GoogleOAuthService:
             return True
             
         except Exception as e:
-            print(f"Error revocando acceso: {e}")
+            logger.exception("OAuth: Error revocando acceso para user_id=%s", user_id)
             return False
-    
+
     async def check_user_drive_access(self, user_id: str) -> Dict[str, Any]:
         """Verificar si el usuario tiene acceso a Google Drive con verificación activa"""
         try:
@@ -189,7 +185,7 @@ class GoogleOAuthService:
                     
                     time_until_expiry = expiry_time - current_time
                 except Exception as e:
-                    print(f"Error procesando fecha de expiración: {e}")
+                    logger.warning("OAuth: Error procesando fecha de expiración: %s", e)
                     # Si hay error con la fecha, asumir que está expirado
                     return {
                         "has_access": False,
@@ -235,7 +231,7 @@ class GoogleOAuthService:
                 }
                 
             except Exception as refresh_error:
-                print(f"Error refrescando token: {refresh_error}")
+                logger.warning("OAuth: Error refrescando token al verificar acceso: %s", refresh_error)
                 return {
                     "has_access": False,
                     "status": "invalid_credentials",
@@ -244,7 +240,7 @@ class GoogleOAuthService:
                 }
             
         except Exception as e:
-            print(f"Error verificando acceso: {e}")
+            logger.exception("OAuth: Error verificando acceso Drive")
             return {
                 "has_access": False,
                 "status": "error",
@@ -266,15 +262,10 @@ class GoogleOAuthService:
             flow.fetch_token(code=code)
             credentials = flow.credentials
             
-            # Por ahora, retornar None ya que no podemos extraer user_id del código
-            # En una implementación real, podrías usar un cache temporal o base de datos
-            print(f"🔍 Código de autorización recibido: {code[:10]}...")
-            print(f"🔍 Scopes obtenidos: {credentials.scopes}")
-            
+            logger.debug("OAuth: Código recibido, scopes=%s", credentials.scopes)
             return None
-            
         except Exception as e:
-            print(f"⚠️ Error obteniendo user_id del código temporal: {e}")
+            logger.warning("OAuth: No se pudo obtener user_id del código: %s", e)
             return None
 
     async def _save_user_credentials(self, user_id: str, credentials: Credentials) -> bool:
@@ -284,11 +275,10 @@ class GoogleOAuthService:
             success = await oauth_service.save_user_credentials(user_id, credentials)
             
             if success:
-                print(f"✅ Credenciales guardadas para usuario: {user_id}")
+                logger.info("OAuth: Credenciales guardadas para user_id=%s", user_id)
             return success
-            
         except Exception as e:
-            print(f"Error guardando credenciales: {e}")
+            logger.exception("OAuth: Error guardando credenciales")
             return False
     
     async def _get_user_credentials(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -298,9 +288,9 @@ class GoogleOAuthService:
             return await oauth_service.get_user_credentials(user_id)
             
         except Exception as e:
-            print(f"Error obteniendo credenciales: {e}")
+            logger.exception("OAuth: Error obteniendo credenciales")
             return None
-    
+
     async def _update_user_credentials(self, user_id: str, credentials: Credentials) -> bool:
         """Actualizar credenciales del usuario en PostgreSQL"""
         try:
@@ -308,9 +298,9 @@ class GoogleOAuthService:
             return await oauth_service.update_user_credentials(user_id, credentials)
             
         except Exception as e:
-            print(f"Error actualizando credenciales: {e}")
+            logger.exception("OAuth: Error actualizando credenciales")
             return False
-    
+
     async def _delete_user_credentials(self, user_id: str) -> bool:
         """Eliminar credenciales del usuario de PostgreSQL"""
         try:
@@ -318,5 +308,5 @@ class GoogleOAuthService:
             return await oauth_service.delete_user_credentials(user_id)
             
         except Exception as e:
-            print(f"Error eliminando credenciales: {e}")
+            logger.exception("OAuth: Error eliminando credenciales")
             return False
