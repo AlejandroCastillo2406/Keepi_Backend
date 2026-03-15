@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
+    # Pool de conexiones (por proceso). Total máx = pool_size + max_overflow.
+    # En producción: ajustar según max_connections de PostgreSQL y número de workers.
+    pool_size: int = int(os.getenv("DB_POOL_SIZE", "10"))
+    pool_max_overflow: int = int(os.getenv("DB_POOL_MAX_OVERFLOW", "20"))
+    pool_timeout: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    pool_recycle: int = int(os.getenv("DB_POOL_RECYCLE", "300"))
+
     google_client_secrets_path: str = os.getenv("GOOGLE_CLIENT_SECRETS_PATH", "client_secrets.json")
     google_redirect_uri: Optional[str] = os.getenv("GOOGLE_REDIRECT_URI")
 

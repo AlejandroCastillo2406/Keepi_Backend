@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 from datetime import datetime, timedelta
@@ -59,6 +60,111 @@ class BedrockService:
                 "tags": [],
                 "error": str(e)
             }
+
+    async def analyze_image_for_category(
+        self,
+        image_bytes: bytes,
+        filename: str,
+        media_type: str = "image/jpeg",
+        existing_folder_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Analiza una imagen (foto/documento escaneado) con Claude 3 Haiku visión.
+        Se usa cuando Textract no extrae texto suficiente (ej. foto de documento).
+        Devuelve el mismo formato que analyze_document_content.
+        """
+        if not self.bedrock_client:
+            return {
+                "category": "MANUAL_CLASSIFICATION_REQUIRED",
+                "confidence": 0.0,
+                "expiry_date": None,
+                "recommended_name": None,
+                "tags": [],
+                "error": "Bedrock no disponible",
+            }
+        try:
+            prompt = self._create_image_analysis_prompt(filename, existing_folder_names or [])
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type if media_type.startswith("image/") else "image/jpeg",
+                        "data": base64.b64encode(image_bytes).decode("utf-8"),
+                    },
+                },
+                {"type": "text", "text": prompt},
+            ]
+            response_text = await self._call_claude_multimodal(content)
+            result = self._parse_claude_response(response_text)
+            category = result.get("category", "Sin categoría")
+            if category in ("Sin categoría", "MANUAL_CLASSIFICATION_REQUIRED", ""):
+                result["category"] = "MANUAL_CLASSIFICATION_REQUIRED"
+            return result
+        except Exception as e:
+            logger.warning("Error analizando imagen con Bedrock (visión): %s", e)
+            return {
+                "category": "MANUAL_CLASSIFICATION_REQUIRED",
+                "confidence": 0.0,
+                "expiry_date": None,
+                "recommended_name": None,
+                "tags": [],
+                "error": str(e),
+            }
+
+    def _create_image_analysis_prompt(self, filename: str, existing_folder_names: List[str]) -> str:
+        """Prompt para que Claude analice la imagen y devuelva categoría y metadatos en JSON."""
+        folders_instruction = ""
+        if existing_folder_names:
+            folders_list = ", ".join(f'"{n}"' for n in existing_folder_names[:50])
+            folders_instruction = f"""
+CARPETAS EXISTENTES DEL USUARIO: [{folders_list}]
+- Si el documento en la imagen encaja en UNA de estas categorías, usa EXACTAMENTE ese nombre en "category".
+- Si no encaja en ninguna, propón una NUEVA categoría amplia (máximo 3 palabras).
+"""
+        return f"""
+Analiza la imagen adjunta (documento o foto de documento llamada "{filename}") y devuelve en UN solo JSON:
+
+1. CATEGORÍA: Determina qué tipo de documento es (máximo 3 palabras, ASCII).
+   - Ejemplos: "Documentos personales" (DNI, RFC, INE, pasaporte), "Facturas", "Contratos", "Recetas médicas", "Certificados", "Seguros", "Comprobantes fiscales", "Fotos personales", "Otros".
+{folders_instruction}
+
+2. FECHA DE VENCIMIENTO: Si ves una fecha de vencimiento/expiración en la imagen, formato YYYY-MM-DD. Si no, null.
+
+3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
+
+4. NOMBRE RECOMENDADO: Nombre sugerido para el archivo basado en el contenido visible. Respeta la extensión de "{filename}".
+
+5. TAGS: Lista de 1 a 5 etiquetas en minúsculas.
+
+Responde SOLO con este JSON válido (sin markdown ni texto extra):
+{{
+    "category": "nombre_categoria_amplia",
+    "confidence": 0.95,
+    "expiry_date": "2024-12-31" o null,
+    "recommended_name": "nombre sugerido.ext",
+    "tags": ["tag1", "tag2"]
+}}
+"""
+
+    async def _call_claude_multimodal(self, content: list) -> str:
+        """Invocar Claude con contenido multimodal (imagen + texto)."""
+        try:
+            body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": content}],
+            }
+            response = self.bedrock_client.invoke_model(
+                modelId=self.model_id,
+                body=json.dumps(body),
+                contentType="application/json",
+            )
+            response_body = json.loads(response["body"].read())
+            return response_body["content"][0]["text"]
+        except (ClientError, Exception) as e:
+            logger.warning("Error llamando a Claude (multimodal): %s", e)
+            raise
 
     def _create_analysis_prompt(
         self, text: str, filename: str, existing_folder_names: List[str]

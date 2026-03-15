@@ -53,9 +53,9 @@ def _s3_doc_to_file_item(doc: dict) -> dict:
     }
 
 
-async def _get_drive_service_or_raise(uid: str) -> GoogleDriveService:
+async def _get_drive_service_or_raise(uid: str, db: Session) -> GoogleDriveService:
     """Obtiene GoogleDriveService con credenciales del usuario o lanza HTTPException 401."""
-    oauth_service = GoogleOAuthService()
+    oauth_service = GoogleOAuthService(db)
     credentials = await oauth_service.refresh_user_tokens(uid)
     if not credentials:
         raise HTTPException(
@@ -101,11 +101,12 @@ async def get_s3_folder_contents(
 @router.get("/keepi-cloud/root")
 async def get_keepi_cloud_root(
     user_token: TokenPayload = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Contenido raíz de Keepi Cloud (S3) del usuario: subcarpetas y archivos en users/{uid}/."""
     try:
         uid = user_token["uid"]
-        config_service = UserConfigService()
+        config_service = UserConfigService(db)
         user_config = await config_service.get_or_create_user_config(uid)
         if not user_config or user_config.cloud_provider.value != "keepi_cloud":
             return {"folders": [], "root_files": []}
@@ -139,7 +140,7 @@ async def get_drive_folder_contents(
 ):
     """Obtener contenido de una carpeta: subcarpetas y archivos."""
     try:
-        drive_service = await _get_drive_service_or_raise(user_token["uid"])
+        drive_service = await _get_drive_service_or_raise(user_token["uid"], db)
         parent_id = None if folder_id == "root" else folder_id
 
         subfolders = await drive_service.get_folder_structure(parent_id)
@@ -189,10 +190,11 @@ async def get_drive_folder_contents(
 async def get_drive_file_view_url(
     file_id: str,
     user_token: TokenPayload = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Obtener URL para vista previa/descarga de un archivo de Google Drive."""
     try:
-        drive_service = await _get_drive_service_or_raise(user_token["uid"])
+        drive_service = await _get_drive_service_or_raise(user_token["uid"], db)
         info = await drive_service.get_file_view_info(file_id)
         if not info.get("view_url"):
             raise HTTPException(status_code=404, detail="No se pudo obtener la URL de vista previa para este archivo.")
@@ -208,10 +210,11 @@ async def get_drive_file_view_url(
 async def get_drive_file_content(
     file_id: str,
     user_token: TokenPayload = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Descargar contenido del archivo de Google Drive (para guardar en dispositivo)."""
     try:
-        drive_service = await _get_drive_service_or_raise(user_token["uid"])
+        drive_service = await _get_drive_service_or_raise(user_token["uid"], db)
         file_content, file_name, mime_type = await drive_service.download_file(file_id)
         return Response(
             content=file_content,
@@ -229,10 +232,11 @@ async def get_drive_file_content(
 async def delete_drive_file(
     file_id: str,
     user_token: TokenPayload = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Eliminar archivo de Google Drive (permanente)."""
     try:
-        drive_service = await _get_drive_service_or_raise(user_token["uid"])
+        drive_service = await _get_drive_service_or_raise(user_token["uid"], db)
         success = await drive_service.delete_file(file_id)
         if not success:
             raise HTTPException(status_code=500, detail="No se pudo eliminar el archivo.")
@@ -248,19 +252,20 @@ async def delete_drive_file(
 async def get_mobile_dashboard(
     user_token: TokenPayload = Depends(verify_token),
     limit: int = Query(10, description="Número de documentos a mostrar"),
+    db: Session = Depends(get_db),
 ):
     """Dashboard optimizado para móviles con información resumida"""
     try:
-        user_service = UserService()
+        user_service = UserService(db)
         user = await user_service.get_user_by_uid(user_token["uid"])
         if not user:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-        config_service = UserConfigService()
+        config_service = UserConfigService(db)
         user_config = await config_service.get_or_create_user_config(user_token["uid"])
         storage_preference = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "google_drive"
 
-        document_service = DocumentService()
+        document_service = DocumentService(db)
         all_documents = await document_service.get_user_documents(user_token["uid"])
 
         total_keepi = sum(1 for doc in all_documents if _doc_matches_storage(doc, storage_preference))
@@ -295,7 +300,7 @@ async def get_mobile_dashboard(
 
         elif storage_preference == "google_drive":
             try:
-                credentials = await GoogleOAuthService().refresh_user_tokens(str(user.id))
+                credentials = await GoogleOAuthService(db).refresh_user_tokens(str(user.id))
                 if not credentials:
                     logger.warning("Usuario sin credenciales de Google Drive configuradas")
                     folders = []
@@ -331,6 +336,7 @@ async def get_mobile_dashboard(
 async def mobile_analyze_document(
     file: UploadFile = File(...),
     user_token: TokenPayload = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Paso 1: Solo analizar archivo con Bedrock. No guarda. Devuelve resumen para el modal."""
     user_id = user_token.get("uid", "unknown")
@@ -341,7 +347,7 @@ async def mobile_analyze_document(
             raise HTTPException(status_code=400, detail="Nombre de archivo requerido")
         content = await file.read()
         logger.info("[mobile/analyze] Archivo leído: %s bytes. Iniciando análisis Bedrock...", len(content))
-        document_service = DocumentService()
+        document_service = DocumentService(db)
         result = await document_service.analyze_document_only(
             user_token["uid"],
             content,
@@ -369,6 +375,7 @@ async def mobile_save_analyzed_document(
     document_number: Optional[str] = Form(None),
     organization: Optional[str] = Form(None),
     user_token: TokenPayload = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Paso 2: Guardar archivo ya analizado en la carpeta de la categoría (crear carpeta si no existe)."""
     try:
@@ -381,7 +388,7 @@ async def mobile_save_analyzed_document(
                 parsed_expiry = datetime.fromisoformat(expiry_date.replace("Z", "+00:00"))
             except ValueError:
                 pass
-        document_service = DocumentService()
+        document_service = DocumentService(db)
         document = await document_service.save_analyzed_document(
             user_id=user_token["uid"],
             file_data=content,

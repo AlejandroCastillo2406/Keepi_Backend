@@ -5,7 +5,9 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from datetime import datetime
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.core.security import verify_token
 from app.services.aws import AWSService
 from app.services.almacenamiento import S3Service
@@ -22,7 +24,8 @@ router = APIRouter()
 async def upload_document_with_aws_analysis(
     file: UploadFile = File(...),
     folder: Optional[str] = Form(None),
-    user_token: dict = Depends(verify_token)
+    user_token: dict = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Subir documento y analizarlo con AWS Textract asíncrono y Comprehend"""
     try:
@@ -41,7 +44,7 @@ async def upload_document_with_aws_analysis(
             )
         
         # Obtener configuración del usuario
-        config_service = UserConfigService()
+        config_service = UserConfigService(db)
         user_config = await config_service.get_or_create_user_config(user_token['uid'])
         
         # Leer contenido del archivo
@@ -55,7 +58,7 @@ async def upload_document_with_aws_analysis(
         try:
             # Inicializar servicios
             aws_service = AWSService()
-            document_service = DocumentService()
+            document_service = DocumentService(db)
             
             # Procesar documento con AWS (Textract asíncrono + Comprehend)
             logger.info("AWS: Procesando documento con Textract asíncrono")

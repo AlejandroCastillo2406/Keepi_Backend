@@ -50,7 +50,7 @@ class AWSService:
         """
         try:
             logger.info("Extrayendo texto de %s (tipo: %s)", file_name, file_type)
-            logger.info(f"📊 Tamaño del archivo: {len(file_data)} bytes")
+            logger.info("Tamaño del archivo: %d bytes", len(file_data))
             
             # Para PDFs, usar solo AWS Textract asíncrono (principal)
             if file_type.lower() in ['pdf', 'application/pdf']:
@@ -90,7 +90,7 @@ class AWSService:
             
             # Para imágenes, usar AWS Textract síncrono
             elif file_type.lower() in ['image/jpeg', 'image/jpg', 'image/png']:
-                logger.info("🖼️ Procesando imagen con AWS Textract síncrono...")
+                logger.info("Procesando imagen con AWS Textract síncrono...")
                 return await self._extract_text_from_image(file_data)
             
             else:
@@ -153,7 +153,7 @@ class AWSService:
                 response = self.textract_client.get_document_analysis(JobId=job_id)
                 status = response['JobStatus']
                 
-                logger.info(f"📊 Estado del análisis (intento {attempt + 1}): {status}")
+                logger.info("Estado del análisis (intento %d): %s", attempt + 1, status)
                 
                 if status == 'SUCCEEDED':
                     logger.info("Análisis completado")
@@ -218,7 +218,7 @@ class AWSService:
                 block_type = block['BlockType']
                 block_types[block_type] = block_types.get(block_type, 0) + 1
             
-            logger.info(f"📊 Estadísticas del análisis:")
+            logger.info("Estadísticas del análisis:")
             logger.info(f"   - Páginas procesadas: {page_count}")
             logger.info(f"   - Bloques totales: {len(all_blocks)}")
             logger.info(f"   - Líneas de texto: {len(line_blocks)}")
@@ -247,7 +247,7 @@ class AWSService:
     async def _extract_text_from_image(self, image_data: bytes) -> Dict[str, Any]:
         """Extraer texto de imágenes usando AWS Textract síncrono"""
         try:
-            logger.info("🖼️ Procesando imagen con AWS Textract síncrono...")
+            logger.info("Procesando imagen con AWS Textract síncrono...")
             
             response = self.textract_client.detect_document_text(
                 Document={'Bytes': image_data}
@@ -268,7 +268,7 @@ class AWSService:
                 block_type = block['BlockType']
                 block_types[block_type] = block_types.get(block_type, 0) + 1
             
-            logger.info(f"📊 Imagen procesada: {len(text)} caracteres, {len(line_blocks)} líneas")
+            logger.info("Imagen procesada: %d caracteres, %d líneas", len(text), len(line_blocks))
             
             return {
                 'text': text.strip(),
@@ -298,7 +298,7 @@ class AWSService:
         """
         try:
             logger.info("Analizando texto con Comprehend")
-            logger.info(f"📊 Longitud del texto: {len(text)} caracteres")
+            logger.info("Longitud del texto: %d caracteres", len(text))
             logger.info(f"📝 Primeros 200 caracteres: {text[:200]}...")
             logger.info(f"📝 Últimos 200 caracteres: ...{text[-200:]}")
             
@@ -358,7 +358,7 @@ class AWSService:
                 total_confidence = 0.7
             
             logger.info(f"🎯 CATEGORÍA DETERMINADA: {category}")
-            logger.info(f"📊 Confianza: {total_confidence:.2f}")
+            logger.info("Confianza: %.2f", total_confidence)
             logger.info(f"📈 Total entidades: {len(all_entities)}")
             logger.info(f"📈 Total frases clave: {len(all_key_phrases)}")
             

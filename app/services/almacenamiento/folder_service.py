@@ -2,15 +2,20 @@ import logging
 import re
 import unicodedata
 from typing import Dict, Any, Optional
+
+from sqlalchemy.orm import Session
+
 from app.services.almacenamiento.s3_service import S3Service
 from app.services.almacenamiento.drive_service import GoogleDriveService
 
 logger = logging.getLogger(__name__)
 
+
 class FolderService:
-    """Servicio para gestionar carpetas automáticamente según categorías"""
-    
-    def __init__(self):
+    """Servicio para gestionar carpetas automáticamente según categorías."""
+
+    def __init__(self, db: Session):
+        self._db = db
         self.s3_service = S3Service()
         # drive_service se inicializará cuando sea necesario con las credenciales del usuario
     
@@ -108,7 +113,7 @@ class FolderService:
         try:
             # Obtener credenciales del usuario usando OAuth service
             from app.services.autenticacion import GoogleOAuthService
-            oauth_service = GoogleOAuthService()
+            oauth_service = GoogleOAuthService(self._db)
             credentials = await oauth_service.refresh_user_tokens(user_id)
             
             if not credentials:
@@ -209,7 +214,7 @@ class FolderService:
                 folder_name = self._clean_folder_name(category, storage_preference)
                 # Obtener credenciales del usuario para verificar si existe la carpeta
                 from app.services.autenticacion import GoogleOAuthService
-                oauth_service = GoogleOAuthService()
+                oauth_service = GoogleOAuthService(self._db)
                 credentials = await oauth_service.refresh_user_tokens(user_id)
                 
                 if not credentials:

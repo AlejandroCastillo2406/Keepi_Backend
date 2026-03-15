@@ -54,8 +54,8 @@ class DocumentService:
         self.db = db or next(get_db())
         self._document_repository = document_repository
         self.aws_service = AWSService()
-        self.user_config_service = UserConfigService()
-        self.folder_service = FolderService()
+        self.user_config_service = UserConfigService(self.db)
+        self.folder_service = FolderService(self.db)
         self.ai_analysis_service = DocumentAnalysisService()
 
     async def get_user_documents(self, user_id: str) -> List[ModelDocumentResponse]:
@@ -303,7 +303,7 @@ class DocumentService:
                 from app.services.almacenamiento import GoogleDriveService
                 
                 # Obtener credenciales del usuario
-                oauth_service = GoogleOAuthService()
+                oauth_service = GoogleOAuthService(self.db)
                 user_credentials = await oauth_service.refresh_user_tokens(user_id)
                 
                 if not user_credentials:
@@ -386,7 +386,7 @@ class DocumentService:
             user_config = await self.user_config_service.get_user_config(user_id)
             if not user_config or user_config.cloud_provider != CloudProvider.GOOGLE_DRIVE:
                 return []
-            oauth = GoogleOAuthService()
+            oauth = GoogleOAuthService(self.db)
             credentials = await oauth.refresh_user_tokens(user_id)
             if not credentials:
                 return []
@@ -486,7 +486,7 @@ class DocumentService:
         elif storage_preference == "google_drive":
             from app.services.autenticacion import GoogleOAuthService
             from app.services.almacenamiento import GoogleDriveService
-            oauth_service = GoogleOAuthService()
+            oauth_service = GoogleOAuthService(self.db)
             user_credentials = await oauth_service.refresh_user_tokens(user_id)
             if not user_credentials:
                 raise ValueError("Usuario no ha autorizado acceso a Google Drive")

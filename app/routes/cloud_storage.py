@@ -46,7 +46,7 @@ async def setup_cloud_storage(
 
         if storage_type == "not_configured":
             try:
-                config_service = UserConfigService()
+                config_service = UserConfigService(db)
                 await config_service.get_or_create_user_config(str(current_user.id))
                 update_data = UserConfigUpdate(cloud_provider=CloudProvider.NOT_CONFIGURED)
                 await config_service.update_user_config(str(current_user.id), update_data)
@@ -88,7 +88,7 @@ async def setup_cloud_storage(
 
         logger.debug("Preparando configuración de almacenamiento para usuario %s", current_user.id)
         try:
-            config_service = UserConfigService()
+            config_service = UserConfigService(db)
             user_config = await config_service.get_or_create_user_config(str(current_user.id))
             if storage_type == "keepi_cloud":
                 update_data = UserConfigUpdate(cloud_provider=CloudProvider.KEEPI_CLOUD)
@@ -104,7 +104,7 @@ async def setup_cloud_storage(
                 raise HTTPException(status_code=500, detail="Error creando carpeta de usuario")
 
         if storage_type == "google_drive":
-            oauth_service = GoogleOAuthService()
+            oauth_service = GoogleOAuthService(db)
             credentials = await oauth_service.refresh_user_tokens(str(current_user.id))
             if not credentials:
                 auth_data = await oauth_service.get_authorization_url(str(current_user.id))

@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.core.security import get_current_user
 from app.services.usuarios import UserService
 from app.models.user import UserCreate, UserUpdate, UserResponse, User
@@ -44,11 +46,12 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
 @router.put("/profile", response_model=UserResponse)
 async def update_user_profile(
     user_data: UserUpdate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Actualizar perfil del usuario"""
     try:
-        user_service = UserService()
+        user_service = UserService(db)
         updated_user = await user_service.update_user(str(current_user.id), user_data)
         
         if updated_user:
@@ -63,10 +66,10 @@ async def update_user_profile(
 
 # Endpoints de desarrollo (solo para testing) - ANTES de rutas dinámicas
 @router.get("/all", response_model=List[UserResponse])
-async def get_all_users():
+async def get_all_users(db: Session = Depends(get_db)):
     """Obtener todos los usuarios (SOLO PARA DESARROLLO)"""
     try:
-        user_service = UserService()
+        user_service = UserService(db)
         users = await user_service.get_all_users()
         return users
     except Exception as e:
@@ -74,10 +77,10 @@ async def get_all_users():
 
 # RUTA DINÁMICA - DEBE IR AL FINAL
 @router.get("/{user_uid}", response_model=UserResponse)
-async def get_user_by_uid(user_uid: str):
+async def get_user_by_uid(user_uid: str, db: Session = Depends(get_db)):
     """Obtener usuario específico por UID (SOLO PARA DESARROLLO)"""
     try:
-        user_service = UserService()
+        user_service = UserService(db)
         user = await user_service.get_user_by_uid(user_uid)
         
         if user:

@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
+from sqlalchemy.orm import Session
 
 from app.config.settings import settings
 from app.services.autenticacion.oauth_credentials_service import OAuthCredentialsService
@@ -14,9 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class GoogleOAuthService:
-    """Servicio para manejar autenticación OAuth2 con Google"""
-    
-    def __init__(self):
+    """Servicio para manejar autenticación OAuth2 con Google. Requiere db para no agotar el pool."""
+
+    def __init__(self, db: Session):
+        self._db = db
         # Configuración OAuth2 desde variables de entorno
         self.client_secrets_file = settings.google_client_secrets_path
         self.scopes = [
@@ -271,7 +273,7 @@ class GoogleOAuthService:
     async def _save_user_credentials(self, user_id: str, credentials: Credentials) -> bool:
         """Guardar credenciales del usuario en PostgreSQL"""
         try:
-            oauth_service = OAuthCredentialsService()
+            oauth_service = OAuthCredentialsService(self._db)
             success = await oauth_service.save_user_credentials(user_id, credentials)
             
             if success:
@@ -284,7 +286,7 @@ class GoogleOAuthService:
     async def _get_user_credentials(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Obtener credenciales del usuario desde PostgreSQL"""
         try:
-            oauth_service = OAuthCredentialsService()
+            oauth_service = OAuthCredentialsService(self._db)
             return await oauth_service.get_user_credentials(user_id)
             
         except Exception as e:
@@ -294,7 +296,7 @@ class GoogleOAuthService:
     async def _update_user_credentials(self, user_id: str, credentials: Credentials) -> bool:
         """Actualizar credenciales del usuario en PostgreSQL"""
         try:
-            oauth_service = OAuthCredentialsService()
+            oauth_service = OAuthCredentialsService(self._db)
             return await oauth_service.update_user_credentials(user_id, credentials)
             
         except Exception as e:
@@ -304,7 +306,7 @@ class GoogleOAuthService:
     async def _delete_user_credentials(self, user_id: str) -> bool:
         """Eliminar credenciales del usuario de PostgreSQL"""
         try:
-            oauth_service = OAuthCredentialsService()
+            oauth_service = OAuthCredentialsService(self._db)
             return await oauth_service.delete_user_credentials(user_id)
             
         except Exception as e:

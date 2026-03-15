@@ -59,8 +59,54 @@ class DocumentAnalysisService:
             
             # Extraer texto del documento
             extracted_text = await self._extract_text(content, content_type, filename)
-            
-            # Si no se pudo extraer texto suficiente, clasificación manual
+
+            # Si es imagen y Textract no extrajo texto suficiente → es una foto: analizar con Bedrock visión
+            if content_type.startswith("image/") and (
+                extracted_text == "MANUAL_CLASSIFICATION_REQUIRED"
+                or not extracted_text
+                or len(extracted_text.strip()) < 30
+            ):
+                bedrock_vision = await self.bedrock_service.analyze_image_for_category(
+                    content, filename, content_type, existing_folder_names=existing_category_names or []
+                )
+                suggested = (bedrock_vision.get("category") or "").strip()
+                confidence = float(bedrock_vision.get("confidence") or 0)
+                if suggested and suggested != "MANUAL_CLASSIFICATION_REQUIRED" and confidence >= 0.25:
+                    await self.subscription_service.increment_analysis_usage(user_id, db)
+                    tags = list(bedrock_vision.get("tags") or [])
+                    if suggested.lower() not in [t.lower() for t in tags]:
+                        tags.insert(0, suggested.lower())
+                    return {
+                        "suggested_category": suggested,
+                        "confidence_score": confidence,
+                        "extracted_text": "",
+                        "metadata": {},
+                        "tags": tags[:10],
+                        "expiry_date": bedrock_vision.get("expiry_date"),
+                        "recommended_name": bedrock_vision.get("recommended_name"),
+                        "processing_time_ms": 0,
+                        "ai_model_version": "1.0.0",
+                        "subscription_info": {
+                            "current_plan": analysis_check["plan"],
+                            "analysis_used": analysis_check["analysis_used"] + 1,
+                            "analysis_remaining": max(0, analysis_check["analysis_remaining"] - 1),
+                            "needs_subscription": False,
+                        },
+                    }
+                # Bedrock visión no pudo clasificar → manual
+                return {
+                    "suggested_category": "MANUAL_CLASSIFICATION_REQUIRED",
+                    "confidence_score": 0.0,
+                    "extracted_text": "",
+                    "metadata": {},
+                    "tags": ["manual_classification_required"],
+                    "expiry_date": None,
+                    "processing_time_ms": 0,
+                    "ai_model_version": "1.0.0",
+                    "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?",
+                }
+
+            # Si no es imagen pero no hay texto suficiente → clasificación manual
             if extracted_text == "MANUAL_CLASSIFICATION_REQUIRED" or not extracted_text or len(extracted_text.strip()) < 30:
                 return {
                     "suggested_category": "MANUAL_CLASSIFICATION_REQUIRED",
@@ -71,7 +117,7 @@ class DocumentAnalysisService:
                     "expiry_date": None,
                     "processing_time_ms": 0,
                     "ai_model_version": "1.0.0",
-                    "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?"
+                    "manual_classification_message": "No pudimos clasificarlo de manera adecuada, ¿a qué categoría corresponde?",
                 }
 
             # Una sola llamada a Bedrock: categoría (amplia o existente), confianza, fecha, nombre recomendado, tags

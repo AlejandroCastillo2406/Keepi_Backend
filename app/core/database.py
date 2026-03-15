@@ -13,15 +13,23 @@ logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
+# Límite por proceso: pool_size + max_overflow conexiones simultáneas a PostgreSQL.
+# Con N workers (uvicorn/gunicorn): total máximo = N * (pool_size + max_overflow).
 engine = create_engine(
     settings.database_url,
     echo=settings.echo_sql,
     pool_pre_ping=True,
-    pool_recycle=300,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=30,
+    pool_recycle=settings.pool_recycle,
+    pool_size=settings.pool_size,
+    max_overflow=settings.pool_max_overflow,
+    pool_timeout=settings.pool_timeout,
     connect_args={"options": "-c timezone=utc"},
+)
+logger.info(
+    "DB pool: size=%s overflow=%s (max %s conexiones por proceso)",
+    settings.pool_size,
+    settings.pool_max_overflow,
+    settings.pool_size + settings.pool_max_overflow,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -4,12 +4,13 @@ from datetime import datetime
 
 import stripe
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.database import DatabaseConfig
+from app.core.database import DatabaseConfig, get_db
 from app.models.user_config import CloudProvider, UserConfigUpdate
 from app.routes import auth, cloud_storage, documents, subscriptions, user_config
 from app.services.usuarios import UserConfigService
@@ -67,7 +68,7 @@ async def health_check():
 
 
 @app.get("/payment/success")
-async def payment_success(session_id: str):
+async def payment_success(session_id: str, db: Session = Depends(get_db)):
     """Tras el pago en Stripe: verifica sesión, pone keepi_cloud al usuario y redirige a la app."""
     try:
         logger.info("Pago exitoso - Session ID: %s", session_id)
@@ -75,7 +76,7 @@ async def payment_success(session_id: str):
         if session.get("payment_status") == "paid" and session.get("status") == "complete":
             user_id = (session.metadata or {}).get("user_id")
             if user_id:
-                config_service = UserConfigService()
+                config_service = UserConfigService(db)
                 await config_service.get_or_create_user_config(user_id)
                 update_data = UserConfigUpdate(cloud_provider=CloudProvider.KEEPI_CLOUD)
                 await config_service.update_user_config(user_id, update_data)
