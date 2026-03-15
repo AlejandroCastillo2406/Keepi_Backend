@@ -2,8 +2,9 @@
 Repositorio de suscripciones: solo acceso a datos (queries sobre Subscription).
 Sin lógica de negocio ni llamadas a Stripe.
 """
+import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from sqlalchemy.orm import Session
 
@@ -19,10 +20,19 @@ class SubscriptionRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    def get_by_user_id(self, user_id: str) -> Optional[Subscription]:
+    def _to_uuid(self, user_id: Union[str, uuid.UUID]) -> uuid.UUID:
+        if isinstance(user_id, uuid.UUID):
+            return user_id
+        try:
+            return uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            raise ValueError("user_id inválido") from None
+
+    def get_by_user_id(self, user_id: Union[str, uuid.UUID]) -> Optional[Subscription]:
+        uid = self._to_uuid(user_id)
         return (
             self._db.query(Subscription)
-            .filter(Subscription.user_id == user_id)
+            .filter(Subscription.user_id == uid)
             .first()
         )
 
@@ -40,9 +50,10 @@ class SubscriptionRepository:
             .first()
         )
 
-    def create_free(self, user_id: str) -> Subscription:
+    def create_free(self, user_id: Union[str, uuid.UUID]) -> Subscription:
+        uid = self._to_uuid(user_id)
         sub = Subscription(
-            user_id=user_id,
+            user_id=uid,
             plan=SubscriptionPlan.FREE,
             status=SubscriptionStatus.ACTIVE,
             analysis_limit=ANALYSIS_LIMIT_FREE,
@@ -53,7 +64,7 @@ class SubscriptionRepository:
         self._db.refresh(sub)
         return sub
 
-    def get_or_create_free(self, user_id: str) -> Subscription:
+    def get_or_create_free(self, user_id: Union[str, uuid.UUID]) -> Subscription:
         existing = self.get_by_user_id(user_id)
         if existing:
             return existing

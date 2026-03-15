@@ -3,6 +3,7 @@ Orquestación de suscripciones: repositorio + Stripe + webhooks.
 Una sola responsabilidad: coordinar flujos de suscripción.
 """
 import logging
+import uuid
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -54,7 +55,11 @@ class SubscriptionService:
         self, user_id: str, request: PaymentIntentRequest, db: Session
     ) -> Dict[str, Any]:
         repo = SubscriptionRepository(db)
-        user = db.query(User).filter(User.id == user_id).first()
+        try:
+            user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+        except (ValueError, TypeError):
+            raise ValueError("user_id inválido") from None
+        user = db.query(User).filter(User.id == user_uuid).first()
         if not user:
             raise ValueError("Usuario no encontrado")
         subscription = await self.get_or_create_subscription(user_id, db)
