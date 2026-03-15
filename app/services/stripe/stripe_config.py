@@ -29,12 +29,17 @@ def get_price_id_for_plan(plan: str) -> str:
 
 
 def get_payment_urls() -> Tuple[str, str]:
-    """Devuelve (success_url, cancel_url) para checkout. Requiere STRIPE_*_URL en .env."""
-    success = settings.stripe_payment_success_url
-    cancel = settings.stripe_payment_cancel_url
+    """Devuelve (success_url, cancel_url) para checkout. Usa STRIPE_*_URL o deriva de PUBLIC_BASE_URL."""
+    success = (settings.stripe_payment_success_url or "").strip()
+    cancel = (settings.stripe_payment_cancel_url or "").strip()
+    base = (settings.public_base_url or "").strip().rstrip("/")
+    if not success and base:
+        success = f"{base}/payment/success?session_id={{CHECKOUT_SESSION_ID}}"
+    if not cancel and base:
+        cancel = f"{base}/payment/cancel"
     if not success or not cancel:
         raise ValueError(
-            "Configura STRIPE_PAYMENT_SUCCESS_URL y STRIPE_PAYMENT_CANCEL_URL en .env"
+            "Configura STRIPE_PAYMENT_SUCCESS_URL y STRIPE_PAYMENT_CANCEL_URL, o PUBLIC_BASE_URL en el entorno"
         )
     return (success, cancel)
 
