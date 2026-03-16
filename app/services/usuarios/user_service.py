@@ -1,15 +1,16 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from app.config.database import get_db, DatabaseConfig
+
 from app.models.user import User, UserCreate, UserUpdate, UserResponse, UserLogin
 from app.utils.auth import get_password_hash, verify_password, create_access_token, create_refresh_token
 
+
 class UserService:
-    """Servicio para gestión de usuarios"""
-    
-    def __init__(self, db: Session = None):
-        self.db = db or next(get_db())
+    """Servicio para gestión de usuarios."""
+
+    def __init__(self, db: Session):
+        self.db = db
     
     def get_user_orm_by_uid(self, uid: str) -> Optional[User]:
         """Obtener usuario ORM por UID (para verificar refresh_token, etc.)."""

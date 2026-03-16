@@ -1,6 +1,6 @@
 from typing import Optional, List
 from datetime import datetime
-from app.config.database import DatabaseConfig
+from app.core.database import DatabaseConfig
 from app.models.notification import NotificationCreate, NotificationUpdate, NotificationResponse
 
 class NotificationService:

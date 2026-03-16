@@ -3,7 +3,7 @@ from sqlalchemy import Column, String, DateTime, Text, Boolean, JSON, Integer, F
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.config.database import Base
+from app.core.database import Base
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime

@@ -2,14 +2,15 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
-from app.config.database import get_db
+
 from app.models.user_config import UserConfig, UserConfigCreate, UserConfigUpdate, UserConfigResponse, CloudProvider, CloudProviderInfo
 
 logger = logging.getLogger(__name__)
 
+
 class UserConfigService:
-    def __init__(self, db: Session = None):
-        self.db = db or next(get_db())
+    def __init__(self, db: Session):
+        self.db = db
     
     async def get_user_config(self, user_id: str) -> Optional[UserConfigResponse]:
         """Obtener configuración del usuario"""

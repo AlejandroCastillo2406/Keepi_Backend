@@ -3,7 +3,7 @@ from sqlalchemy import Column, String, DateTime, JSON, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.config.database import Base
+from app.core.database import Base
 from pydantic import BaseModel, field_validator
 from typing import Optional, Dict, Any, Union
 from datetime import datetime

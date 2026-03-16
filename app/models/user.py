@@ -3,7 +3,7 @@ from sqlalchemy import Column, String, DateTime, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.config.database import Base
+from app.core.database import Base
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime

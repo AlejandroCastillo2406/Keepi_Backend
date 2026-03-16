@@ -1,15 +1,17 @@
-from typing import Optional, Dict, Any
-from sqlalchemy.orm import Session
-from app.config.database import get_db
-from app.models.oauth_credentials import OAuthCredentials, OAuthCredentialsCreate, OAuthCredentialsUpdate
-from google.oauth2.credentials import Credentials
 from datetime import datetime
+from typing import Any, Dict, Optional
+
+from google.oauth2.credentials import Credentials
+from sqlalchemy.orm import Session
+
+from app.models.oauth_credentials import OAuthCredentials, OAuthCredentialsCreate, OAuthCredentialsUpdate
+
 
 class OAuthCredentialsService:
-    """Servicio para gestionar credenciales OAuth"""
-    
-    def __init__(self, db: Session = None):
-        self.db = db or next(get_db())
+    """Servicio para gestionar credenciales OAuth. Requiere db inyectado (Depends(get_db))."""
+
+    def __init__(self, db: Session):
+        self.db = db
     
     async def get_user_credentials(self, user_id: str, provider: str = "google") -> Optional[Dict[str, Any]]:
         """Obtener credenciales del usuario"""

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
-from app.config.database import get_db
+from app.core.database import get_db
 from app.core.security import verify_token
 from app.exceptions import DriveAuthRequiredException
 from app.models.document import Document

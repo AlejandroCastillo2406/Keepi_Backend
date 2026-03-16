@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 import logging
 
-from app.config.database import get_db, DatabaseConfig
 from app.models.document import Document, DocumentCreate as ModelDocumentCreate, DocumentUpdate as ModelDocumentUpdate, DocumentResponse as ModelDocumentResponse
 from app.models.folder import Folder
 
@@ -50,8 +49,8 @@ def _get_or_create_folder(db: Session, user_id: str, category: str, drive_folder
 class DocumentService:
     """Servicio para gestión de documentos. Acepta repositorio inyectado para CRUD (testeable)."""
 
-    def __init__(self, db: Session = None, document_repository: "IDocumentRepository | None" = None):
-        self.db = db or next(get_db())
+    def __init__(self, db: Session, document_repository: "IDocumentRepository | None" = None):
+        self.db = db
         self._document_repository = document_repository
         self.aws_service = AWSService()
         self.user_config_service = UserConfigService(self.db)
