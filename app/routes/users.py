@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.user import User, UserResponse, UserUpdate
 from app.services.usuarios import UserService
-from app.models.user import UserCreate, UserUpdate, UserResponse, User
 
 router = APIRouter()
 
@@ -25,6 +26,7 @@ async def debug_token(credentials: HTTPAuthorizationCredentials = Depends(HTTPBe
     
     try:
         from jose import jwt
+
         from app.core.config import settings
         
         token = credentials.credentials

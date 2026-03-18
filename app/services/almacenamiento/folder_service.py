@@ -1,12 +1,12 @@
 import logging
 import re
 import unicodedata
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from app.services.almacenamiento.s3_service import S3Service
 from app.services.almacenamiento.drive_service import GoogleDriveService
+from app.services.almacenamiento.s3_service import S3Service
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class FolderService:
             logger.warning("Carpeta '%s' no encontrada en Drive", folder_name)
             return None
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error buscando carpeta en Drive")
             import traceback
             logger.error(traceback.format_exc())

@@ -3,7 +3,6 @@ Creación de clientes en Stripe.
 Responsabilidad única: llamar a Stripe API para crear/obtener customer.
 """
 import logging
-from typing import Optional
 
 import stripe
 

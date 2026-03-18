@@ -1,12 +1,16 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Text, Boolean, JSON, Integer, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
-from app.core.database import Base
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel
+from sqlalchemy import (JSON, Boolean, Column, DateTime, ForeignKey, Integer,
+                        String, Text)
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from app.core.database import Base
+
 
 # Modelo SQLAlchemy para la tabla de documentos
 class Document(Base):

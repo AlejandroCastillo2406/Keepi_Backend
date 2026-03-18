@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import DatabaseConfig, get_db
 from app.models.user_config import CloudProvider, UserConfigUpdate
-from app.routes import auth, cloud_storage, documents, subscriptions, user_config
+from app.routes import (auth, cloud_storage, documents, subscriptions,
+                        user_config)
 from app.services.usuarios import UserConfigService
 
 logging.basicConfig(

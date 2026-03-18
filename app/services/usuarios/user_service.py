@@ -1,9 +1,12 @@
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
+
 from sqlalchemy.orm import Session
 
-from app.models.user import User, UserCreate, UserUpdate, UserResponse, UserLogin
-from app.utils.auth import get_password_hash, verify_password, create_access_token, create_refresh_token
+from app.models.user import (User, UserCreate, UserLogin, UserResponse,
+                             UserUpdate)
+from app.utils.auth import (create_access_token, create_refresh_token,
+                            get_password_hash, verify_password)
 
 
 class UserService:

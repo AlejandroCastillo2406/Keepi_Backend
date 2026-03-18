@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+
 from app.core.security import verify_token
-from app.services.notificaciones import NotificationService
 from app.models.notification import NotificationCreate, NotificationResponse
+from app.services.notificaciones import NotificationService
 
 router = APIRouter()
 

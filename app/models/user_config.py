@@ -1,13 +1,16 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, JSON, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
-from app.core.database import Base
-from pydantic import BaseModel, field_validator
-from typing import Optional, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, field_validator
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from app.core.database import Base
+
 
 # Modelo SQLAlchemy para la tabla de configuración de usuario
 class UserConfig(Base):

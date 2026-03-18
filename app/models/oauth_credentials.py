@@ -1,12 +1,15 @@
-from sqlalchemy import Column, String, DateTime, Text, JSON, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
-from app.core.database import Base
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
+
 from pydantic import BaseModel
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from app.core.database import Base
+
 
 class OAuthCredentials(Base):
     """Modelo para credenciales OAuth de usuarios"""

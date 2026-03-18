@@ -1,15 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import RedirectResponse
-from typing import Dict, Any, List, Optional
-from sqlalchemy.orm import Session
+from typing import List, Optional
 
-from app.core.database import get_db
-from app.core.security import verify_token, get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
+
+from app.config.settings import settings
+from app.core.security import get_current_user, verify_token
+from app.models.user import User, UserCreate, UserLogin, UserResponse
 from app.services.autenticacion import GoogleOAuthService
 from app.services.usuarios import UserService
-from app.models.user import UserCreate, UserLogin, UserResponse
-from app.models.user import User
-from app.config.settings import settings
 
 router = APIRouter()
 
@@ -24,8 +22,9 @@ MOBILE_CALLBACK_PATH = "/api/v1/auth/google/mobile-callback"
 APP_DEEP_LINK_SCHEME = "com.example.keepi"
 
 
-from pydantic import BaseModel
 from datetime import datetime
+
+from pydantic import BaseModel
 
 
 class GoogleMobileAuthRequest(BaseModel):
@@ -37,7 +36,7 @@ class GoogleMobileAuthRequest(BaseModel):
     scopes: Optional[List[str]] = None
 
 @router.post("/register")
-async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register_user(user_data: UserCreate):
     """Registrar nuevo usuario y devolver token de acceso"""
     try:
         if not user_data.password:
@@ -46,11 +45,12 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
                 detail="Contraseña requerida para registro"
             )
         
-        user_service = UserService(db)
+        user_service = UserService()
         user = await user_service.create_user(user_data)
         
         # Generar token de acceso para autenticar automáticamente
         from datetime import timedelta
+
         from app.core.security import create_access_token
         
         access_token_expires = timedelta(minutes=30)
@@ -85,10 +85,10 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
         )
 
 @router.post("/login")
-async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
+async def login_user(login_data: UserLogin):
     """Iniciar sesión de usuario"""
     try:
-        user_service = UserService(db)
+        user_service = UserService()
         result = await user_service.login_user(login_data)
         
         if not result:
@@ -108,12 +108,12 @@ async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
         )
 
 @router.post("/refresh")
-async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
+async def refresh_token(refresh_token: str):
     """Renovar token de acceso usando refresh token """
     try:
-        from app.core.security import verify_refresh_token, create_access_token
+        from app.core.security import create_access_token, verify_refresh_token
         from app.services.usuarios import UserService
-        
+
         # Verificar refresh token
         payload = verify_refresh_token(refresh_token)
         if not payload:
@@ -130,7 +130,7 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
             )
         
         # Verificar que el usuario existe y el refresh token coincide
-        user_service = UserService(db)
+        user_service = UserService()
         user = user_service.get_user_orm_by_uid(user_id)
 
         if not user or user.refresh_token != refresh_token:
@@ -165,21 +165,73 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Obtener información del usuario actual"""
     return UserResponse.from_orm(current_user)
 
+@router.get("/verify")
+async def verify_authentication(user_token: dict = Depends(verify_token)):
+    """Verificar token de autenticación"""
+    return {
+        "authenticated": True,
+        "user_id": user_token['uid'],
+        "email": user_token['email']
+    }
+
+@router.get("/current-user")
+async def get_current_user(user_token: dict = Depends(verify_token)):
+    """Obtener información del usuario actual"""
+    try:
+        from app.services.usuarios import UserService
+        
+        user_service = UserService()
+        user = await user_service.get_user_by_uid(user_token['uid'])
+        
+        if user:
+            return user
+        else:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/google/authorize")
+async def authorize_google_drive(user_token: dict = Depends(verify_token)):
+    """Generar URL de autorización para Google Drive"""
+    try:
+        oauth_service = GoogleOAuthService()
+        
+        # Generar un state que contenga el user_id del usuario logueado
+        import base64
+        user_id = user_token['uid']
+        state = base64.b64encode(user_id.encode('utf-8')).decode('utf-8')
+        
+        print(f"🔐 Generando autorización para usuario: {user_id}")
+        print(f"🔐 State generado: {state}")
+        
+        auth_data = await oauth_service.get_authorization_url(user_id)
+        
+        return {
+            "message": "URL de autorización generada",
+            "authorization_url": auth_data["authorization_url"],
+            "state": state,
+            "user_id": user_id
+        }
+        
+    except Exception as e:
+        print(f"❌ Error en autorización Google Drive: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/google/mobile-authorize")
-async def mobile_authorize_google_drive(
-    user_token: dict = Depends(verify_token),
-    db: Session = Depends(get_db),
-):
+async def mobile_authorize_google_drive(user_token: dict = Depends(verify_token)):
     """
     URL de autorización para la app móvil.
     Usa redirect_uri HTTPS (mobile-callback) para cumplir con Google; luego el backend redirige a la app.
     """
     try:
-        import base64
         user_id = user_token["uid"]
         base_url = _mobile_callback_base_url()
         redirect_uri = f"{base_url}{MOBILE_CALLBACK_PATH}"
-        oauth_service = GoogleOAuthService(db)
+        oauth_service = GoogleOAuthService()
         auth_data = await oauth_service.get_authorization_url(user_id, redirect_uri=redirect_uri)
         return {
             "authorization_url": auth_data["authorization_url"],
@@ -193,7 +245,6 @@ async def mobile_authorize_google_drive(
 async def google_mobile_callback(
     code: str = Query(..., description="Código de autorización"),
     state: str = Query(..., description="State con user_id"),
-    db: Session = Depends(get_db),
 ):
     """
     Callback HTTPS para OAuth móvil. Intercambia code por tokens, guarda en BD,
@@ -218,13 +269,13 @@ async def google_mobile_callback(
             )
         base_url = _mobile_callback_base_url()
         redirect_uri = f"{base_url}{MOBILE_CALLBACK_PATH}"
-        oauth_service = GoogleOAuthService(db)
+        oauth_service = GoogleOAuthService()
         tokens = await oauth_service.exchange_code_for_tokens(
             code, user_id, redirect_uri=redirect_uri
         )
+        from app.models.user_config import CloudProvider, UserConfigUpdate
         from app.services.usuarios import UserConfigService
-        from app.models.user_config import UserConfigUpdate, CloudProvider
-        config_service = UserConfigService(db)
+        config_service = UserConfigService()
         await config_service.get_or_create_user_config(user_id)
         await config_service.update_user_config(
             user_id, UserConfigUpdate(cloud_provider=CloudProvider.GOOGLE_DRIVE)
@@ -232,19 +283,91 @@ async def google_mobile_callback(
         return RedirectResponse(
             url=f"{APP_DEEP_LINK_SCHEME}:/oauth2redirect?success=1"
         )
-    except Exception as e:
+    except Exception:
         return RedirectResponse(
             url=f"{APP_DEEP_LINK_SCHEME}:/oauth2redirect?error=1"
         )
 
-@router.get("/google/status")
-async def check_google_drive_status(
-    user_token: dict = Depends(verify_token),
-    db: Session = Depends(get_db),
+@router.get("/google/callback")
+async def google_oauth_callback(
+    code: str = Query(..., description="Código de autorización"),
+    state: str = Query(..., description="Estado de la autorización")
 ):
+    """Callback de OAuth2 para Google Drive - NO requiere autenticación"""
+    try:
+        oauth_service = GoogleOAuthService()
+        
+        # El state debe contener el user_id del usuario
+        # Si no se puede extraer, usar un fallback
+        user_id = None
+        try:
+            if state and state != "undefined":
+                print(f"🔍 Intentando decodificar state: {state}")
+                
+                # Intentar decodificar el state para obtener el user_id
+                import base64
+
+                # Agregar padding si es necesario
+                padding = 4 - (len(state) % 4)
+                if padding != 4:
+                    state += '=' * padding
+                    print(f"🔍 State con padding: {state}")
+                
+                try:
+                    user_id = base64.b64decode(state).decode('utf-8')
+                    print(f"✅ User ID extraído del state: {user_id}")
+                except UnicodeDecodeError as e:
+                    print(f"⚠️ Error decodificando UTF-8: {e}")
+                    # Intentar decodificar como bytes y luego a string
+                    decoded_bytes = base64.b64decode(state)
+                    user_id = decoded_bytes.decode('utf-8', errors='ignore')
+                    print(f"✅ User ID extraído con fallback: {user_id}")
+                    
+            else:
+                raise ValueError("State vacío o undefined")
+        except Exception as e:
+            print(f"⚠️ No se pudo extraer user_id del state: {e}")
+            print(f"⚠️ State recibido: {state}")
+            # Fallback: buscar en la base de datos por el código temporal
+            user_id = await oauth_service.get_user_id_from_temp_code(code)
+            if not user_id:
+                user_id = "default_user"
+            print(f"⚠️ Usando user_id por defecto para testing: {user_id}")
+        
+        tokens = await oauth_service.exchange_code_for_tokens(code, user_id)
+
+        # Si la autorización fue exitosa, marcar al usuario como configurado con Google Drive
+        try:
+            if user_id and user_id != "default_user":
+                from app.models.user_config import (CloudProvider,
+                                                    UserConfigUpdate)
+                from app.services.usuarios import UserConfigService
+
+                config_service = UserConfigService()
+                await config_service.get_or_create_user_config(user_id)
+                update_data = UserConfigUpdate(cloud_provider=CloudProvider.GOOGLE_DRIVE)
+                await config_service.update_user_config(user_id, update_data)
+        except Exception as cfg_err:
+            # No romper el flujo de OAuth si falla solo la actualización de config
+            print(f"⚠️ Error actualizando cloud_provider a google_drive para user_id={user_id}: {cfg_err}")
+        
+        return {
+            "message": "Autorización exitosa",
+            "access_granted": True,
+            "user_id": tokens["user_id"],
+            "scopes": tokens["scopes"],
+            "expires_at": tokens["expires_at"]
+        }
+        
+    except Exception as e:
+        print(f"Error en callback de Google OAuth: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/google/status")
+async def check_google_drive_status(user_token: dict = Depends(verify_token)):
     """Verificar estado de autorización con Google Drive"""
     try:
-        oauth_service = GoogleOAuthService(db)
+        oauth_service = GoogleOAuthService()
         status = await oauth_service.check_user_drive_access(user_token['uid'])
         
         return status
@@ -253,13 +376,10 @@ async def check_google_drive_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/google/revoke")
-async def revoke_google_drive_access(
-    user_token: dict = Depends(verify_token),
-    db: Session = Depends(get_db),
-):
+async def revoke_google_drive_access(user_token: dict = Depends(verify_token)):
     """Revocar acceso a Google Drive"""
     try:
-        oauth_service = GoogleOAuthService(db)
+        oauth_service = GoogleOAuthService()
         success = await oauth_service.revoke_user_access(user_token['uid'])
         
         if success:
@@ -276,13 +396,10 @@ async def revoke_google_drive_access(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/google/refresh")
-async def refresh_google_drive_tokens(
-    user_token: dict = Depends(verify_token),
-    db: Session = Depends(get_db),
-):
+async def refresh_google_drive_tokens(user_token: dict = Depends(verify_token)):
     """Renovar tokens de Google Drive"""
     try:
-        oauth_service = GoogleOAuthService(db)
+        oauth_service = GoogleOAuthService()
         credentials = await oauth_service.refresh_user_tokens(user_token['uid'])
         
         if credentials:
@@ -303,7 +420,6 @@ async def refresh_google_drive_tokens(
 async def google_mobile_auth(
     payload: GoogleMobileAuthRequest,
     user_token: dict = Depends(verify_token),
-    db: Session = Depends(get_db),
 ):
     """
     Recibe los tokens de Google obtenidos desde la app móvil (flutter_appauth),
@@ -315,7 +431,7 @@ async def google_mobile_auth(
         # Guardar credenciales OAuth en la base de datos
         from app.services.autenticacion import OAuthCredentialsService
 
-        oauth_service = OAuthCredentialsService(db)
+        oauth_service = OAuthCredentialsService()
         await oauth_service.upsert_user_credentials(
             user_id=user_id,
             provider="google",
@@ -326,10 +442,10 @@ async def google_mobile_auth(
         )
 
         # Marcar cloud_provider = google_drive en user_configs
+        from app.models.user_config import CloudProvider, UserConfigUpdate
         from app.services.usuarios import UserConfigService
-        from app.models.user_config import UserConfigUpdate, CloudProvider
 
-        config_service = UserConfigService(db)
+        config_service = UserConfigService()
         await config_service.get_or_create_user_config(user_id)
         update_data = UserConfigUpdate(cloud_provider=CloudProvider.GOOGLE_DRIVE)
         await config_service.update_user_config(user_id, update_data)

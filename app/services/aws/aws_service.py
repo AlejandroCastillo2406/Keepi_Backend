@@ -1,13 +1,12 @@
-import boto3
 import asyncio
 import logging
-import tempfile
-import os
+import re
 import time
 import unicodedata
-import re
-from typing import Dict, List, Any, Optional
-from botocore.exceptions import ClientError
+from typing import Any, Dict, List
+
+import boto3
+
 from app.config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -75,7 +74,7 @@ class AWSService:
                             'block_types': {},
                             'raw_response': {}
                         }
-                except Exception as e:
+                except Exception:
                     logger.exception("Error en Textract asíncrono")
                     return {
                         'text': '',
@@ -106,7 +105,7 @@ class AWSService:
                     'raw_response': {}
                 }
                 
-        except Exception as e:
+        except Exception:
             logger.exception("Error en extracción de texto")
             raise
     
@@ -240,7 +239,7 @@ class AWSService:
                 }
             }
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error en Textract asíncrono")
             raise
     
@@ -281,7 +280,7 @@ class AWSService:
                 'raw_response': response
             }
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error procesando imagen")
             raise
     
@@ -572,7 +571,7 @@ class AWSService:
                 'temp_folder': temp_key,
                 'categorias_folder': categorias_key
             }
-        except Exception as e:
+        except Exception:
             logger.exception("Error creando carpetas")
             raise
     
@@ -585,7 +584,7 @@ class AWSService:
             
             logger.info("Carpeta de categoría creada: %s", category_key)
             return category_key
-        except Exception as e:
+        except Exception:
             logger.exception("Error creando carpeta de categoría")
             raise
     
@@ -603,7 +602,7 @@ class AWSService:
             logger.info("Archivo subido a S3: %s", file_url)
             return file_url
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error subiendo archivo a S3")
             raise
     
@@ -634,7 +633,7 @@ class AWSService:
             logger.info("Archivo subido a carpeta de categoría: %s", file_url)
             return file_url
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error subiendo archivo a carpeta de categoría")
             raise
     
@@ -658,7 +657,7 @@ class AWSService:
             file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{dest_key}"
             logger.info("Archivo movido: %s -> %s", source_key, dest_key)
             return file_url
-        except Exception as e:
+        except Exception:
             logger.exception("Error moviendo archivo")
             raise
     

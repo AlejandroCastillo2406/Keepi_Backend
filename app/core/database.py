@@ -1,6 +1,5 @@
 """Conexión y sesiones de PostgreSQL. Una sola responsabilidad."""
 import logging
-import uuid
 from typing import Generator
 
 from sqlalchemy import create_engine, text
@@ -43,7 +42,9 @@ class DatabaseConfig:
         if cls._initialized:
             return
         try:
-            from app.models import user, document, user_config, notification, folder, oauth_credentials, subscription  # noqa: F401
+            from app.models import (document, folder,  # noqa: F401
+                                    notification, oauth_credentials,
+                                    subscription, user, user_config)
             Base.metadata.create_all(bind=engine)
             cls._initialized = True
             logger.info("Base de datos inicializada")

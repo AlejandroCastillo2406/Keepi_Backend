@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 from google.oauth2.credentials import Credentials
 from sqlalchemy.orm import Session
 
-from app.models.oauth_credentials import OAuthCredentials, OAuthCredentialsCreate, OAuthCredentialsUpdate
+from app.models.oauth_credentials import OAuthCredentials
 
 
 class OAuthCredentialsService:

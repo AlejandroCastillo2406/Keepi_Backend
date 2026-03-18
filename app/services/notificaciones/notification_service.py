@@ -1,7 +1,9 @@
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
 from app.core.database import DatabaseConfig
-from app.models.notification import NotificationCreate, NotificationUpdate, NotificationResponse
+from app.models.notification import NotificationCreate, NotificationResponse
+
 
 class NotificationService:
     """Servicio para gestión de notificaciones"""

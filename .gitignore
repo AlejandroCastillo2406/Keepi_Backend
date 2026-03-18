@@ -1,7 +1,5 @@
 # Entorno y secretos
 .env
-.env.*
-!.env.example
 client_secrets.json
 
 # Python

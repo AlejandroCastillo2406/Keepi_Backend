@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import verify_token
-from app.services.usuarios import UserConfigService
 from app.models.user_config import UserConfigResponse
+from app.services.usuarios import UserConfigService
 
 router = APIRouter()
 

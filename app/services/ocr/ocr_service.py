@@ -1,12 +1,7 @@
-import boto3
-import json
 import logging
-from typing import Dict, List, Optional, Any
-from botocore.exceptions import ClientError
-import base64
-import io
-from PIL import Image
+from typing import Any, Dict, List
 
+import boto3
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +105,7 @@ class OCRService:
         
         # Extraer fechas, números, emails y teléfonos usando regex
         import re
-        
+
         # Fechas
         date_patterns = [
             r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',

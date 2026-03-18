@@ -1,20 +1,25 @@
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
-from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
 import logging
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from app.models.document import Document, DocumentCreate as ModelDocumentCreate, DocumentUpdate as ModelDocumentUpdate, DocumentResponse as ModelDocumentResponse
+from sqlalchemy.orm import Session
+
+from app.models.document import Document
+from app.models.document import DocumentCreate as ModelDocumentCreate
+from app.models.document import DocumentResponse as ModelDocumentResponse
+from app.models.document import DocumentUpdate as ModelDocumentUpdate
 from app.models.folder import Folder
 
 DocumentCreate = ModelDocumentCreate
 DocumentResponse = ModelDocumentResponse
 
-from app.services.aws import AWSService, DocumentAnalysisService
 from app.services.almacenamiento import FolderService
+from app.services.aws import AWSService, DocumentAnalysisService
 from app.services.usuarios import UserConfigService
 
 if TYPE_CHECKING:
-    from app.interfaces.repositories.document_repository import IDocumentRepository
+    from app.interfaces.repositories.document_repository import \
+        IDocumentRepository
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +70,7 @@ class DocumentService:
                 return [_response_from_orm(doc) for doc in documents]
             documents = self.db.query(Document).filter(Document.user_id == user_id).all()
             return [_response_from_orm(doc) for doc in documents]
-        except Exception as e:
+        except Exception:
             logger.exception("Error obteniendo documentos")
             return []
 
@@ -80,7 +85,7 @@ class DocumentService:
                 Document.user_id == user_id,
             ).first()
             return _response_from_orm(document) if document else None
-        except Exception as e:
+        except Exception:
             logger.exception("Error obteniendo documento")
             return None
 
@@ -123,7 +128,7 @@ class DocumentService:
             self.db.commit()
             self.db.refresh(document)
             return _response_from_orm(document)
-        except Exception as e:
+        except Exception:
             logger.exception("Error creando documento")
             self.db.rollback()
             raise
@@ -148,7 +153,7 @@ class DocumentService:
             self.db.commit()
             self.db.refresh(document)
             return _response_from_orm(document)
-        except Exception as e:
+        except Exception:
             logger.exception("Error actualizando documento")
             self.db.rollback()
             return None
@@ -167,7 +172,7 @@ class DocumentService:
             self.db.delete(document)
             self.db.commit()
             return True
-        except Exception as e:
+        except Exception:
             logger.exception("Error eliminando documento")
             self.db.rollback()
             return False
@@ -298,9 +303,9 @@ class DocumentService:
                 
             elif storage_preference == 'google_drive':
                 # Subir a Google Drive en la carpeta de categoría
-                from app.services.autenticacion import GoogleOAuthService
                 from app.services.almacenamiento import GoogleDriveService
-                
+                from app.services.autenticacion import GoogleOAuthService
+
                 # Obtener credenciales del usuario
                 oauth_service = GoogleOAuthService(self.db)
                 user_credentials = await oauth_service.refresh_user_tokens(user_id)
@@ -483,8 +488,8 @@ class DocumentService:
             )
             s3_key = f"users/{user_id}/{folder_name}/{save_as_name}"
         elif storage_preference == "google_drive":
-            from app.services.autenticacion import GoogleOAuthService
             from app.services.almacenamiento import GoogleDriveService
+            from app.services.autenticacion import GoogleOAuthService
             oauth_service = GoogleOAuthService(self.db)
             user_credentials = await oauth_service.refresh_user_tokens(user_id)
             if not user_credentials:
@@ -622,6 +627,6 @@ class DocumentService:
             
             return await self.create_document(user_id, document_data)
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error procesando documento con AWS")
             raise

@@ -4,9 +4,8 @@ Todas las queries residen aquí; solo usa Models. Sin lógica de negocio.
 """
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
-
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.interfaces.repositories.document_repository import IDocumentRepository
 from app.models.document import Document

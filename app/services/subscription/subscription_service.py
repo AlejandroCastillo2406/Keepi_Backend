@@ -8,19 +8,16 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.subscription import (
-    Subscription,
-    SubscriptionPlan,
-    SubscriptionResponse,
-    PaymentIntentRequest,
-    PaymentIntentResponse,
-)
+from app.models.subscription import (PaymentIntentRequest,
+                                     PaymentIntentResponse, Subscription,
+                                     SubscriptionPlan, SubscriptionResponse)
 from app.models.user import User
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.services.stripe.stripe_checkout_service import StripeCheckoutService
 from app.services.stripe.stripe_config import get_price_id_for_plan
 from app.services.stripe.stripe_customer_service import StripeCustomerService
-from app.services.stripe.stripe_checkout_service import StripeCheckoutService
-from app.services.stripe.stripe_subscription_service import StripeSubscriptionService
+from app.services.stripe.stripe_subscription_service import \
+    StripeSubscriptionService
 from app.services.subscription.webhook_handlers import handle_webhook_event
 
 logger = logging.getLogger(__name__)

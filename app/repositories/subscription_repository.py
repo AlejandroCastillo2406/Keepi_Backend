@@ -8,12 +8,10 @@ from typing import Optional, Union
 
 from sqlalchemy.orm import Session
 
-from app.core.constants import ANALYSIS_LIMIT_FREE, ANALYSIS_LIMIT_PREMIUM_UNLIMITED
-from app.models.subscription import (
-    Subscription,
-    SubscriptionPlan,
-    SubscriptionStatus,
-)
+from app.core.constants import (ANALYSIS_LIMIT_FREE,
+                                ANALYSIS_LIMIT_PREMIUM_UNLIMITED)
+from app.models.subscription import (Subscription, SubscriptionPlan,
+                                     SubscriptionStatus)
 
 
 class SubscriptionRepository:

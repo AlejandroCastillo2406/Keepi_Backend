@@ -7,7 +7,8 @@ from typing import Any, Dict
 
 import stripe
 
-from app.services.stripe.stripe_config import ensure_stripe_key, get_payment_urls
+from app.services.stripe.stripe_config import (ensure_stripe_key,
+                                               get_payment_urls)
 
 logger = logging.getLogger(__name__)
 

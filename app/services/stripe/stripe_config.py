@@ -5,8 +5,9 @@ Una sola responsabilidad: exponer configuración validada para el resto de servi
 import logging
 from typing import Tuple
 
-from app.config.settings import settings
 import stripe
+
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

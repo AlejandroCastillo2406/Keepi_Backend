@@ -1,20 +1,17 @@
 import logging
 import os
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from datetime import datetime
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import verify_token
-from app.services.aws import AWSService
 from app.services.almacenamiento import S3Service
-from app.services.usuarios import UserConfigService
+from app.services.aws import AWSService
 from app.services.documento import DocumentService
-from app.models.document import DocumentCreate
-from app.models.user_config import CloudProvider
+from app.services.usuarios import UserConfigService
 
 logger = logging.getLogger(__name__)
 

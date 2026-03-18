@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, TypedDict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
+                     UploadFile)
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,7 @@ from app.models.document import Document
 from app.services.almacenamiento import GoogleDriveService, S3Service
 from app.services.autenticacion import GoogleOAuthService
 from app.services.documento import DocumentService
-from app.services.usuarios import UserService, UserConfigService
+from app.services.usuarios import UserConfigService, UserService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

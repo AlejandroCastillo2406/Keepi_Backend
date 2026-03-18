@@ -5,6 +5,7 @@ Alternativa de autenticación usando hashlib en caso de problemas con bcrypt
 import hashlib
 import secrets
 
+
 def hash_password_alternative(password: str) -> str:
     """Hash de contraseña usando hashlib como alternativa"""
     # Generar salt aleatorio

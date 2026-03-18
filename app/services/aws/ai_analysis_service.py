@@ -1,11 +1,7 @@
 import logging
-import os
 import re
-import tempfile
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from PIL import Image
 from sqlalchemy.orm import Session
 
 from app.services.aws.bedrock_service import BedrockService
@@ -266,8 +262,9 @@ class DocumentAnalysisService:
         try:
             # Estrategia 1: python-docx (principal)
             try:
-                from docx import Document
                 import io
+
+                from docx import Document
                 
                 doc = Document(io.BytesIO(content))
                 all_text = []
@@ -307,8 +304,9 @@ class DocumentAnalysisService:
         try:
             # Estrategia 1: openpyxl (principal)
             try:
-                from openpyxl import load_workbook
                 import io
+
+                from openpyxl import load_workbook
                 
                 workbook = load_workbook(io.BytesIO(content))
                 all_text = []
@@ -347,8 +345,9 @@ class DocumentAnalysisService:
         try:
             # Estrategia 1: python-pptx (principal)
             try:
-                from pptx import Presentation
                 import io
+
+                from pptx import Presentation
                 
                 prs = Presentation(io.BytesIO(content))
                 all_text = []

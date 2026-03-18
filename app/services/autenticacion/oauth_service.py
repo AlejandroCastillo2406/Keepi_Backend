@@ -1,15 +1,16 @@
 import base64
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, Optional
 
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
 from sqlalchemy.orm import Session
 
 from app.config.settings import settings
-from app.services.autenticacion.oauth_credentials_service import OAuthCredentialsService
+from app.services.autenticacion.oauth_credentials_service import \
+    OAuthCredentialsService
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class GoogleOAuthService:
                 "state": state
             }
             
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error generando URL de autorización")
             raise
 
@@ -106,7 +107,7 @@ class GoogleOAuthService:
                 "user_id": user_id
             }
             
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error intercambiando código por tokens")
             raise
 
@@ -144,7 +145,7 @@ class GoogleOAuthService:
             
             return credentials
             
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error refrescando tokens")
             return None
 
@@ -155,7 +156,7 @@ class GoogleOAuthService:
             await self._delete_user_credentials(user_id)
             return True
             
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error revocando acceso para user_id=%s", user_id)
             return False
 
@@ -279,7 +280,7 @@ class GoogleOAuthService:
             if success:
                 logger.info("OAuth: Credenciales guardadas para user_id=%s", user_id)
             return success
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error guardando credenciales")
             return False
     
@@ -289,7 +290,7 @@ class GoogleOAuthService:
             oauth_service = OAuthCredentialsService(self._db)
             return await oauth_service.get_user_credentials(user_id)
             
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error obteniendo credenciales")
             return None
 
@@ -299,7 +300,7 @@ class GoogleOAuthService:
             oauth_service = OAuthCredentialsService(self._db)
             return await oauth_service.update_user_credentials(user_id, credentials)
             
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error actualizando credenciales")
             return False
 
@@ -309,6 +310,6 @@ class GoogleOAuthService:
             oauth_service = OAuthCredentialsService(self._db)
             return await oauth_service.delete_user_credentials(user_id)
             
-        except Exception as e:
+        except Exception:
             logger.exception("OAuth: Error eliminando credenciales")
             return False
