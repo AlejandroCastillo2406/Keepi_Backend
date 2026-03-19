@@ -56,7 +56,7 @@ def _svg_card() -> str:
     return (
         f'<img src="{_email_asset_base_url()}/email-assets/card_icon.png" '
         'alt="" width="18" height="13" '
-        'style="vertical-align:middle;display:inline-block;margin-right:6px;width:18px;height:13px;" />'
+        'style="vertical-align:middle;display:inline-block;margin-right:0;width:18px;height:13px;" />'
     )
 
 
@@ -197,7 +197,7 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
                     </div>
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="right">
                       <tr>
-                        <td style="vertical-align:middle;padding-right:6px;">
+                        <td style="vertical-align:middle;padding-right:1px;">
                           {card_svg}
                         </td>
                         <td style="vertical-align:middle;font-size:14px;font-weight:600;color:#111827;white-space:nowrap;">
