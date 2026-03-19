@@ -1,13 +1,14 @@
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from urllib.request import urlopen
 
 import stripe
 import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -28,6 +29,7 @@ CHECK_ORANGE_URL = os.getenv(
     "CHECK_ORANGE_URL",
     "https://res.cloudinary.com/dozavjhcx/image/upload/v1773901323/check_orange_xsnmqb.png",
 )
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 DatabaseConfig.initialize_database()
 
@@ -81,6 +83,12 @@ async def email_check_orange():
             content=response.read(),
             media_type=response.headers.get_content_type() or "image/png",
         )
+
+
+@app.get("/email-assets/card_icon.png", include_in_schema=False)
+async def email_card_icon():
+    card_icon_path = BACKEND_DIR / "assets" / "email" / "card_icon.png"
+    return FileResponse(card_icon_path, media_type="image/png")
 
 
 @app.get("/payment/success")

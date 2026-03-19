@@ -54,13 +54,9 @@ def _svg_error() -> str:
 
 def _svg_card() -> str:
     return (
-        '<svg width="18" height="13" viewBox="0 0 18 13"'
-        ' xmlns="http://www.w3.org/2000/svg"'
-        ' style="vertical-align:middle;display:inline-block;margin-right:5px;">'
-        '<rect width="18" height="13" rx="2.5" fill="#9CA3AF"/>'
-        '<rect y="3.5" width="18" height="3.5" fill="#6B7280"/>'
-        '<rect x="2" y="9" width="5" height="2" rx="1" fill="white" opacity="0.8"/>'
-        '</svg>'
+        f'<img src="{_email_asset_base_url()}/email-assets/card_icon.png" '
+        'alt="" width="18" height="13" '
+        'style="vertical-align:middle;display:inline-block;margin-right:6px;width:18px;height:13px;" />'
     )
 
 
@@ -199,10 +195,16 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
                                 text-transform:uppercase;margin-bottom:5px;">
                       Método de pago
                     </div>
-                    <div style="font-size:14px;font-weight:600;color:#111827;
-                                white-space:nowrap;">
-                      {card_svg}Visa &bull;&bull;&bull;&bull; 4242
-                    </div>
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="right">
+                      <tr>
+                        <td style="vertical-align:middle;padding-right:6px;">
+                          {card_svg}
+                        </td>
+                        <td style="vertical-align:middle;font-size:14px;font-weight:600;color:#111827;white-space:nowrap;">
+                          Visa &bull;&bull;&bull;&bull; 4242
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
 
