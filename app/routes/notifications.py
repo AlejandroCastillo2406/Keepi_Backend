@@ -1,10 +1,14 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.core.security import verify_token
 from app.models.notification import NotificationCreate, NotificationResponse
 from app.services.notificaciones import NotificationService
+from app.services.notificaciones.payment_email_service import send_payment_email_ses
+from app.services.usuarios.user_service import UserService
 
 router = APIRouter()
 
@@ -100,3 +104,40 @@ async def get_unread_notifications_count(user_token: dict = Depends(verify_token
         return {"unread_count": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/payment-email")
+async def send_payment_email(
+    tipo: str,
+    user_token: dict = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """
+    Enviar correo de confirmación o error de pago al correo asociado a la cuenta.
+
+    Parámetro `tipo`:
+    - "confirmacion_pago"
+    - "error_pago"
+    """
+    if tipo not in {"confirmacion_pago", "error_pago"}:
+        raise HTTPException(
+            status_code=400,
+            detail="tipo debe ser 'confirmacion_pago' o 'error_pago'",
+        )
+
+    user_service = UserService(db)
+    user = await user_service.get_user_by_uid(user_token["uid"])
+    if user is None or not user.email:
+        raise HTTPException(status_code=400, detail="Usuario sin correo registrado")
+
+    kind = "success" if tipo == "confirmacion_pago" else "error"
+    result = send_payment_email_ses(
+        to_email=user.email,
+        kind=kind,
+        user_name=user.name if hasattr(user, "name") else None,
+    )
+
+    if not result.success:
+        raise HTTPException(status_code=502, detail=f"Error al enviar correo: {result.error}")
+
+    return {"ok": True}

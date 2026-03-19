@@ -1,19 +1,20 @@
 import logging
 import os
 from datetime import datetime
+from urllib.request import urlopen
 
 import stripe
 import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import DatabaseConfig, get_db
 from app.models.user_config import CloudProvider, UserConfigUpdate
-from app.routes import (auth, cloud_storage, documents, subscriptions,
-                        user_config)
+from app.routes import (auth, cloud_storage, documents, notifications,
+                        subscriptions, user_config)
 from app.services.usuarios import UserConfigService
 
 logging.basicConfig(
@@ -23,6 +24,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS")
+CHECK_ORANGE_URL = os.getenv(
+    "CHECK_ORANGE_URL",
+    "https://res.cloudinary.com/dozavjhcx/image/upload/v1773901323/check_orange_xsnmqb.png",
+)
 
 DatabaseConfig.initialize_database()
 
@@ -46,6 +51,7 @@ app.include_router(documents.router, prefix="/api/v1/documents", tags=["Document
 app.include_router(user_config.router, prefix="/api/v1/config", tags=["User Configuration"])
 app.include_router(cloud_storage.router, prefix="/api/v1/cloud-storage", tags=["Cloud Storage"])
 app.include_router(subscriptions.router, prefix="/api/v1", tags=["Subscriptions & Payments"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 
 
 @app.get("/")
@@ -66,6 +72,15 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "version": settings.api_version,
     }
+
+
+@app.get("/email-assets/check_orange.png", include_in_schema=False)
+async def email_check_orange():
+    with urlopen(CHECK_ORANGE_URL) as response:
+        return Response(
+            content=response.read(),
+            media_type=response.headers.get_content_type() or "image/png",
+        )
 
 
 @app.get("/payment/success")

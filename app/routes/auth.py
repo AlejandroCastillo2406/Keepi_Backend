@@ -2,8 +2,10 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
 
 from app.config.settings import settings
+from app.core.database import get_db
 from app.core.security import get_current_user, verify_token
 from app.models.user import User, UserCreate, UserLogin, UserResponse
 from app.services.autenticacion import GoogleOAuthService
@@ -36,7 +38,7 @@ class GoogleMobileAuthRequest(BaseModel):
     scopes: Optional[List[str]] = None
 
 @router.post("/register")
-async def register_user(user_data: UserCreate):
+async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
     """Registrar nuevo usuario y devolver token de acceso"""
     try:
         if not user_data.password:
@@ -45,7 +47,7 @@ async def register_user(user_data: UserCreate):
                 detail="Contraseña requerida para registro"
             )
         
-        user_service = UserService()
+        user_service = UserService(db)
         user = await user_service.create_user(user_data)
         
         # Generar token de acceso para autenticar automáticamente
@@ -85,10 +87,10 @@ async def register_user(user_data: UserCreate):
         )
 
 @router.post("/login")
-async def login_user(login_data: UserLogin):
+async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
     """Iniciar sesión de usuario"""
     try:
-        user_service = UserService()
+        user_service = UserService(db)
         result = await user_service.login_user(login_data)
         
         if not result:
@@ -108,11 +110,10 @@ async def login_user(login_data: UserLogin):
         )
 
 @router.post("/refresh")
-async def refresh_token(refresh_token: str):
+async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
     """Renovar token de acceso usando refresh token """
     try:
         from app.core.security import create_access_token, verify_refresh_token
-        from app.services.usuarios import UserService
 
         # Verificar refresh token
         payload = verify_refresh_token(refresh_token)
@@ -130,7 +131,7 @@ async def refresh_token(refresh_token: str):
             )
         
         # Verificar que el usuario existe y el refresh token coincide
-        user_service = UserService()
+        user_service = UserService(db)
         user = user_service.get_user_orm_by_uid(user_id)
 
         if not user or user.refresh_token != refresh_token:
@@ -175,12 +176,10 @@ async def verify_authentication(user_token: dict = Depends(verify_token)):
     }
 
 @router.get("/current-user")
-async def get_current_user(user_token: dict = Depends(verify_token)):
+async def get_current_user(user_token: dict = Depends(verify_token), db: Session = Depends(get_db)):
     """Obtener información del usuario actual"""
     try:
-        from app.services.usuarios import UserService
-        
-        user_service = UserService()
+        user_service = UserService(db)
         user = await user_service.get_user_by_uid(user_token['uid'])
         
         if user:
