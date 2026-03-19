@@ -91,6 +91,18 @@ async def email_card_icon():
     return FileResponse(card_icon_path, media_type="image/png")
 
 
+@app.get("/email-assets/vencimiento_icon.png", include_in_schema=False)
+async def email_vencimiento_icon():
+    vencimiento_icon_path = BACKEND_DIR / "assets" / "email" / "vencimiento_icon.png"
+    return FileResponse(vencimiento_icon_path, media_type="image/png")
+
+
+@app.get("/email-assets/footer_socials.png", include_in_schema=False)
+async def email_footer_socials():
+    footer_socials_path = BACKEND_DIR / "assets" / "email" / "footer_socials.png"
+    return FileResponse(footer_socials_path, media_type="image/png")
+
+
 @app.get("/payment/success")
 async def payment_success(session_id: str, db: Session = Depends(get_db)):
     """Tras el pago en Stripe: verifica sesión, pone keepi_cloud al usuario y redirige a la app."""

@@ -60,6 +60,22 @@ def _svg_card() -> str:
     )
 
 
+def _vencimiento_icon_img(width: int = 64, height: int = 64) -> str:
+    return (
+        f'<img src="{_email_asset_base_url()}/email-assets/vencimiento_icon.png" '
+        f'alt="" width="{width}" height="{height}" '
+        f'style="display:block;width:{width}px;height:{height}px;margin:0 auto;" />'
+    )
+
+
+def _footer_socials_img(width: int = 118, height: int = 24) -> str:
+    return (
+        f'<img src="{_email_asset_base_url()}/email-assets/footer_socials.png" '
+        f'alt="" width="{width}" height="{height}" '
+        f'style="display:block;width:{width}px;height:{height}px;margin:0 auto;" />'
+    )
+
+
 def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
     card_svg = _svg_card()
     return f"""\
@@ -264,16 +280,86 @@ def _build_success_html(user_name: str | None) -> str:
     )
 
 
-def _build_error_html(user_name: str | None) -> str:
-    name = f" {user_name}" if user_name else ""
-    return _build_html(
-        icon_svg=_svg_error(),
-        title="Error al procesar el pago",
-        subtitle=(
-            f"Hola{name}, no pudimos procesar tu pago. "
-            "Por favor revisa tu método de pago o inténtalo nuevamente."
-        ),
-    )
+def _build_vencimiento_html(user_name: str | None) -> str:
+    display_name = user_name or "Alejandro"
+    vencimiento_icon = _vencimiento_icon_img(64, 64)
+    footer_socials = _footer_socials_img(118, 24)
+    return f"""\
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Recordatorio de vencimiento – Keepi</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+</head>
+<body style="margin:0;padding:0;background:#f7efe9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f7efe9;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width:500px;background:#fff7f2;">
+          <tr>
+            <td style="background:linear-gradient(135deg,#f56a17 0%,#8c8c93 100%);padding:26px 16px 18px 16px;">
+              <div style="display:inline-block;background:#ff6a1a;color:#ffffff;font-size:11px;font-weight:700;line-height:1;padding:5px 10px;border-radius:14px;text-transform:uppercase;letter-spacing:0.02em;">
+                Urgente
+              </div>
+              <div style="margin-top:12px;font-size:24px;font-weight:700;line-height:1.25;color:#ffffff;max-width:230px;">
+                Tu documento vence pronto
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#fff7f2;padding:0 10px 10px 10px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#ffffff;border-radius:0 0 18px 18px;">
+                <tr>
+                  <td style="padding:28px 26px 24px 26px;text-align:center;">
+                    <div style="margin:0 auto 14px auto;">{vencimiento_icon}</div>
+                    <div style="font-size:20px;font-weight:700;line-height:1.25;color:#1f2937;margin-bottom:18px;">
+                      Recordatorio de vencimiento
+                    </div>
+                    <div style="font-size:16px;line-height:1.9;color:#5f6f86;margin:0 auto;max-width:390px;">
+                      Hola <span style="font-weight:700;color:#273449;">{display_name}</span>, te recordamos que tu<br/>
+                      documento<br/>
+                      <span style="font-style:italic;color:#ff6a1a;">'Cotización Cetelem'</span><br/>
+                      vence en <span style="font-weight:700;color:#1f2937;">3 días (27 de Octubre).</span>
+                    </div>
+                    <div style="height:26px;line-height:26px;font-size:1px;">&nbsp;</div>
+                    <div style="font-size:17px;line-height:1.7;color:#5f6f86;max-width:420px;margin:0 auto;">
+                      ¿Deseas renovarlo o archivarlo para<br/>
+                      mantener tus registros actualizados?
+                    </div>
+                    <div style="height:34px;line-height:34px;font-size:1px;">&nbsp;</div>
+                    <a href="https://keepi.app/account" style="display:block;background:#ff620f;color:#ffffff;text-decoration:none;font-size:17px;font-weight:700;line-height:1;padding:20px 18px;border-radius:16px;box-shadow:0 10px 24px rgba(255,98,15,0.24);">
+                      Gestionar Documento
+                    </a>
+                    <div style="height:18px;line-height:18px;font-size:1px;">&nbsp;</div>
+                    <a href="https://keepi.app/account" style="font-size:16px;font-weight:500;line-height:1.4;color:#ff6a1a;text-decoration:none;">
+                      Ir directamente a la aplicación
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="border-top:1px solid #f1ddd0;padding:20px 26px 16px 26px;text-align:center;">
+                    <div style="font-size:12px;line-height:1.6;color:#7f8da3;max-width:360px;margin:0 auto;">
+                      Este es un mensaje automático enviado por Keepi.<br/>
+                      Si tienes alguna duda, contacta con nuestro soporte<br/>
+                      técnico.
+                    </div>
+                    <div style="height:14px;line-height:14px;font-size:1px;">&nbsp;</div>
+                    <div style="margin:0 auto 12px auto;">{footer_socials}</div>
+                    <div style="font-size:11px;line-height:1.4;color:#b0b8c7;letter-spacing:0.02em;">
+                      © 2023 KEEPi APP
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
 
 
 def send_payment_email_ses(
@@ -281,15 +367,11 @@ def send_payment_email_ses(
     kind: str,
     user_name: str | None = None,
 ) -> PaymentEmailResult:
-    if kind not in {"success", "error"}:
+    if kind not in {"success", "vencimiento"}:
         return PaymentEmailResult(success=False, error="tipo inválido")
 
-    html = _build_success_html(user_name) if kind == "success" else _build_error_html(user_name)
-    subject = (
-        "Confirmación de pago – Keepi"
-        if kind == "success"
-        else "Error al procesar tu pago – Keepi"
-    )
+    html = _build_success_html(user_name) if kind == "success" else _build_vencimiento_html(user_name)
+    subject = "Confirmación de pago – Keepi" if kind == "success" else "Tu documento vence pronto – Keepi"
 
     source_email = os.getenv("SES_FROM_EMAIL", "soporte@keepi.app")
     source_name = os.getenv("SES_FROM_NAME", "Keepi")

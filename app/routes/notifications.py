@@ -113,16 +113,16 @@ async def send_payment_email(
     db: Session = Depends(get_db),
 ):
     """
-    Enviar correo de confirmación o error de pago al correo asociado a la cuenta.
+    Enviar correo de confirmación de pago o recordatorio de vencimiento.
 
     Parámetro `tipo`:
     - "confirmacion_pago"
-    - "error_pago"
+    - "vencimiento"
     """
-    if tipo not in {"confirmacion_pago", "error_pago"}:
+    if tipo not in {"confirmacion_pago", "vencimiento"}:
         raise HTTPException(
             status_code=400,
-            detail="tipo debe ser 'confirmacion_pago' o 'error_pago'",
+            detail="tipo debe ser 'confirmacion_pago' o 'vencimiento'",
         )
 
     user_service = UserService(db)
@@ -130,7 +130,7 @@ async def send_payment_email(
     if user is None or not user.email:
         raise HTTPException(status_code=400, detail="Usuario sin correo registrado")
 
-    kind = "success" if tipo == "confirmacion_pago" else "error"
+    kind = "success" if tipo == "confirmacion_pago" else "vencimiento"
     result = send_payment_email_ses(
         to_email=user.email,
         kind=kind,
