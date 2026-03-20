@@ -2,6 +2,7 @@
 from .document import Document
 from .folder import Folder
 from .notification import Notification
+from .notifications_log import NotificationsLog
 from .oauth_credentials import OAuthCredentials
 from .subscription import Subscription
 from .user import User
@@ -13,6 +14,7 @@ __all__ = [
     "Document",
     "UserConfig",
     "Notification",
+    "NotificationsLog",
     "Folder",
     "OAuthCredentials",
     "Subscription",

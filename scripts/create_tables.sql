@@ -6,6 +6,7 @@
 
 -- Eliminar tablas en orden (por dependencias FK)
 DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS notifications_logs CASCADE;
 DROP TABLE IF EXISTS oauth_credentials CASCADE;
 DROP TABLE IF EXISTS subscriptions CASCADE;
 DROP TABLE IF EXISTS user_configs CASCADE;
@@ -98,15 +99,49 @@ CREATE INDEX ix_documents_id ON documents (id);
 CREATE TABLE notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id),
+    document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
     title VARCHAR(255) NOT NULL,
     message TEXT NOT NULL,
     type VARCHAR(50) NOT NULL DEFAULT 'info',
+
+    target_date DATE,
+    payload JSONB DEFAULT '{}'::jsonb,
+
     read BOOLEAN NOT NULL DEFAULT false,
     read_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_notifications_user_id ON notifications (user_id);
 CREATE INDEX ix_notifications_id ON notifications (id);
+CREATE INDEX ix_notifications_document_id ON notifications (document_id);
+CREATE INDEX ix_notifications_target_date ON notifications (target_date);
+
+-- ============================================================
+-- 5.1 notifications_logs (para deduplicación y trazabilidad)
+-- ============================================================
+CREATE TABLE notifications_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+
+    notification_type VARCHAR(50) NOT NULL, -- ej: 'expiry'
+    target_date DATE NOT NULL,              -- día-calendario que dispara el envío
+
+    days_before INTEGER,                    -- opcional (ej: 3)
+    email_to VARCHAR(255),                 -- opcional
+    ses_message_id VARCHAR(255),          -- opcional
+
+    sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX uq_notifications_logs
+ON notifications_logs (user_id, document_id, notification_type, target_date);
+
+CREATE INDEX ix_notifications_logs_user_target
+ON notifications_logs (user_id, target_date);
+
+CREATE INDEX ix_notifications_logs_document
+ON notifications_logs (document_id);
 
 -- ============================================================
 -- 6. oauth_credentials

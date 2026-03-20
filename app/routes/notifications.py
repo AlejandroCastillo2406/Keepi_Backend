@@ -1,11 +1,16 @@
+import os
+from datetime import date, datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import verify_token
 from app.models.notification import NotificationCreate, NotificationResponse
+from app.services.notificaciones.expiry_notification_service import (
+    dispatch_expiry_emails,
+)
 from app.services.notificaciones import NotificationService
 from app.services.notificaciones.payment_email_service import send_payment_email_ses
 from app.services.usuarios.user_service import UserService
@@ -141,3 +146,23 @@ async def send_payment_email(
         raise HTTPException(status_code=502, detail=f"Error al enviar correo: {result.error}")
 
     return {"ok": True}
+
+
+@router.post("/run-expiry-emails")
+def run_expiry_emails(
+    days_before: int = 3,
+    send_date: date | None = None,
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint interno para que AWS (EventBridge/Lambda) dispare el envío de recordatorios
+    por vencimiento. No autentica con JWT; usa `EXPIRY_EMAIL_CRON_TOKEN`.
+    """
+    expected = os.getenv("EXPIRY_EMAIL_CRON_TOKEN")
+    if not expected or x_internal_token != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    effective_send_date = send_date or datetime.now(timezone.utc).date()
+    result = dispatch_expiry_emails(db, send_date=effective_send_date, days_before=days_before)
+    return result.to_dict()

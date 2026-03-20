@@ -43,8 +43,9 @@ class DatabaseConfig:
             return
         try:
             from app.models import (document, folder,  # noqa: F401
-                                    notification, oauth_credentials,
-                                    subscription, user, user_config)
+                                    notification, notifications_log,
+                                    oauth_credentials, subscription, user,
+                                    user_config)
             Base.metadata.create_all(bind=engine)
             cls._initialized = True
             logger.info("Base de datos inicializada")
