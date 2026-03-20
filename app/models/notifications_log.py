@@ -15,11 +15,9 @@ class NotificationsLog(Base):
     user_id = Column(PG_UUID(as_uuid=True), nullable=False)
     document_id = Column(PG_UUID(as_uuid=True), nullable=False)
 
-    notification_type = Column(String(50), nullable=False)
     target_date = Column(Date, nullable=False)
 
     days_before = Column(Integer, nullable=True)
-    email_to = Column(String(255), nullable=True)
     ses_message_id = Column(String(255), nullable=True)
 
     sent_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -27,6 +25,6 @@ class NotificationsLog(Base):
     def __repr__(self) -> str:
         return (
             "<NotificationsLog(user_id="
-            f"{self.user_id}, document_id={self.document_id}, type={self.notification_type}, target_date={self.target_date})>"
+            f"{self.user_id}, document_id={self.document_id}, target_date={self.target_date})>"
         )
 
