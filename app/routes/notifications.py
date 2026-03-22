@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import date, datetime, timezone
 from typing import List
@@ -15,6 +16,7 @@ from app.services.notificaciones import NotificationService
 from app.services.notificaciones.payment_email_service import send_payment_email_ses
 from app.services.usuarios.user_service import UserService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/", response_model=List[NotificationResponse])
@@ -146,4 +148,11 @@ def run_expiry_emails(
 
     effective_send_date = send_date or datetime.now(timezone.utc).date()
     result = dispatch_expiry_emails(db, send_date=effective_send_date, days_before=days_before)
-    return result.to_dict()
+    payload = result.to_dict()
+    logger.info(
+        "run-expiry-emails OK send_date=%s days_before=%s %s",
+        effective_send_date,
+        days_before,
+        payload,
+    )
+    return payload

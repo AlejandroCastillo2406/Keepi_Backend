@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from html import escape as html_escape
 
 import boto3
@@ -14,6 +14,54 @@ class PaymentEmailResult:
     success: bool
     error: str | None = None
     ses_message_id: str | None = None
+
+
+_SPANISH_MONTHS_FULL = (
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+)
+
+
+def format_unix_to_spanish_date(ts: int) -> str:
+    """Fecha legible en español (UTC) a partir de timestamp Unix."""
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    return f"{dt.day} de {_SPANISH_MONTHS_FULL[dt.month - 1]} de {dt.year}"
+
+
+@dataclass(frozen=True)
+class PaymentReceiptDetails:
+    """Valores que se muestran en el HTML de confirmación de pago (desde Stripe o fallback)."""
+
+    plan_line: str
+    amount_line: str
+    total_paid_line: str
+    paid_date_display: str
+    receipt_reference: str
+    payment_method_line: str
+
+    @staticmethod
+    def generic_placeholder() -> "PaymentReceiptDetails":
+        """Cuando no hay datos de Stripe (p. ej. prueba manual del endpoint)."""
+        today = date.today()
+        dstr = f"{today.day} de {_SPANISH_MONTHS_FULL[today.month - 1]} de {today.year}"
+        return PaymentReceiptDetails(
+            plan_line="Suscripción Keepi",
+            amount_line="—",
+            total_paid_line="—",
+            paid_date_display=dstr,
+            receipt_reference="—",
+            payment_method_line="—",
+        )
 
 
 def _email_asset_base_url() -> str:
@@ -79,8 +127,20 @@ def _footer_socials_img(width: int = 118, height: int = 24) -> str:
     )
 
 
-def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
+def _build_html(
+    icon_svg: str,
+    title: str,
+    subtitle: str,
+    receipt: PaymentReceiptDetails,
+) -> str:
     card_svg = _svg_card()
+    safe_plan = html_escape(receipt.plan_line)
+    safe_amount = html_escape(receipt.amount_line)
+    safe_total = html_escape(receipt.total_paid_line)
+    safe_date = html_escape(receipt.paid_date_display)
+    safe_ref = html_escape(receipt.receipt_reference)
+    safe_pm = html_escape(receipt.payment_method_line)
+    year = datetime.now().year
     return f"""\
 <!DOCTYPE html>
 <html lang="es">
@@ -146,19 +206,19 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
                   </td>
                   <td align="right"
                       style="font-size:11px;color:#9CA3AF;padding-bottom:10px;">
-                    Recibo #KP-88219
+                    Ref. {safe_ref}
                   </td>
                 </tr>
 
                 <!-- plan row -->
                 <tr>
                   <td style="font-size:14px;color:#111827;padding-bottom:16px;">
-                    Plan Anual Keepi Pro
+                    {safe_plan}
                   </td>
                   <td align="right"
                       style="font-size:14px;font-weight:700;color:#111827;
                              padding-bottom:16px;">
-                    $79.99 USD
+                    {safe_amount}
                   </td>
                 </tr>
 
@@ -182,7 +242,7 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
                   <td align="right"
                       style="font-size:16px;font-weight:700;color:#F26D2D;
                              padding-bottom:16px;">
-                    $79.99 USD
+                    {safe_total}
                   </td>
                 </tr>
 
@@ -206,7 +266,7 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
                       Fecha
                     </div>
                     <div style="font-size:14px;font-weight:600;color:#111827;">
-                      24 de Mayo, 2024
+                      {safe_date}
                     </div>
                   </td>
                   <td align="right" style="vertical-align:top;padding-bottom:4px;">
@@ -220,7 +280,7 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
                           {card_svg}
                         </td>
                         <td style="vertical-align:middle;font-size:14px;font-weight:600;color:#111827;white-space:nowrap;">
-                          Visa &bull;&bull;&bull;&bull; 4242
+                          {safe_pm}
                         </td>
                       </tr>
                     </table>
@@ -256,7 +316,7 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
               <!-- copyright -->
               <p style="margin:16px 0 0 0;font-size:10px;color:#D1D5DB;
                          text-align:center;letter-spacing:0.04em;">
-                &copy; 2024 KEEPI INC. TODOS LOS DERECHOS RESERVADOS.
+                &copy; {year} KEEPI INC. TODOS LOS DERECHOS RESERVADOS.
               </p>
 
             </td>
@@ -271,15 +331,22 @@ def _build_html(icon_svg: str, title: str, subtitle: str) -> str:
 </html>"""
 
 
-def _build_success_html(user_name: str | None) -> str:
-    name = f" {user_name}" if user_name else ""
+def _build_success_html(
+    user_name: str | None,
+    receipt: PaymentReceiptDetails | None = None,
+) -> str:
+    r = receipt or PaymentReceiptDetails.generic_placeholder()
+    safe_name = html_escape(user_name) if user_name else ""
+    name_part = f" {safe_name}" if safe_name else ""
+    subtitle = (
+        f"¡Gracias por tu suscripción{name_part}! Hemos recibido tu pago "
+        "correctamente y tu cuenta ya está activa."
+    )
     return _build_html(
         icon_svg=_svg_check(),
         title="Confirmación de Pago",
-        subtitle=(
-            f"¡Gracias por tu suscripción{name}! Hemos recibido tu pago "
-            "correctamente y tu cuenta ya está activa."
-        ),
+        subtitle=subtitle,
+        receipt=r,
     )
 
 
@@ -365,24 +432,8 @@ def _build_vencimiento_html(user_name: str | None) -> str:
 </html>"""
 
 
-_SPANISH_MONTHS = [
-    "Enero",
-    "Febrero",
-    "Marzo",
-    "Abril",
-    "Mayo",
-    "Junio",
-    "Julio",
-    "Agosto",
-    "Septiembre",
-    "Octubre",
-    "Noviembre",
-    "Diciembre",
-]
-
-
 def _format_spanish_date(d: date) -> str:
-    return f"{d.day} de {_SPANISH_MONTHS[d.month - 1]}"
+    return f"{d.day} de {_SPANISH_MONTHS_FULL[d.month - 1]}"
 
 
 def _format_days_spanish(days: int) -> str:
@@ -526,11 +577,16 @@ def send_payment_email_ses(
     to_email: str,
     kind: str,
     user_name: str | None = None,
+    receipt: PaymentReceiptDetails | None = None,
 ) -> PaymentEmailResult:
     if kind not in {"success", "vencimiento"}:
         return PaymentEmailResult(success=False, error="tipo inválido")
 
-    html = _build_success_html(user_name) if kind == "success" else _build_vencimiento_html(user_name)
+    html = (
+        _build_success_html(user_name, receipt=receipt)
+        if kind == "success"
+        else _build_vencimiento_html(user_name)
+    )
     subject = "Confirmación de pago – Keepi" if kind == "success" else "Tu documento vence pronto – Keepi"
 
     source_email = os.getenv("SES_FROM_EMAIL", "soporte@keepi.app")

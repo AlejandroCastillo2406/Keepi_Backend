@@ -9,7 +9,12 @@ from typing import Any, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.subscription import SubscriptionStatus
+from app.models.user import User
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.services.notificaciones.payment_email_service import send_payment_email_ses
+from app.services.stripe.checkout_session_receipt import (
+    build_receipt_from_checkout_session,
+)
 from app.services.stripe.stripe_subscription_service import \
     StripeSubscriptionService
 
@@ -58,7 +63,7 @@ def handle_webhook_event(event_data: Any, db: Session) -> bool:
         elif event_type == "invoice.payment_failed":
             _handle_payment_failed(data_object, repo)
         elif event_type == "checkout.session.completed":
-            _handle_checkout_session_completed(data_object, repo, stripe_svc)
+            _handle_checkout_session_completed(data_object, repo, stripe_svc, db)
         else:
             logger.info("Evento webhook no manejado: %s", event_type)
         return True
@@ -72,10 +77,14 @@ def _handle_checkout_session_completed(
     session_data: Dict[str, Any],
     repo: SubscriptionRepository,
     stripe_svc: StripeSubscriptionService,
+    db: Session,
 ) -> None:
     session_id = session_data.get("id")
     customer_id = session_data.get("customer")
     subscription_id = session_data.get("subscription")
+    mode = session_data.get("mode")
+    payment_status = session_data.get("payment_status")
+
     if not customer_id:
         logger.warning("Checkout session sin customer_id: %s", session_id)
         return
@@ -86,11 +95,55 @@ def _handle_checkout_session_completed(
     if not subscription_id:
         logger.warning("Checkout session sin subscription_id: %s", session_id)
         return
+
+    # Solo correo de confirmación cuando Stripe confirma el cobro (fuente de verdad = webhook).
+    # No usar solo success_url del navegador: el usuario puede cerrar la pestaña antes.
+    send_confirmation = (
+        mode == "subscription"
+        and payment_status in ("paid", "no_payment_required")
+    )
+    if mode == "subscription" and payment_status not in ("paid", "no_payment_required"):
+        logger.info(
+            "Checkout session %s sin pago confirmado aún (payment_status=%s); no se envía correo",
+            session_id,
+            payment_status,
+        )
+
     stripe_sub = stripe_svc.retrieve_subscription(subscription_id)
     period_start = datetime.fromtimestamp(stripe_sub.current_period_start) if stripe_sub else None
     period_end = datetime.fromtimestamp(stripe_sub.current_period_end) if stripe_sub else None
     repo.set_premium_after_checkout(subscription, subscription_id, period_start, period_end)
     logger.info("Suscripción actualizada a Premium: %s", subscription.id)
+
+    if not send_confirmation:
+        return
+
+    user = db.query(User).filter(User.id == subscription.user_id).first()
+    if not user or not user.email:
+        logger.warning(
+            "No se envía correo de confirmación de pago: usuario %s sin email",
+            subscription.user_id,
+        )
+        return
+
+    receipt = build_receipt_from_checkout_session(
+        str(session_id),
+        dict(session_data),
+    )
+    result = send_payment_email_ses(
+        to_email=user.email,
+        kind="success",
+        user_name=user.name if getattr(user, "name", None) else None,
+        receipt=receipt,
+    )
+    if result.success:
+        logger.info("Correo de confirmación de pago enviado a %s", user.email)
+    else:
+        logger.warning(
+            "Falló envío de correo confirmación de pago a %s: %s",
+            user.email,
+            result.error,
+        )
 
 
 def _handle_subscription_created(
