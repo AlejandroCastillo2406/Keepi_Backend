@@ -1,4 +1,5 @@
 # Models Package
+from .plans import Plan
 from .document import Document
 from .folder import Folder
 from .notification import Notification
@@ -18,4 +19,5 @@ __all__ = [
     "Folder",
     "OAuthCredentials",
     "Subscription",
+    "Plan",                 
 ]
