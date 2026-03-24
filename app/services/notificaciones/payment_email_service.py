@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from html import escape as html_escape
@@ -7,6 +6,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import settings
+from app.services.notificaciones.email_template_env import require_email_template_config
 
 
 @dataclass
@@ -54,8 +54,9 @@ class PaymentReceiptDetails:
         """Cuando no hay datos de Stripe (p. ej. prueba manual del endpoint)."""
         today = date.today()
         dstr = f"{today.day} de {_SPANISH_MONTHS_FULL[today.month - 1]} de {today.year}"
+        brand = (settings.email_brand_name or "").strip() or "—"
         return PaymentReceiptDetails(
-            plan_line="Suscripción Keepi",
+            plan_line=f"Plan {brand}",
             amount_line="—",
             total_paid_line="—",
             paid_date_display=dstr,
@@ -64,24 +65,10 @@ class PaymentReceiptDetails:
         )
 
 
-def _email_asset_base_url() -> str:
-    explicit_base_url = os.getenv("EMAIL_ASSET_BASE_URL")
-    if explicit_base_url:
-        return explicit_base_url.rstrip("/")
-
-    redirect_uri = settings.google_redirect_uri or ""
-    if "/api" in redirect_uri:
-        return redirect_uri.rsplit("/api", 1)[0].rstrip("/")
-
-    if settings.public_base_url:
-        return settings.public_base_url.rstrip("/")
-
-    return "https://keepi.onrender.com"
-
-
 def _svg_check() -> str:
+    u = html_escape(settings.email_url_icon_check)
     return (
-        f'<img src="{_email_asset_base_url()}/email-assets/check_orange.png" '
+        f'<img src="{u}" '
         'alt="" width="84" height="84" '
         'style="display:block;width:84px;height:84px;margin:0 auto;" />'
     )
@@ -104,24 +91,27 @@ def _svg_error() -> str:
 
 
 def _svg_card() -> str:
+    u = html_escape(settings.email_url_icon_card)
     return (
-        f'<img src="{_email_asset_base_url()}/email-assets/card_icon.png" '
+        f'<img src="{u}" '
         'alt="" width="18" height="13" '
         'style="vertical-align:middle;display:inline-block;margin-right:0;width:18px;height:13px;" />'
     )
 
 
 def _vencimiento_icon_img(width: int = 64, height: int = 64) -> str:
+    u = html_escape(settings.email_url_icon_vencimiento)
     return (
-        f'<img src="{_email_asset_base_url()}/email-assets/vencimiento_icon.png" '
+        f'<img src="{u}" '
         f'alt="" width="{width}" height="{height}" '
         f'style="display:block;width:{width}px;height:{height}px;margin:0 auto;" />'
     )
 
 
 def _footer_socials_img(width: int = 118, height: int = 24) -> str:
+    u = html_escape(settings.email_url_footer_socials)
     return (
-        f'<img src="{_email_asset_base_url()}/email-assets/footer_socials.png" '
+        f'<img src="{u}" '
         f'alt="" width="{width}" height="{height}" '
         f'style="display:block;width:{width}px;height:{height}px;margin:0 auto;" />'
     )
@@ -133,6 +123,7 @@ def _build_html(
     subtitle: str,
     receipt: PaymentReceiptDetails,
 ) -> str:
+    require_email_template_config()
     card_svg = _svg_card()
     safe_plan = html_escape(receipt.plan_line)
     safe_amount = html_escape(receipt.amount_line)
@@ -141,12 +132,17 @@ def _build_html(
     safe_ref = html_escape(receipt.receipt_reference)
     safe_pm = html_escape(receipt.payment_method_line)
     year = datetime.now().year
+    safe_brand = html_escape(settings.email_brand_name)
+    safe_legal = html_escape(settings.email_copyright_legal_name)
+    safe_link_account = html_escape(settings.email_link_account)
+    safe_link_help = html_escape(settings.email_link_help)
+    safe_support = html_escape(settings.email_support_address)
     return f"""\
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8"/>
-  <title>{title} – Keepi</title>
+  <title>{html_escape(title)} – {safe_brand}</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
 </head>
 <body style="margin:0;padding:0;background:#f5f5f5;
@@ -292,7 +288,7 @@ def _build_html(
 
               <!-- button -->
               <div style="margin-top:28px;">
-                <a href="https://keepi.app/account"
+                <a href="{safe_link_account}"
                    style="display:block;background:#F26D2D;color:#ffffff;
                           text-decoration:none;font-size:15px;font-weight:600;
                           padding:15px 0;border-radius:50px;text-align:center;">
@@ -306,17 +302,17 @@ def _build_html(
                          font-size:13px;line-height:1.6;
                          color:#9CA3AF;text-align:center;">
                 ¿Tienes alguna pregunta? Visita nuestro
-                <a href="https://keepi.app/help"
+                <a href="{safe_link_help}"
                    style="color:#F26D2D;text-decoration:none;">Centro de Ayuda</a>
                 o contáctanos directamente en
-                <a href="mailto:soporte@keepi.app"
-                   style="color:#F26D2D;text-decoration:none;">soporte@keepi.app</a>.
+                <a href="mailto:{safe_support}"
+                   style="color:#F26D2D;text-decoration:none;">{safe_support}</a>.
               </p>
 
               <!-- copyright -->
               <p style="margin:16px 0 0 0;font-size:10px;color:#D1D5DB;
                          text-align:center;letter-spacing:0.04em;">
-                &copy; {year} KEEPI INC. TODOS LOS DERECHOS RESERVADOS.
+                &copy; {year} {safe_legal}. TODOS LOS DERECHOS RESERVADOS.
               </p>
 
             </td>
@@ -335,6 +331,7 @@ def _build_success_html(
     user_name: str | None,
     receipt: PaymentReceiptDetails | None = None,
 ) -> str:
+    require_email_template_config()
     r = receipt or PaymentReceiptDetails.generic_placeholder()
     safe_name = html_escape(user_name) if user_name else ""
     name_part = f" {safe_name}" if safe_name else ""
@@ -351,7 +348,12 @@ def _build_success_html(
 
 
 def _build_vencimiento_html(user_name: str | None) -> str:
-    display_name = user_name or "Alejandro"
+    require_email_template_config()
+    display_name = html_escape(user_name or settings.email_placeholder_display_name)
+    safe_brand = html_escape(settings.email_brand_name)
+    safe_link_account = html_escape(settings.email_link_account)
+    safe_legal = html_escape(settings.email_copyright_legal_name)
+    year = datetime.now().year
     vencimiento_icon = _vencimiento_icon_img(64, 64)
     footer_socials = _footer_socials_img(118, 24)
     return f"""\
@@ -359,7 +361,7 @@ def _build_vencimiento_html(user_name: str | None) -> str:
 <html lang="es">
 <head>
   <meta charset="UTF-8"/>
-  <title>Recordatorio de vencimiento – Keepi</title>
+  <title>Recordatorio de vencimiento – {safe_brand}</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
 </head>
 <body style="margin:0;padding:0;background:#f7efe9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -398,11 +400,11 @@ def _build_vencimiento_html(user_name: str | None) -> str:
                       mantener tus registros actualizados?
                     </div>
                     <div style="height:34px;line-height:34px;font-size:1px;">&nbsp;</div>
-                    <a href="https://keepi.app/account" style="display:block;background:#ff620f;color:#ffffff;text-decoration:none;font-size:17px;font-weight:700;line-height:1;padding:20px 18px;border-radius:16px;box-shadow:0 10px 24px rgba(255,98,15,0.24);">
+                    <a href="{safe_link_account}" style="display:block;background:#ff620f;color:#ffffff;text-decoration:none;font-size:17px;font-weight:700;line-height:1;padding:20px 18px;border-radius:16px;box-shadow:0 10px 24px rgba(255,98,15,0.24);">
                       Gestionar Documento
                     </a>
                     <div style="height:18px;line-height:18px;font-size:1px;">&nbsp;</div>
-                    <a href="https://keepi.app/account" style="font-size:16px;font-weight:500;line-height:1.4;color:#ff6a1a;text-decoration:none;">
+                    <a href="{safe_link_account}" style="font-size:16px;font-weight:500;line-height:1.4;color:#ff6a1a;text-decoration:none;">
                       Ir directamente a la aplicación
                     </a>
                   </td>
@@ -410,14 +412,14 @@ def _build_vencimiento_html(user_name: str | None) -> str:
                 <tr>
                   <td style="border-top:1px solid #f1ddd0;padding:20px 26px 16px 26px;text-align:center;">
                     <div style="font-size:12px;line-height:1.6;color:#7f8da3;max-width:360px;margin:0 auto;">
-                      Este es un mensaje automático enviado por Keepi.<br/>
+                      Este es un mensaje automático enviado por {safe_brand}.<br/>
                       Si tienes alguna duda, contacta con nuestro soporte<br/>
                       técnico.
                     </div>
                     <div style="height:14px;line-height:14px;font-size:1px;">&nbsp;</div>
                     <div style="margin:0 auto 12px auto;">{footer_socials}</div>
                     <div style="font-size:11px;line-height:1.4;color:#b0b8c7;letter-spacing:0.02em;">
-                      © 2023 KEEPi APP
+                      © {year} {safe_legal}
                     </div>
                   </td>
                 </tr>
@@ -448,10 +450,16 @@ def _build_vencimiento_html_real(
     expiry_date: date,
     days_before: int,
 ) -> str:
-    display_name = user_name or "Alejandro"
+    require_email_template_config()
+    display_name = html_escape(user_name or settings.email_placeholder_display_name)
     safe_document_title = html_escape(document_title)
     safe_days_text = _format_days_spanish(days_before)
     safe_expiry_date = _format_spanish_date(expiry_date)
+
+    safe_brand = html_escape(settings.email_brand_name)
+    safe_link_account = html_escape(settings.email_link_account)
+    safe_legal = html_escape(settings.email_copyright_legal_name)
+    year = datetime.now().year
 
     vencimiento_icon = _vencimiento_icon_img(64, 64)
     footer_socials = _footer_socials_img(118, 24)
@@ -461,7 +469,7 @@ def _build_vencimiento_html_real(
 <html lang="es">
 <head>
   <meta charset="UTF-8"/>
-  <title>Recordatorio de vencimiento – Keepi</title>
+  <title>Recordatorio de vencimiento – {safe_brand}</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
 </head>
 <body style="margin:0;padding:0;background:#f7efe9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -489,7 +497,7 @@ def _build_vencimiento_html_real(
                       Recordatorio de vencimiento
                     </div>
                     <div style="font-size:16px;line-height:1.9;color:#5f6f86;margin:0 auto;max-width:390px;">
-                      Hola <span style="font-weight:700;color:#273449;">{html_escape(display_name)}</span>, te recordamos que tu<br/>
+                      Hola <span style="font-weight:700;color:#273449;">{display_name}</span>, te recordamos que tu<br/>
                       documento<br/>
                       <span style="font-style:italic;color:#ff6a1a;">'{safe_document_title}'</span><br/>
                       vence en <span style="font-weight:700;color:#1f2937;">{safe_days_text} ({safe_expiry_date}).</span>
@@ -500,11 +508,11 @@ def _build_vencimiento_html_real(
                       mantener tus registros actualizados?
                     </div>
                     <div style="height:34px;line-height:34px;font-size:1px;">&nbsp;</div>
-                    <a href="https://keepi.app/account" style="display:block;background:#ff620f;color:#ffffff;text-decoration:none;font-size:17px;font-weight:700;line-height:1;padding:20px 18px;border-radius:16px;box-shadow:0 10px 24px rgba(255,98,15,0.24);">
+                    <a href="{safe_link_account}" style="display:block;background:#ff620f;color:#ffffff;text-decoration:none;font-size:17px;font-weight:700;line-height:1;padding:20px 18px;border-radius:16px;box-shadow:0 10px 24px rgba(255,98,15,0.24);">
                       Gestionar Documento
                     </a>
                     <div style="height:18px;line-height:18px;font-size:1px;">&nbsp;</div>
-                    <a href="https://keepi.app/account" style="font-size:16px;font-weight:500;line-height:1.4;color:#ff6a1a;text-decoration:none;">
+                    <a href="{safe_link_account}" style="font-size:16px;font-weight:500;line-height:1.4;color:#ff6a1a;text-decoration:none;">
                       Ir directamente a la aplicación
                     </a>
                   </td>
@@ -512,14 +520,14 @@ def _build_vencimiento_html_real(
                 <tr>
                   <td style="border-top:1px solid #f1ddd0;padding:20px 26px 16px 26px;text-align:center;">
                     <div style="font-size:12px;line-height:1.6;color:#7f8da3;max-width:360px;margin:0 auto;">
-                      Este es un mensaje automático enviado por Keepi.<br/>
+                      Este es un mensaje automático enviado por {safe_brand}.<br/>
                       Si tienes alguna duda, contacta con nuestro soporte<br/>
                       técnico.
                     </div>
                     <div style="height:14px;line-height:14px;font-size:1px;">&nbsp;</div>
                     <div style="margin:0 auto 12px auto;">{footer_socials}</div>
                     <div style="font-size:11px;line-height:1.4;color:#b0b8c7;letter-spacing:0.02em;">
-                      © 2023 KEEPi APP
+                      © {year} {safe_legal}
                     </div>
                   </td>
                 </tr>
@@ -541,16 +549,20 @@ def send_vencimiento_email_ses(
     expiry_date: date,
     days_before: int,
 ) -> PaymentEmailResult:
-    html = _build_vencimiento_html_real(
-        user_name=user_name,
-        document_title=document_title,
-        expiry_date=expiry_date,
-        days_before=days_before,
-    )
-    subject = "Tu documento vence pronto – Keepi"
+    try:
+        html = _build_vencimiento_html_real(
+            user_name=user_name,
+            document_title=document_title,
+            expiry_date=expiry_date,
+            days_before=days_before,
+        )
+    except ValueError as exc:
+        return PaymentEmailResult(success=False, error=str(exc))
 
-    source_email = os.getenv("SES_FROM_EMAIL", "soporte@keepi.app")
-    source_name = os.getenv("SES_FROM_NAME", "Keepi")
+    subject = f"Tu documento vence pronto – {settings.email_brand_name}"
+
+    source_email = settings.ses_from_email
+    source_name = settings.ses_from_name
 
     client = boto3.client(
         "ses",
@@ -582,15 +594,24 @@ def send_payment_email_ses(
     if kind not in {"success", "vencimiento"}:
         return PaymentEmailResult(success=False, error="tipo inválido")
 
-    html = (
-        _build_success_html(user_name, receipt=receipt)
-        if kind == "success"
-        else _build_vencimiento_html(user_name)
-    )
-    subject = "Confirmación de pago – Keepi" if kind == "success" else "Tu documento vence pronto – Keepi"
+    try:
+        html = (
+            _build_success_html(user_name, receipt=receipt)
+            if kind == "success"
+            else _build_vencimiento_html(user_name)
+        )
+    except ValueError as exc:
+        return PaymentEmailResult(success=False, error=str(exc))
 
-    source_email = os.getenv("SES_FROM_EMAIL", "soporte@keepi.app")
-    source_name = os.getenv("SES_FROM_NAME", "Keepi")
+    brand = settings.email_brand_name
+    subject = (
+        f"Confirmación de pago – {brand}"
+        if kind == "success"
+        else f"Tu documento vence pronto – {brand}"
+    )
+
+    source_email = settings.ses_from_email
+    source_name = settings.ses_from_name
 
     client = boto3.client(
         "ses",

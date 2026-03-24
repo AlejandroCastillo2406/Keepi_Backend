@@ -1,14 +1,12 @@
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
-from urllib.request import urlopen
 
 import stripe
 import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -25,19 +23,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS")
-CHECK_ORANGE_URL = os.getenv(
-    "CHECK_ORANGE_URL",
-    "https://res.cloudinary.com/dozavjhcx/image/upload/v1773901323/check_orange_xsnmqb.png",
-)
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-
-
-def _image_response(path: Path) -> Response:
-    return Response(
-        content=path.read_bytes(),
-        media_type="image/png",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
 
 DatabaseConfig.initialize_database()
 
@@ -82,33 +67,6 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "version": settings.api_version,
     }
-
-
-@app.get("/email-assets/check_orange.png", include_in_schema=False)
-async def email_check_orange():
-    with urlopen(CHECK_ORANGE_URL) as response:
-        return Response(
-            content=response.read(),
-            media_type=response.headers.get_content_type() or "image/png",
-        )
-
-
-@app.get("/email-assets/card_icon.png", include_in_schema=False)
-async def email_card_icon():
-    card_icon_path = BACKEND_DIR / "assets" / "email" / "card_icon.png"
-    return _image_response(card_icon_path)
-
-
-@app.get("/email-assets/vencimiento_icon.png", include_in_schema=False)
-async def email_vencimiento_icon():
-    vencimiento_icon_path = BACKEND_DIR / "assets" / "email" / "vencimiento_icon.png"
-    return _image_response(vencimiento_icon_path)
-
-
-@app.get("/email-assets/footer_socials.png", include_in_schema=False)
-async def email_footer_socials():
-    footer_socials_path = BACKEND_DIR / "assets" / "email" / "footer_socials.png"
-    return _image_response(footer_socials_path)
 
 
 @app.get("/payment/success")

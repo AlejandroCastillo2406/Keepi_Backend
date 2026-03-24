@@ -82,6 +82,20 @@ class Settings(BaseSettings):
 
     echo_sql: bool = os.getenv("ECHO_SQL", "False").lower() == "true"
 
+    # --- Correos HTML: imágenes (Cloudinary u otro CDN) y enlaces. Obligatorios si envías correo. ---
+    email_url_icon_check: str = os.getenv("EMAIL_URL_ICON_CHECK", "") or ""
+    email_url_icon_card: str = os.getenv("EMAIL_URL_ICON_CARD", "") or ""
+    email_url_icon_vencimiento: str = os.getenv("EMAIL_URL_ICON_VENCIMIENTO", "") or ""
+    email_url_footer_socials: str = os.getenv("EMAIL_URL_FOOTER_SOCIALS", "") or ""
+    email_link_account: str = os.getenv("EMAIL_LINK_ACCOUNT", "") or ""
+    email_link_help: str = os.getenv("EMAIL_LINK_HELP", "") or ""
+    email_support_address: str = os.getenv("EMAIL_SUPPORT_ADDRESS", "") or ""
+    email_brand_name: str = os.getenv("EMAIL_BRAND_NAME", "") or ""
+    email_copyright_legal_name: str = os.getenv("EMAIL_COPYRIGHT_LEGAL_NAME", "") or ""
+    email_placeholder_display_name: str = os.getenv("EMAIL_PLACEHOLDER_DISPLAY_NAME", "") or ""
+    ses_from_email: str = os.getenv("SES_FROM_EMAIL", "") or ""
+    ses_from_name: str = os.getenv("SES_FROM_NAME", "") or ""
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

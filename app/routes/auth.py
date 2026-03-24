@@ -18,7 +18,12 @@ def _mobile_callback_base_url() -> str:
     uri = settings.google_redirect_uri or ""
     if "/api" in uri:
         return uri.rsplit("/api", 1)[0].rstrip("/")
-    return "https://keepi.onrender.com"
+    base = (settings.public_base_url or "").strip().rstrip("/")
+    if not base:
+        raise RuntimeError(
+            "Configura PUBLIC_BASE_URL o GOOGLE_REDIRECT_URI para la URL base del callback móvil."
+        )
+    return base
 
 MOBILE_CALLBACK_PATH = "/api/v1/auth/google/mobile-callback"
 APP_DEEP_LINK_SCHEME = "com.example.keepi"
