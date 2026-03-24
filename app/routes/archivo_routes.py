@@ -1,31 +1,44 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.core.security import get_current_user
+from app.repositories.archivo_repository import ArchivoRepository
+from app.services.almacenamiento.archivo_service import ArchivoService
 
 router = APIRouter()
 
+
 @router.post("/subir")
-async def subir_archivo(file: UploadFile = File(...)):
-    service = router.service
+async def subir_archivo(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    usuario_id = user.id
 
-    usuario_id = 1  # ⚠️ luego cámbialo por JWT real
+    # 🔥 AQUÍ se crea correctamente
+    repo = ArchivoRepository(db)
+    service = ArchivoService(repo)
 
-    token = service.subir_archivo(file, usuario_id)
-
-    return {
-        "mensaje": "Archivo subido",
-        "link": f"/api/v1/archivos/ver/{token}"
-    }
+    return service.subir_archivo(file, usuario_id)
 
 
 @router.get("/ver/{token}")
-def ver_archivo(token: str):
-    service = router.service
+def ver_archivo(
+    token: str,
+    db: Session = Depends(get_db)
+):
+    repo = ArchivoRepository(db)
+    service = ArchivoService(repo)
 
-    usuario_id = 1  # ⚠️ luego cámbialo por JWT real
+    ruta = service.obtener_archivo(token)
 
-    ruta, error = service.validar_archivo(token, usuario_id)
+    if not ruta:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
 
-    if error:
-        return {"error": error}
-
-    return FileResponse(ruta)
+    return FileResponse(
+        ruta,
+        headers={"Content-Disposition": "inline"}
+    )
