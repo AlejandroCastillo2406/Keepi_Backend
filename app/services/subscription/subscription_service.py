@@ -58,9 +58,9 @@ class SubscriptionService:
             repo.set_stripe_customer_id(subscription, customer_id)
             subscription = repo.get_by_user_id(user_id)
 
-        target_plan = repo.get_plan_by_code(request.plan_code)
-
-        price_id = target_plan.stripe_price_id or get_price_id_for_plan(request.plan_code)
+        if request.plan_code != "premium":
+            raise ValueError("Solo se soporta el plan premium para crear checkout session")
+        price_id = get_price_id_for_plan("premium")
 
         return self._stripe_checkout.create_checkout_session(
             customer_id=subscription.stripe_customer_id, 
@@ -84,9 +84,9 @@ class SubscriptionService:
             repo.set_stripe_customer_id(subscription, customer_id)
             subscription = repo.get_by_user_id(user_id)
 
-        target_plan = repo.get_plan_by_code(request.plan_code)
-
-        price_id = target_plan.stripe_price_id or get_price_id_for_plan(request.plan_code)
+        if request.plan_code != "premium":
+            raise ValueError("Solo se soporta el plan premium para crear payment intent")
+        price_id = get_price_id_for_plan("premium")
 
         result = self._stripe_subscription.create_subscription(
             customer_id=subscription.stripe_customer_id, 

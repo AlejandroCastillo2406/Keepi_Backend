@@ -23,9 +23,10 @@ def ensure_stripe_key() -> None:
 
 def get_price_id_for_plan(plan: str) -> str:
     """Devuelve el Stripe Price ID para un plan. Lanza ValueError si el plan no es válido."""
-    price_id = settings.stripe_premium_price_id or "price_premium_test"
     if plan == "premium":
-        return price_id
+        if not settings.stripe_premium_price_id:
+            raise ValueError("STRIPE_PREMIUM_PRICE_ID no configurado en variables de entorno")
+        return settings.stripe_premium_price_id
     raise ValueError(f"Plan no válido o STRIPE_PREMIUM_PRICE_ID no configurado: {plan}")
 
 
