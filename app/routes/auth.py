@@ -281,6 +281,13 @@ async def google_mobile_callback(
         await oauth_service.exchange_code_for_tokens(
             code, user_id, redirect_uri=redirect_uri
         )
+        from app.services.autenticacion import OAuthCredentialsService
+        saved_creds = await OAuthCredentialsService(db).get_user_credentials(user_id)
+        if not saved_creds:
+            print(f"OAuth: no se guardaron credenciales para user_id={user_id}")
+            return RedirectResponse(
+                url=f"{APP_DEEP_LINK_SCHEME}:/oauth2redirect?error=save_credentials_failed"
+            )
         from app.models.user_config import CloudProvider, UserConfigUpdate
         from app.services.usuarios import UserConfigService
         config_service = UserConfigService(db)

@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -12,12 +13,18 @@ class OAuthCredentialsService:
 
     def __init__(self, db: Session):
         self.db = db
+
+    def _to_uuid(self, user_id: str | uuid.UUID) -> uuid.UUID:
+        if isinstance(user_id, uuid.UUID):
+            return user_id
+        return uuid.UUID(str(user_id))
     
     async def get_user_credentials(self, user_id: str, provider: str = "google") -> Optional[Dict[str, Any]]:
         """Obtener credenciales del usuario"""
         try:
+            uid = self._to_uuid(user_id)
             credentials = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == user_id,
+                OAuthCredentials.user_id == uid,
                 OAuthCredentials.provider == provider
             ).first()
             
@@ -39,9 +46,10 @@ class OAuthCredentialsService:
     async def save_user_credentials(self, user_id: str, credentials: Credentials, provider: str = "google") -> bool:
         """Guardar credenciales del usuario"""
         try:
+            uid = self._to_uuid(user_id)
             # Verificar si ya existen credenciales
             existing = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == user_id,
+                OAuthCredentials.user_id == uid,
                 OAuthCredentials.provider == provider
             ).first()
             
@@ -54,7 +62,7 @@ class OAuthCredentialsService:
             else:
                 # Crear nuevas credenciales
                 new_credentials = OAuthCredentials(
-                    user_id=user_id,
+                    user_id=uid,
                     provider=provider,
                     access_token=credentials.token,
                     refresh_token=credentials.refresh_token,
@@ -76,8 +84,9 @@ class OAuthCredentialsService:
     async def update_user_credentials(self, user_id: str, credentials: Credentials, provider: str = "google") -> bool:
         """Actualizar credenciales del usuario"""
         try:
+            uid = self._to_uuid(user_id)
             oauth_credentials = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == user_id,
+                OAuthCredentials.user_id == uid,
                 OAuthCredentials.provider == provider
             ).first()
             
@@ -98,8 +107,9 @@ class OAuthCredentialsService:
     async def delete_user_credentials(self, user_id: str, provider: str = "google") -> bool:
         """Eliminar credenciales del usuario"""
         try:
+            uid = self._to_uuid(user_id)
             oauth_credentials = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == user_id,
+                OAuthCredentials.user_id == uid,
                 OAuthCredentials.provider == provider
             ).first()
             
