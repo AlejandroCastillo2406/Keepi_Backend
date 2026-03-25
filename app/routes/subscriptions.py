@@ -1,302 +1,142 @@
-"""
-Rutas de suscripciones: endpoints y webhook de Stripe.
-Orquestación mínima; lógica en SubscriptionService.
-"""
 import logging
+from typing import Any, Dict, List
 
-import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+# Importa tus dependencias de base de datos y seguridad
 from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.subscription import (PaymentIntentRequest,
-                                     PaymentIntentResponse, SubscriptionPlan,
-                                     SubscriptionResponse)
-from app.models.user import User
-from app.routes.dependencies import get_subscription_service
-from app.services.subscription import SubscriptionService
+# NOTA: Ajusta la importación de 'get_current_user' según cómo lo tengas en tu proyecto original
+# (puede ser desde app.api.dependencies, app.core.security, etc.)
+from app.core.security import get_current_user 
 
+from app.models.user import User
+from app.models.subscription import (
+    PaymentIntentRequest,
+    PaymentIntentResponse,
+    SubscriptionResponse,
+)
+from app.models.plans import Plan, PlanResponse
+from app.services.subscription.subscription_service import SubscriptionService
+
+router = APIRouter(prefix="/subscriptions", tags=["Subscriptions"])
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/subscriptions")
+def get_subscription_service() -> SubscriptionService:
+    return SubscriptionService()
 
+# ============================================================
+# 1. ENDPOINT DE PLANES (EL CAMBIO PRINCIPAL - DINÁMICO)
+# ============================================================
+@router.get("/plans", response_model=List[PlanResponse])
+async def get_available_plans(db: Session = Depends(get_db)):
+    """
+    Obtiene la lista de planes activos directamente desde la base de datos.
+    Si en el futuro agregas un plan, aparecerá aquí automáticamente.
+    """
+    plans = db.query(Plan).filter(Plan.is_active == True).order_by(Plan.price.asc()).all()
+    return plans
 
-def _webhook_secret() -> str:
-    secret = settings.stripe_webhook_secret
-    if not secret:
-        raise ValueError("STRIPE_WEBHOOK_SECRET no configurado")
-    return secret
+# ============================================================
+# 2. ENDPOINTS DE LA SUSCRIPCIÓN DEL USUARIO
+# ============================================================
 
-
-@router.get("/current", response_model=SubscriptionResponse)
-async def get_current_subscription(
+@router.get("/me", response_model=SubscriptionResponse)
+async def get_my_subscription(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
+    service: SubscriptionService = Depends(get_subscription_service)
 ):
-    """Obtener suscripción actual del usuario."""
-    try:
-        subscription = await service.get_user_subscription(str(current_user.id), db)
-        if not subscription:
-            subscription = await service.create_free_subscription(str(current_user.id), db)
-        return subscription
-    except Exception as e:
-        logger.exception("Error obteniendo suscripción")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error obteniendo información de suscripción",
-        ) from e
+    """Obtiene la suscripción actual del usuario."""
+    sub = await service.get_user_subscription(str(current_user.id), db)
+    if not sub:
+        # Si no tiene suscripción en base de datos, le asignamos el plan free por defecto
+        sub = await service.create_free_subscription(str(current_user.id), db)
+    return sub
 
-
-@router.get("/limits")
-async def get_analysis_limits(
+@router.get("/check-analysis-limit")
+async def check_analysis_limit(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
+    service: SubscriptionService = Depends(get_subscription_service)
 ):
-    """Obtener límites de análisis del usuario."""
-    try:
-        limits = await service.check_analysis_limit(str(current_user.id), db)
-        return {
-            "can_analyze": limits["can_analyze"],
-            "analysis_remaining": limits["analysis_remaining"],
-            "analysis_used": limits["analysis_used"],
-            "plan": limits["plan"],
-            "status": limits["status"],
-            "needs_subscription": limits["needs_subscription"],
-            "subscription_message": (
-                "Suscríbete para obtener análisis ilimitados" if limits["needs_subscription"] else None
-            ),
-        }
-    except Exception as e:
-        logger.exception("Error obteniendo límites")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error obteniendo límites de análisis",
-        ) from e
+    """Verifica si el usuario aún tiene análisis disponibles en su plan actual."""
+    return await service.check_analysis_limit(str(current_user.id), db)
 
+@router.post("/increment-analysis")
+async def increment_analysis(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    service: SubscriptionService = Depends(get_subscription_service)
+):
+    """Suma 1 al contador de análisis usados del usuario."""
+    success = await service.increment_analysis_usage(str(current_user.id), db)
+    if not success:
+        raise HTTPException(status_code=400, detail="No se pudo incrementar el uso de análisis")
+    return {"status": "success", "message": "Análisis incrementado correctamente"}
+
+# ============================================================
+# 3. ENDPOINTS DE PAGOS (STRIPE)
+# ============================================================
 
 @router.post("/create-checkout-session")
 async def create_checkout_session(
     request: PaymentIntentRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
+    service: SubscriptionService = Depends(get_subscription_service)
 ):
-    """Crear Checkout Session para redirección a Stripe."""
-    if request.plan != SubscriptionPlan.PREMIUM:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Solo el plan Premium está disponible",
-        )
+    """Crea una sesión de Checkout de Stripe para el plan seleccionado."""
     try:
-        result = await service.create_checkout_session(str(current_user.id), request, db)
-        return {
-            "status": "success",
-            "checkout_url": result["checkout_url"],
-            "checkout_session_id": result["checkout_session_id"],
-            "message": "Redirige al usuario a checkout_url para completar el pago",
-        }
+        return await service.create_checkout_session(str(current_user.id), request, db)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("Error creando Checkout Session")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error procesando el pago. Inténtalo de nuevo.",
-        ) from e
-
+        logger.error(f"Error creando checkout session: {e}")
+        raise HTTPException(status_code=500, detail="Error interno al procesar el pago")
 
 @router.post("/create-payment-intent", response_model=PaymentIntentResponse)
 async def create_payment_intent(
     request: PaymentIntentRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
+    service: SubscriptionService = Depends(get_subscription_service)
 ):
-    """Crear Payment Intent para suscripción (flujo alternativo)."""
-    if request.plan != SubscriptionPlan.PREMIUM:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Solo el plan Premium está disponible",
-        )
+    """Crea un Payment Intent de Stripe (si usas elementos personalizados de Stripe)."""
     try:
         return await service.create_payment_intent(str(current_user.id), request, db)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        logger.exception("Error creando Payment Intent")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error procesando el pago. Inténtalo de nuevo.",
-        ) from e
+        raise HTTPException(status_code=400, detail=str(e))
 
-
-@router.delete("/cancel")
+@router.post("/cancel")
 async def cancel_subscription(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
+    service: SubscriptionService = Depends(get_subscription_service)
 ):
-    """Cancelar suscripción del usuario."""
-    try:
-        success = await service.cancel_subscription(str(current_user.id), db)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No se encontró una suscripción activa para cancelar",
-            )
-        return {"message": "Suscripción cancelada exitosamente", "status": "canceled"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error cancelando suscripción")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error cancelando suscripción",
-        ) from e
+    """Cancela la suscripción actual y lo devuelve al plan Free."""
+    success = await service.cancel_subscription(str(current_user.id), db)
+    if not success:
+        raise HTTPException(status_code=400, detail="No tienes una suscripción activa para cancelar")
+    return {"status": "success", "message": "Suscripción cancelada exitosamente"}
 
+# ============================================================
+# 4. WEBHOOK (ESCUCHA A STRIPE)
+# ============================================================
 
 @router.post("/webhook")
 async def stripe_webhook(
     request: Request,
     db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
+    service: SubscriptionService = Depends(get_subscription_service)
 ):
-    """Recibe webhooks de Stripe (suscripciones y pagos)."""
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
+    """Recibe eventos asíncronos directamente desde Stripe (pagos exitosos, cancelaciones, etc)."""
     try:
-        secret = _webhook_secret()
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, secret)
-    except ValueError as e:
-        logger.warning("Webhook payload inválido: %s", e)
-        raise HTTPException(status_code=400, detail="Payload inválido") from e
-    except stripe.error.SignatureVerificationError as e:
-        logger.warning("Webhook firma inválida: %s", e)
-        raise HTTPException(status_code=400, detail="Firma inválida") from e
-
-    success = await service.handle_webhook_event(event, db)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error procesando webhook",
-        )
-    return {"received": True}
-
-
-@router.get("/plans")
-async def get_subscription_plans():
-    """Información de planes de suscripción."""
-    return {
-        "plans": [
-            {
-                "id": SubscriptionPlan.FREE,
-                "name": "Plan Gratuito",
-                "description": "2 análisis de documentos gratuitos",
-                "price": 0,
-                "currency": "MXN",
-                "interval": "lifetime",
-                "features": ["2 análisis de documentos", "Almacenamiento básico", "Soporte por email"],
-                "analysis_limit": 2,
-                "recommended": False,
-            },
-            {
-                "id": SubscriptionPlan.PREMIUM,
-                "name": "Plan Premium",
-                "description": "Análisis ilimitados de documentos",
-                "price": 49,
-                "currency": "MXN",
-                "interval": "month",
-                "features": [
-                    "Análisis ilimitados de documentos",
-                    "Almacenamiento ampliado (10GB)",
-                    "Integración con Google Drive",
-                    "Soporte prioritario",
-                    "Análisis avanzados con IA",
-                    "Exportación de datos",
-                ],
-                "analysis_limit": -1,
-                "recommended": True,
-            },
-        ]
-    }
-
-
-@router.get("/billing-history")
-async def get_billing_history(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
-):
-    """Historial de facturación del usuario (Stripe)."""
-    try:
-        subscription = await service.get_user_subscription(str(current_user.id), db)
-        if not subscription or not subscription.stripe_customer_id:
-            return {"invoices": []}
-        if not settings.stripe_secret_key:
-            return {"invoices": []}
-        invoices = stripe.Invoice.list(customer=subscription.stripe_customer_id, limit=10)
-        return {
-            "invoices": [
-                {
-                    "id": inv.id,
-                    "amount": inv.amount_paid / 100,
-                    "currency": (inv.currency or "").upper(),
-                    "status": inv.status,
-                    "created": inv.created,
-                    "description": inv.description or "Suscripción Premium",
-                    "invoice_url": inv.hosted_invoice_url,
-                    "pdf_url": inv.invoice_pdf,
-                }
-                for inv in invoices.data
-            ]
-        }
+        payload = await request.json()
+        success = await service.handle_webhook_event(payload, db)
+        if not success:
+            logger.warning("Evento de webhook no manejado o ignorado")
+        return {"status": "success"}
     except Exception as e:
-        logger.exception("Error obteniendo historial de facturación")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error obteniendo historial de facturación",
-        ) from e
-
-
-@router.get("/usage-stats")
-async def get_usage_statistics(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    service: SubscriptionService = Depends(get_subscription_service),
-):
-    """Estadísticas de uso del usuario."""
-    try:
-        subscription = await service.get_user_subscription(str(current_user.id), db)
-        limits = await service.check_analysis_limit(str(current_user.id), db)
-        return {
-            "current_period": {
-                "analysis_used": limits["analysis_used"],
-                "analysis_limit": subscription.analysis_limit if subscription else 2,
-                "analysis_remaining": limits["analysis_remaining"],
-            },
-            "all_time": {
-                "total_analyses": limits.get("analysis_used", 0),
-                "account_created": current_user.created_at,
-                "current_plan": limits["plan"],
-            },
-            "subscription_status": {
-                "plan": limits["plan"],
-                "status": limits["status"],
-                "needs_upgrade": limits["needs_subscription"],
-            },
-        }
-    except Exception as e:
-        logger.exception("Error obteniendo estadísticas")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error obteniendo estadísticas de uso",
-        ) from e
-
-
+        logger.error(f"Error procesando webhook: {e}")
+        raise HTTPException(status_code=400, detail="Error procesando webhook")

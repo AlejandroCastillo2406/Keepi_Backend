@@ -1,14 +1,16 @@
 -- ============================================================
--- Script para crear tablas de Keepi (PostgreSQL)
+-- Script para crear tablas de Keepi (PostgreSQL) - V3 (Planes Dinámicos Integrados)
 -- Ejecutar después de borrar las tablas existentes.
 -- Uso: psql -U postgres -d keepi -f create_tables.sql
 -- ============================================================
 
--- Eliminar tablas en orden (por dependencias FK)
-DROP TABLE IF EXISTS notifications CASCADE;
+-- Eliminar tablas en orden (por dependencias FK) para limpiar la base de datos
 DROP TABLE IF EXISTS notifications_logs CASCADE;
+DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS oauth_credentials CASCADE;
 DROP TABLE IF EXISTS subscriptions CASCADE;
+DROP TABLE IF EXISTS plan_features CASCADE;  -- Se elimina por la nueva arquitectura
+DROP TABLE IF EXISTS plans CASCADE;          
 DROP TABLE IF EXISTS user_configs CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS folders CASCADE;
@@ -28,7 +30,6 @@ CREATE TABLE users (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_users_email ON users (email);
-CREATE INDEX ix_users_id ON users (id);
 
 -- ============================================================
 -- 2. user_configs
@@ -41,8 +42,6 @@ CREATE TABLE user_configs (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_user_configs_user_id ON user_configs (user_id);
-CREATE INDEX ix_user_configs_id ON user_configs (id);
 
 -- ============================================================
 -- 3. folders
@@ -58,9 +57,6 @@ CREATE TABLE folders (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_folders_user_id ON folders (user_id);
-CREATE INDEX ix_folders_parent_folder_id ON folders (parent_folder_id);
-CREATE INDEX ix_folders_id ON folders (id);
 
 -- ============================================================
 -- 4. documents
@@ -89,12 +85,9 @@ CREATE TABLE documents (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_documents_user_id ON documents (user_id);
-CREATE INDEX ix_documents_folder_id ON documents (folder_id);
-CREATE INDEX ix_documents_id ON documents (id);
 
 -- ============================================================
--- 5. notifications
+-- 5. notifications y 5.1 logs
 -- ============================================================
 CREATE TABLE notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,28 +95,22 @@ CREATE TABLE notifications (
     document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
     title VARCHAR(255) NOT NULL,
     type VARCHAR(50) NOT NULL DEFAULT 'info',
-
     target_date DATE,
+    payload JSONB DEFAULT '{}'::jsonb,
+    read BOOLEAN NOT NULL DEFAULT false,
+    read_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_notifications_user_id ON notifications (user_id);
-CREATE INDEX ix_notifications_id ON notifications (id);
-CREATE INDEX ix_notifications_document_id ON notifications (document_id);
-CREATE INDEX ix_notifications_target_date ON notifications (target_date);
 
--- ============================================================
--- 5.1 notifications_logs (para deduplicación y trazabilidad)
--- ============================================================
 CREATE TABLE notifications_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-
-    target_date DATE NOT NULL,              -- día-calendario que dispara el envío
-
-    days_before INTEGER,                    -- opcional (ej: 3)
-    ses_message_id VARCHAR(255),          -- opcional
-
+    notification_type VARCHAR(50) NOT NULL,
+    target_date DATE NOT NULL,
+    days_before INTEGER,
+    email_to VARCHAR(255),
+    ses_message_id VARCHAR(255),
     sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
 
@@ -153,19 +140,38 @@ CREATE TABLE oauth_credentials (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_oauth_credentials_user_id ON oauth_credentials (user_id);
-CREATE INDEX ix_oauth_credentials_id ON oauth_credentials (id);
 
 -- ============================================================
--- 7. subscriptions
+-- 7. NUEVO: plans (Catálogo de Planes Dinámico)
+-- ============================================================
+CREATE TABLE plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(50) NOT NULL UNIQUE,  
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    price INTEGER NOT NULL DEFAULT 0, 
+    currency VARCHAR(10) NOT NULL DEFAULT 'MXN',
+    interval VARCHAR(50) NOT NULL DEFAULT 'month',
+    stripe_price_id VARCHAR(255),
+    analysis_limit INTEGER NOT NULL DEFAULT 2, -- -1 para ilimitado
+    features JSONB DEFAULT '[]'::jsonb,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    recommended BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_plans_code ON plans (code);
+
+-- ============================================================
+-- 8. subscriptions (ACTUALIZADA para Planes Dinámicos)
 -- ============================================================
 CREATE TABLE subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE REFERENCES users(id),
+    plan_id UUID REFERENCES plans(id), -- LLAVE FORÁNEA A PLANS
     stripe_customer_id VARCHAR(255),
     stripe_subscription_id VARCHAR(255),
     stripe_price_id VARCHAR(255),
-    plan VARCHAR(50) NOT NULL DEFAULT 'free',
     status VARCHAR(50) NOT NULL DEFAULT 'inactive',
     trial_end TIMESTAMP WITH TIME ZONE,
     current_period_start TIMESTAMP WITH TIME ZONE,
@@ -178,6 +184,40 @@ CREATE TABLE subscriptions (
     canceled_at TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX ix_subscriptions_user_id ON subscriptions (user_id);
-CREATE INDEX ix_subscriptions_stripe_customer_id ON subscriptions (stripe_customer_id);
-CREATE INDEX ix_subscriptions_stripe_subscription_id ON subscriptions (stripe_subscription_id);
-CREATE INDEX ix_subscriptions_id ON subscriptions (id);
+CREATE INDEX ix_subscriptions_plan_id ON subscriptions (plan_id);
+
+
+-- ============================================================
+-- 9. INYECCIÓN DE DATOS INICIALES (Planes por defecto)
+-- ============================================================
+
+-- Plan Gratuito (Usamos un UUID específico para que el código pueda referenciarlo si lo necesita, aunque usamos 'code' principalmente)
+INSERT INTO plans (id, code, name, description, price, interval, analysis_limit, features, is_active, recommended) 
+VALUES (
+    '11111111-1111-1111-1111-111111111111', 
+    'free', 
+    'Plan Gratuito', 
+    'Plan básico con límites', 
+    0, 
+    'lifetime', 
+    2, 
+    '["2 análisis de documentos", "Almacenamiento básico", "Soporte por email"]'::jsonb, 
+    true, 
+    false
+);
+
+-- Plan Premium
+INSERT INTO plans (id, code, name, description, stripe_price_id, price, interval, analysis_limit, features, is_active, recommended) 
+VALUES (
+    '22222222-2222-2222-2222-222222222222', 
+    'premium', 
+    'Plan Premium', 
+    'Análisis Ilimitados de documentos', 
+    'price_AQUI_TU_ID_STRIPE', 
+    49, 
+    'month', 
+    -1, 
+    '["Análisis ilimitados de documentos", "Almacenamiento ampliado (10GB)", "Integración con Google Drive", "Soporte prioritario", "Análisis avanzados con IA"]'::jsonb, 
+    true, 
+    true
+);

@@ -20,11 +20,8 @@ class SubscriptionStatus(str, Enum):
     PAST_DUE = "past_due"
     TRIALING = "trialing"
 
-class SubscriptionPlan(str, Enum):
-    """Planes de suscripción"""
-    FREE = "free"
-    PREMIUM = "premium"
-    ENTERPRISE = "enterprise"
+# NOTA: Hemos eliminado SubscriptionPlan (Enum) porque ahora 
+# la información de los planes es dinámica y viene de la base de datos.
 
 # Modelo SQLAlchemy para suscripciones
 class Subscription(Base):
@@ -33,20 +30,23 @@ class Subscription(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True, unique=True)
     
+    # NUEVO: Llave foránea que enlaza con la tabla de planes
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=True, index=True)
+    
     # Información de Stripe
     stripe_customer_id = Column(String(255), nullable=True, index=True)
     stripe_subscription_id = Column(String(255), nullable=True, index=True)
     stripe_price_id = Column(String(255), nullable=True)
     
     # Detalles de la suscripción
-    plan = Column(String(50), nullable=False, default=SubscriptionPlan.FREE)
     status = Column(String(50), nullable=False, default=SubscriptionStatus.INACTIVE)
     trial_end = Column(DateTime(timezone=True), nullable=True)
     current_period_start = Column(DateTime(timezone=True), nullable=True)
     current_period_end = Column(DateTime(timezone=True), nullable=True)
     
-    # Límites y uso
-    analysis_limit = Column(Integer, nullable=False, default=2)  # 2 análisis gratuitos
+    # Límites y uso (Se copian del Plan al usuario para mantener un historial seguro)
+    # Convención: -1 significa análisis ilimitados
+    analysis_limit = Column(Integer, nullable=False, default=2)  
     analysis_used = Column(Integer, nullable=False, default=0)
     
     # Metadatos
@@ -59,32 +59,30 @@ class Subscription(Base):
     
     # Relaciones
     user = relationship("User", back_populates="subscription")
+    plan = relationship("Plan") # <--- Relación con el modelo creado en el Paso 1
     
     def __repr__(self):
-        return f"<Subscription(id={self.id}, user_id={self.user_id}, plan={self.plan}, status={self.status})>"
+        return f"<Subscription(id={self.id}, user_id={self.user_id}, plan_id={self.plan_id}, status={self.status})>"
     
     @property
     def has_analysis_remaining(self) -> bool:
-        """Verificar si el usuario tiene análisis restantes"""
-        if self.plan == SubscriptionPlan.FREE:
-            return self.analysis_used < self.analysis_limit
-        elif self.plan == SubscriptionPlan.PREMIUM:
+        """Verificar dinámicamente si el usuario tiene análisis restantes"""
+        if self.analysis_limit == -1: # -1 = Ilimitado
             return self.status == SubscriptionStatus.ACTIVE
-        return False
+        return self.analysis_used < self.analysis_limit
     
     @property
     def analysis_remaining(self) -> int:
-        """Obtener número de análisis restantes"""
-        if self.plan == SubscriptionPlan.FREE:
-            return max(0, self.analysis_limit - self.analysis_used)
-        elif self.plan == SubscriptionPlan.PREMIUM and self.status == SubscriptionStatus.ACTIVE:
-            return 999999  # Ilimitado para plan premium
-        return 0
+        """Obtener número de análisis restantes dinámicamente"""
+        if self.analysis_limit == -1: # -1 = Ilimitado
+            return 999999 if self.status == SubscriptionStatus.ACTIVE else 0
+        return max(0, self.analysis_limit - self.analysis_used)
+
 
 # Modelos Pydantic para la API
 class SubscriptionBase(BaseModel):
     """Modelo base para suscripción"""
-    plan: SubscriptionPlan = SubscriptionPlan.FREE
+    plan_id: Optional[str] = None
     analysis_limit: int = 2
 
 class SubscriptionCreate(SubscriptionBase):
@@ -95,7 +93,7 @@ class SubscriptionCreate(SubscriptionBase):
 
 class SubscriptionUpdate(BaseModel):
     """Modelo para actualizar suscripción"""
-    plan: Optional[SubscriptionPlan] = None
+    plan_id: Optional[str] = None
     status: Optional[SubscriptionStatus] = None
     stripe_subscription_id: Optional[str] = None
     stripe_price_id: Optional[str] = None
@@ -134,10 +132,10 @@ class SubscriptionResponse(SubscriptionBase):
         data = {
             "id": str(obj.id),
             "user_id": str(obj.user_id),
+            "plan_id": str(obj.plan_id) if obj.plan_id else None,
             "stripe_customer_id": obj.stripe_customer_id,
             "stripe_subscription_id": obj.stripe_subscription_id,
             "stripe_price_id": obj.stripe_price_id,
-            "plan": obj.plan,
             "status": obj.status,
             "trial_end": obj.trial_end,
             "current_period_start": obj.current_period_start,
@@ -155,7 +153,8 @@ class SubscriptionResponse(SubscriptionBase):
 
 class PaymentIntentRequest(BaseModel):
     """Modelo para crear Payment Intent de Stripe"""
-    plan: SubscriptionPlan
+    # En lugar de usar un Enum cerrado, recibimos el "código" del plan (ej. "premium")
+    plan_code: str 
     payment_method_id: Optional[str] = None
 
 class PaymentIntentResponse(BaseModel):
