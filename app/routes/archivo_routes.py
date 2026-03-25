@@ -1,44 +1,53 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
-
-from app.core.database import get_db
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from app.services.almacenamiento.s3_service import S3Service
 from app.core.security import get_current_user
-from app.repositories.archivo_repository import ArchivoRepository
-from app.services.almacenamiento.archivo_service import ArchivoService
 
 router = APIRouter()
 
 
+# 🔥 SUBIDA SIMPLE (SIN LOGIN - TEMPORAL)
+@router.post("/subir-simple")
+async def subir_archivo_simple(file: UploadFile = File(...)):
+    try:
+        service = S3Service()
+
+        result = await service.upload_document(
+            user_id="temp",  # 👈 usuario temporal
+            file_data=file.file,
+            filename=file.filename,
+            content_type=file.content_type,
+            folder="temp"
+        )
+
+        return {
+            "url": result["signed_url"]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 🔐 SUBIDA CON USUARIO (PRO)
 @router.post("/subir")
 async def subir_archivo(
     file: UploadFile = File(...),
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db)
+    user=Depends(get_current_user)
 ):
-    usuario_id = user.id
+    try:
+        service = S3Service()
 
-    # 🔥 AQUÍ se crea correctamente
-    repo = ArchivoRepository(db)
-    service = ArchivoService(repo)
+        result = await service.upload_document(
+            user_id=str(user.id),
+            file_data=file.file,
+            filename=file.filename,
+            content_type=file.content_type,
+            folder="documents"
+        )
 
-    return service.subir_archivo(file, usuario_id)
+        return {
+            "url": result["signed_url"],
+            "file_path": result["file_path"]
+        }
 
-
-@router.get("/ver/{token}")
-def ver_archivo(
-    token: str,
-    db: Session = Depends(get_db)
-):
-    repo = ArchivoRepository(db)
-    service = ArchivoService(repo)
-
-    ruta = service.obtener_archivo(token)
-
-    if not ruta:
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-
-    return FileResponse(
-        ruta,
-        headers={"Content-Disposition": "inline"}
-    )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
