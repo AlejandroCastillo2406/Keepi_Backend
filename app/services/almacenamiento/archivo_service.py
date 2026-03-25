@@ -2,6 +2,8 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
+from app.core.config import settings
+
 
 class ArchivoService:
 
@@ -31,7 +33,7 @@ class ArchivoService:
             expiracion
         )
 
-        # 🔥 AQUÍ ESTÁ LA CLAVE
+        base_url = (settings.public_base_url or "").strip().rstrip("/")
         return {
-            "url": f"http://localhost:8000/api/v1/archivos/ver/{token}"
+            "url": f"{base_url}/api/v1/archivos/ver/{token}"
         }

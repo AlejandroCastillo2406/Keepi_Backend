@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     """URL de cancelación de Stripe Checkout. Definir STRIPE_PAYMENT_CANCEL_URL en .env."""
     stripe_payment_cancel_url: Optional[str] = os.getenv("STRIPE_PAYMENT_CANCEL_URL")
     public_base_url: Optional[str] = os.getenv("PUBLIC_BASE_URL")
+    archivos_public_base_url: Optional[str] = os.getenv("ARCHIVOS_PUBLIC_BASE_URL")
 
     echo_sql: bool = os.getenv("ECHO_SQL", "False").lower() == "true"
 

@@ -58,9 +58,7 @@ class SubscriptionService:
             repo.set_stripe_customer_id(subscription, customer_id)
             subscription = repo.get_by_user_id(user_id)
 
-        target_plan = db.query(Plan).filter(Plan.code == request.plan_code).first()
-        if not target_plan:
-            raise ValueError("Plan solicitado no encontrado en base de datos")
+        target_plan = repo.get_plan_by_code(request.plan_code)
 
         price_id = target_plan.stripe_price_id or get_price_id_for_plan(request.plan_code)
 
@@ -86,9 +84,7 @@ class SubscriptionService:
             repo.set_stripe_customer_id(subscription, customer_id)
             subscription = repo.get_by_user_id(user_id)
 
-        target_plan = db.query(Plan).filter(Plan.code == request.plan_code).first()
-        if not target_plan:
-            raise ValueError("Plan solicitado no encontrado en base de datos")
+        target_plan = repo.get_plan_by_code(request.plan_code)
 
         price_id = target_plan.stripe_price_id or get_price_id_for_plan(request.plan_code)
 
@@ -134,8 +130,7 @@ class SubscriptionService:
         subscription = repo.get_or_create_free(user_id)
         can_analyze = subscription.has_analysis_remaining
         
-        # Obtener código de plan actual consultando el plan_id
-        current_plan_code = "free"
+        current_plan_code = None
         if subscription.plan_id:
             plan = db.query(Plan).filter(Plan.id == subscription.plan_id).first()
             if plan:
@@ -145,9 +140,9 @@ class SubscriptionService:
             "can_analyze": can_analyze, 
             "analysis_remaining": subscription.analysis_remaining, 
             "analysis_used": subscription.analysis_used, 
-            "plan": current_plan_code, 
+            "plan": current_plan_code or "none",
             "status": subscription.status, 
-            "needs_subscription": not can_analyze and current_plan_code == "free", 
+            "needs_subscription": not can_analyze and current_plan_code != "premium",
         }
 
     async def increment_analysis_usage(self, user_id: str, db: Session) -> bool:

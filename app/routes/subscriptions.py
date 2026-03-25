@@ -26,7 +26,7 @@ def get_subscription_service() -> SubscriptionService:
     return SubscriptionService()
 
 # ============================================================
-# 1. ENDPOINT DE PLANES (EL CAMBIO PRINCIPAL - DINÁMICO)
+# 1. ENDPOINT DE PLANES 
 # ============================================================
 @router.get("/plans", response_model=List[PlanResponse])
 async def get_available_plans(db: Session = Depends(get_db)):

@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import UserResponse
 from app.models.user_config import CloudProvider, UserConfigUpdate
+from app.models.plans import Plan
 from app.services.almacenamiento import S3Service
 from app.services.autenticacion import GoogleOAuthService
 from app.services.subscription import SubscriptionService
@@ -65,7 +67,19 @@ async def setup_cloud_storage(
             try:
                 subscription_service = SubscriptionService()
                 subscription = await subscription_service.get_user_subscription(str(current_user.id), db)
-                if not subscription or subscription.status.value != "active" or subscription.plan.value != "premium":
+                status_value = getattr(subscription.status, "value", subscription.status) if subscription else None
+                plan_code = None
+                if subscription and subscription.plan_id:
+                    try:
+                        plan_id_uuid = uuid.UUID(subscription.plan_id)
+                    except (ValueError, TypeError):
+                        plan_id_uuid = None
+                    if plan_id_uuid:
+                        plan = db.query(Plan).filter(Plan.id == plan_id_uuid).first()
+                        if plan and plan.code:
+                            plan_code = plan.code
+
+                if not subscription or status_value != "active" or plan_code != "premium":
                     logger.warning("Suscripción no válida para Keepi Cloud - usuario %s", current_user.id)
                     raise HTTPException(
                         status_code=402,
@@ -74,8 +88,8 @@ async def setup_cloud_storage(
                             "message": "Se requiere una suscripción activa para usar Keepi Cloud",
                             "subscription_info": {
                                 "required_plan": "premium",
-                                "current_plan": subscription.plan.value if subscription else "none",
-                                "current_status": subscription.status.value if subscription else "none",
+                                "current_plan": plan_code if plan_code else "none",
+                                "current_status": status_value if subscription else "none",
                             },
                         },
                     )

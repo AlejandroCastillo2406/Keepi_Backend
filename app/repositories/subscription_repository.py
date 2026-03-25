@@ -12,6 +12,12 @@ class SubscriptionRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
+    def get_plan_by_code(self, plan_code: str) -> Plan:
+        plan = self._db.query(Plan).filter(Plan.code == plan_code).first()
+        if not plan:
+            raise ValueError(f"Plan no encontrado en base de datos: {plan_code}")
+        return plan
+
     def _to_uuid(self, user_id: Union[str, uuid.UUID]) -> uuid.UUID:
         if isinstance(user_id, uuid.UUID):
             return user_id
@@ -36,15 +42,13 @@ class SubscriptionRepository:
 
     def create_free(self, user_id: Union[str, uuid.UUID]) -> Subscription:
         uid = self._to_uuid(user_id)
-        
-        # Buscar el plan gratuito en la base de datos dinámicamente
-        free_plan = self._db.query(Plan).filter(Plan.code == "free").first()
-        
+
+        free_plan = self.get_plan_by_code("free")
         sub = Subscription(
             user_id=uid,
-            plan_id=free_plan.id if free_plan else None,
+            plan_id=free_plan.id,
             status=SubscriptionStatus.ACTIVE,
-            analysis_limit=free_plan.analysis_limit if free_plan else 2,
+            analysis_limit=free_plan.analysis_limit,
             analysis_used=0,
         )
         self._db.add(sub)
@@ -70,12 +74,12 @@ class SubscriptionRepository:
         period_start: Optional[datetime] = None,
         period_end: Optional[datetime] = None,
     ) -> None:
-        premium_plan = self._db.query(Plan).filter(Plan.code == "premium").first()
-        
+        premium_plan = self.get_plan_by_code("premium")
+
         subscription.stripe_subscription_id = stripe_subscription_id
-        subscription.plan_id = premium_plan.id if premium_plan else None
+        subscription.plan_id = premium_plan.id
         subscription.status = SubscriptionStatus.ACTIVE
-        subscription.analysis_limit = premium_plan.analysis_limit if premium_plan else -1
+        subscription.analysis_limit = premium_plan.analysis_limit
         subscription.analysis_used = 0
         if period_start is not None:
             subscription.current_period_start = period_start
@@ -94,25 +98,25 @@ class SubscriptionRepository:
         self._db.refresh(subscription)
 
     def set_canceled_to_free(self, subscription: Subscription) -> None:
-        free_plan = self._db.query(Plan).filter(Plan.code == "free").first()
-        
+        free_plan = self.get_plan_by_code("free")
+
         subscription.status = SubscriptionStatus.CANCELED
         subscription.canceled_at = datetime.utcnow()
-        subscription.plan_id = free_plan.id if free_plan else None
-        subscription.analysis_limit = free_plan.analysis_limit if free_plan else 2
+        subscription.plan_id = free_plan.id
+        subscription.analysis_limit = free_plan.analysis_limit
         self._db.commit()
         self._db.refresh(subscription)
 
     def set_payment_intent_created(self, subscription: Subscription, stripe_subscription_id: str, stripe_price_id: str, plan_code: str, current_period_start: datetime, current_period_end: datetime) -> None:
-        target_plan = self._db.query(Plan).filter(Plan.code == plan_code).first()
-        
+        target_plan = self.get_plan_by_code(plan_code)
+
         subscription.stripe_subscription_id = stripe_subscription_id
         subscription.stripe_price_id = stripe_price_id
-        subscription.plan_id = target_plan.id if target_plan else None
+        subscription.plan_id = target_plan.id
         subscription.status = SubscriptionStatus.INACTIVE
         subscription.current_period_start = current_period_start
         subscription.current_period_end = current_period_end
-        subscription.analysis_limit = target_plan.analysis_limit if target_plan else -1
+        subscription.analysis_limit = target_plan.analysis_limit
         self._db.commit()
         self._db.refresh(subscription)
 
