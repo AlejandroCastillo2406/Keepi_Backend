@@ -15,9 +15,11 @@ class NotificationsLog(Base):
     user_id = Column(PG_UUID(as_uuid=True), nullable=False)
     document_id = Column(PG_UUID(as_uuid=True), nullable=False)
 
+    notification_type = Column(String(50), nullable=False, index=True)
     target_date = Column(Date, nullable=False)
 
     days_before = Column(Integer, nullable=True)
+    email_to = Column(String(255), nullable=True)
     ses_message_id = Column(String(255), nullable=True)
 
     sent_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

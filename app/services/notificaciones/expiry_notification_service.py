@@ -115,12 +115,14 @@ def dispatch_expiry_emails(
         stmt = pg_insert(NotificationsLog).values(
             user_id=row.user_id,
             document_id=row.document_id,
+            notification_type="expiry",
             target_date=send_date,
             days_before=days_before,
+            email_to=row.email,
             ses_message_id=None,
         )
         stmt = stmt.on_conflict_do_nothing(
-            index_elements=["user_id", "document_id", "target_date"]
+            index_elements=["user_id", "document_id", "notification_type", "target_date"]
         )
         insert_result = db.execute(stmt)
         inserted = int(getattr(insert_result, "rowcount", 0) or 0) > 0
@@ -145,6 +147,7 @@ def dispatch_expiry_emails(
             db.query(NotificationsLog).filter(
                 NotificationsLog.user_id == row.user_id,
                 NotificationsLog.document_id == row.document_id,
+                NotificationsLog.notification_type == "expiry",
                 NotificationsLog.target_date == send_date,
             ).delete(synchronize_session=False)
             db.commit()
@@ -153,6 +156,7 @@ def dispatch_expiry_emails(
         db.query(NotificationsLog).filter(
             NotificationsLog.user_id == row.user_id,
             NotificationsLog.document_id == row.document_id,
+            NotificationsLog.notification_type == "expiry",
             NotificationsLog.target_date == send_date,
         ).update(
             {"ses_message_id": email_result.ses_message_id},

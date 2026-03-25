@@ -63,6 +63,42 @@ async def check_analysis_limit(
     """Verifica si el usuario aún tiene análisis disponibles en su plan actual."""
     return await service.check_analysis_limit(str(current_user.id), db)
 
+@router.get("/usage-stats")
+async def usage_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    service: SubscriptionService = Depends(get_subscription_service),
+):
+    """Retorna estadísticas de uso para el plan actual (alias para el front)."""
+    sub = await service.get_user_subscription(str(current_user.id), db)
+    if not sub:
+        sub = await service.create_free_subscription(str(current_user.id), db)
+
+    plan_code = None
+    if sub.plan_id:
+        try:
+            import uuid
+
+            plan_id_uuid = uuid.UUID(sub.plan_id)
+            plan = db.query(Plan).filter(Plan.id == plan_id_uuid).first()
+            plan_code = plan.code if plan else None
+        except Exception:
+            plan_code = None
+
+    status_value = getattr(sub.status, "value", sub.status)
+
+    return {
+        "current_period": {
+            "analysis_used": sub.analysis_used,
+            "analysis_limit": sub.analysis_limit,
+            "analysis_remaining": sub.analysis_remaining,
+        },
+        "subscription_status": {
+            "plan": plan_code,
+            "status": status_value,
+        },
+    }
+
 @router.post("/increment-analysis")
 async def increment_analysis(
     current_user: User = Depends(get_current_user),
