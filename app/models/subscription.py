@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -153,9 +153,22 @@ class SubscriptionResponse(SubscriptionBase):
 
 class PaymentIntentRequest(BaseModel):
     """Modelo para crear Payment Intent de Stripe"""
-    # En lugar de usar un Enum cerrado, recibimos el "código" del plan (ej. "premium")
-    plan_code: str 
+    plan_code: Optional[str] = None
     payment_method_id: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_plan_code(cls, data):
+        if isinstance(data, dict) and data.get("plan_code") in (None, "") and data.get("plan") not in (None, ""):
+            data = dict(data)
+            data["plan_code"] = data.get("plan")
+        return data
+
+    @model_validator(mode="after")
+    def _validate_plan_code(self):
+        if not self.plan_code:
+            raise ValueError("plan_code requerido (o usa el campo 'plan')")
+        return self
 
 class PaymentIntentResponse(BaseModel):
     """Respuesta del Payment Intent"""
