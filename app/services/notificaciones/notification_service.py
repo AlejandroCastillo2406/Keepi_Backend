@@ -46,8 +46,12 @@ class NotificationService:
             user_id=user_id,
             document_id=notification_data.document_id,
             title=notification_data.title,
+            message=notification_data.message or notification_data.title,
             type=notification_data.type,
             target_date=notification_data.target_date,
+            payload=notification_data.payload or {},
+            read=notification_data.read or False,
+            read_at=notification_data.read_at,
         )
         self.db.add(notification)
         self.db.commit()

@@ -170,8 +170,12 @@ def dispatch_expiry_emails(
             user_id=row.user_id,
             document_id=row.document_id,
             title=f"Vence en {days_text}",
+            message=f"Tu documento vence en {days_text}.",
             type="expiry",
             target_date=send_date,
+            payload={"days_before": days_before, "expiry_date": expiry_date.isoformat()},
+            read=False,
+            read_at=None,
         )
         db.add(notification)
         db.commit()
