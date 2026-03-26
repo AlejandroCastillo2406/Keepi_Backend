@@ -11,16 +11,15 @@ s3_client = boto3.client(
     region_name=settings.aws_region,
 )
 
-
 @router.get("/link-temporal")
 def generar_link_temporal(file_key: str, tiempo_expiracion_minutos: int):
-   
+
     tiempo_en_segundos = tiempo_expiracion_minutos * 60
 
     url = s3_client.generate_presigned_url(
         "get_object",
         Params={
-            "Bucket": settings.aws_bucket_name,
+            "Bucket": settings.aws_s3_bucket,  # ← CORREGIDO
             "Key": file_key
         },
         ExpiresIn=tiempo_en_segundos
