@@ -35,7 +35,7 @@ async def get_available_plans(db: Session = Depends(get_db)):
     Si en el futuro agregas un plan, aparecerá aquí automáticamente.
     """
     plans = db.query(Plan).filter(Plan.is_active == True).order_by(Plan.price.asc()).all()
-    return plans
+    return [PlanResponse.from_orm(plan) for plan in plans]
 
 # ============================================================
 # 2. ENDPOINTS DE LA SUSCRIPCIÓN DEL USUARIO
