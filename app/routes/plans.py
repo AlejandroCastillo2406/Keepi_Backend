@@ -27,7 +27,7 @@ async def create_plan(
     Crear un nuevo plan.
     Incluye la configuración de Stripe y límites de análisis a futuro.
     """
-    # Evitar duplicidad en el 'code' (ej: 'free', 'premium', 'lifetime')
+   
     existing_plan = db.query(Plan).filter(Plan.code == plan_in.code).first()
     if existing_plan:
         raise HTTPException(status_code=400, detail="Ya existe un plan con este código")

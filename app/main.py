@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import DatabaseConfig, get_db
 
-# 🔥 IMPORTANTE: esto asegura que SQLAlchemy registre el modelo
-from app.models.shared_link import SharedLink  # 👈 NO LO BORRES
+
+from app.models.shared_link import SharedLink  
 
 from app.models.user_config import CloudProvider, UserConfigUpdate
 
@@ -26,13 +26,13 @@ from app.routes import (
     user_config,
 )
 
-# 🔥 ARCHIVOS (TU SISTEMA SEGURO)
+
 from app.routes.archivo_routes import router as archivo_router
 
 from app.services.usuarios import UserConfigService
 
 
-# 🔥 LOGS
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s | %(name)s | %(message)s",
@@ -41,15 +41,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# 🔥 ENV
+
 APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS")
 
 
-# 🔥 INIT DB (CREA TABLAS)
+
 DatabaseConfig.initialize_database()
 
 
-# 🚀 APP
+
 app = FastAPI(
     title=settings.api_title,
     description=settings.api_description,
@@ -58,7 +58,7 @@ app = FastAPI(
 )
 
 
-# 🌐 CORS (PARA PRUEBAS OK)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # luego restringe en producción
@@ -68,7 +68,7 @@ app.add_middleware(
 )
 
 
-# 🔥 ROUTERS BASE
+
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
 app.include_router(user_config.router, prefix="/api/v1/config", tags=["User Configuration"])
@@ -78,7 +78,7 @@ app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["
 app.include_router(plans.router, tags=["Admin Plans"])
 
 
-# 🔥🔥 IMPORTANTE: ARCHIVOS SEGUROS (S3 + LINKS)
+
 app.include_router(
     archivo_router,
     prefix="/api/v1/archivos",
@@ -86,7 +86,7 @@ app.include_router(
 )
 
 
-# 🧪 ROOT
+
 @app.get("/")
 async def root():
     return {
@@ -104,7 +104,7 @@ async def health_check():
     }
 
 
-# 💳 PAGOS
+
 @app.get("/payment/success")
 async def payment_success(session_id: str, db: Session = Depends(get_db)):
     try:
@@ -142,7 +142,7 @@ async def payment_cancel():
     """)
 
 
-# ▶️ RUN
+
 if __name__ == "__main__":
     uvicorn.run(
         app,
