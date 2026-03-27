@@ -45,7 +45,7 @@ APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS")
 DatabaseConfig.initialize_database()
 
 
-# 🚀 APP
+
 app = FastAPI(
     title=settings.api_title,
     description=settings.api_description,
@@ -132,7 +132,6 @@ async def payment_cancel():
     </body>
     </html>
     """)
-
 
 
 if __name__ == "__main__":
