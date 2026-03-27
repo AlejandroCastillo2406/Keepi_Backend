@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-
+from app.routes import plans
 import stripe
 import uvicorn
 from fastapi import Depends, FastAPI
@@ -75,6 +75,7 @@ app.include_router(user_config.router, prefix="/api/v1/config", tags=["User Conf
 app.include_router(cloud_storage.router, prefix="/api/v1/cloud-storage", tags=["Cloud Storage"])
 app.include_router(subscriptions.router, prefix="/api/v1", tags=["Subscriptions & Payments"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
+app.include_router(plans.router, tags=["Admin Plans"])
 
 
 # 🔥🔥 IMPORTANTE: ARCHIVOS SEGUROS (S3 + LINKS)
