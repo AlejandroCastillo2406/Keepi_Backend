@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import verify_token
+from app.core.security import require_no_temp_password_token
 from app.services.almacenamiento import S3Service
 from app.services.aws import AWSService
 from app.services.documento import DocumentService
@@ -21,7 +21,7 @@ router = APIRouter()
 async def upload_document_with_aws_analysis(
     file: UploadFile = File(...),
     folder: Optional[str] = Form(None),
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Subir documento y analizarlo con AWS Textract asíncrono y Comprehend"""
@@ -122,7 +122,7 @@ async def upload_document_with_aws_analysis(
         )
 
 @router.get("/s3/folders")
-async def get_s3_folders(user_token: dict = Depends(verify_token)):
+async def get_s3_folders(user_token: dict = Depends(require_no_temp_password_token)):
     """Obtener estructura de carpetas de S3"""
     try:
         s3_service = S3Service()
@@ -137,7 +137,7 @@ async def get_s3_folders(user_token: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/s3/storage-usage")
-async def get_storage_usage(user_token: dict = Depends(verify_token)):
+async def get_storage_usage(user_token: dict = Depends(require_no_temp_password_token)):
     """Obtener información de uso de almacenamiento"""
     try:
         s3_service = S3Service()
@@ -147,7 +147,7 @@ async def get_storage_usage(user_token: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/create-user-folders")
-async def create_user_folders(user_token: dict = Depends(verify_token)):
+async def create_user_folders(user_token: dict = Depends(require_no_temp_password_token)):
     """Crear estructura de carpetas del usuario en S3"""
     try:
         aws_service = AWSService()
@@ -162,7 +162,7 @@ async def create_user_folders(user_token: dict = Depends(verify_token)):
 @router.post("/create-category-folder")
 async def create_category_folder(
     category: str = Form(...),
-    user_token: dict = Depends(verify_token)
+    user_token: dict = Depends(require_no_temp_password_token)
 ):
     """Crear carpeta de categoría específica en S3"""
     try:

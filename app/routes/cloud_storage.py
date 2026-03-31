@@ -6,8 +6,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.user import UserResponse
+from app.core.security import require_no_temp_password_user
+from app.models.user import User
 from app.models.user_config import CloudProvider, UserConfigUpdate
 from app.models.plans import Plan
 from app.services.almacenamiento import S3Service
@@ -31,7 +31,7 @@ class SetupCloudStorageRequest(BaseModel):
 @router.post("/setup-cloud-storage")
 async def setup_cloud_storage(
     request: SetupCloudStorageRequest,
-    current_user: UserResponse = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
     """

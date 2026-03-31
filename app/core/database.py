@@ -3,6 +3,7 @@ import logging
 from typing import Generator
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -11,6 +12,24 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
+
+
+def _seed_roles_if_empty(session: Session) -> None:
+    """Garantiza filas DOCTOR, USER, PATIENT si la tabla existe y está vacía."""
+    from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT, ROLE_USER
+    from app.models.role import Role
+
+    try:
+        count = session.query(Role).count()
+        if count > 0:
+            return
+        for name in (ROLE_DOCTOR, ROLE_USER, ROLE_PATIENT):
+            session.add(Role(name=name))
+        session.commit()
+        logger.info("Roles iniciales insertados (tabla roles estaba vacía)")
+    except Exception as e:
+        session.rollback()
+        logger.debug("No se pudo sembrar roles (¿migración SQL pendiente?): %s", e)
 
 # Límite por proceso: pool_size + max_overflow conexiones simultáneas a PostgreSQL.
 # Con N workers (uvicorn/gunicorn): total máximo = N * (pool_size + max_overflow).
@@ -44,9 +63,11 @@ class DatabaseConfig:
         try:
             from app.models import (document, folder,  # noqa: F401
                                     notification, notifications_log,
-                                    oauth_credentials, subscription, user,
-                                    user_config)
+                                    oauth_credentials, role, subscription,
+                                    user, user_config)
             Base.metadata.create_all(bind=engine)
+            with SessionLocal() as db:
+                _seed_roles_if_empty(db)
             cls._initialized = True
             logger.info("Base de datos inicializada")
         except Exception as e:

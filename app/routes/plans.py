@@ -4,7 +4,7 @@ from typing import List
 import uuid
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import require_no_temp_password_user
 from app.models.user import User
 from app.models.plans import Plan, PlanCreate, PlanUpdate, PlanResponse
 
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/v1/admin/plans", tags=["Admin Plans"])
 
 # Dependencia para verificar permisos
 # Sugerencia: En el futuro puedes agregar un campo 'is_admin' en tu modelo User
-def check_admin_user(current_user: User = Depends(get_current_user)):
+def check_admin_user(current_user: User = Depends(require_no_temp_password_user)):
     # if not current_user.is_admin:
     #     raise HTTPException(status_code=403, detail="Acceso denegado: Se requieren permisos de administrador")
     return current_user

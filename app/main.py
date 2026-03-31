@@ -13,13 +13,14 @@ from app.core.config import settings
 from app.core.database import DatabaseConfig, get_db
 
 
-from app.models.shared_link import SharedLink  
+from app.models.shared_link import SharedLink 
 
 from app.models.user_config import CloudProvider, UserConfigUpdate
 
 from app.routes import (
     auth,
     cloud_storage,
+    doctors,
     documents,
     notifications,
     subscriptions,
@@ -32,7 +33,6 @@ from app.routes.archivo_routes import router as archivo_router
 from app.services.usuarios import UserConfigService
 
 
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s | %(name)s | %(message)s",
@@ -41,9 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-
 APP_DEEP_LINK_SUCCESS = os.getenv("APP_DEEP_LINK_SUCCESS")
-
 
 
 DatabaseConfig.initialize_database()
@@ -68,8 +66,8 @@ app.add_middleware(
 )
 
 
-
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(doctors.router, prefix="/api/v1/doctors", tags=["Doctors"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
 app.include_router(user_config.router, prefix="/api/v1/config", tags=["User Configuration"])
 app.include_router(cloud_storage.router, prefix="/api/v1/cloud-storage", tags=["Cloud Storage"])
@@ -102,7 +100,6 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
     }
-
 
 
 @app.get("/payment/success")
@@ -140,7 +137,6 @@ async def payment_cancel():
     </body>
     </html>
     """)
-
 
 
 if __name__ == "__main__":

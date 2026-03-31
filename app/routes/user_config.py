@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import verify_token
+from app.core.security import require_no_temp_password_token
 from app.models.user_config import UserConfigResponse
 from app.services.usuarios import UserConfigService
 
@@ -11,7 +11,7 @@ router = APIRouter()
 
 @router.get("/", response_model=UserConfigResponse)
 async def get_user_config(
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Obtener configuración del usuario (cloud_provider). Usado por el front."""

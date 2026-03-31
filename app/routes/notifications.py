@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import verify_token
+from app.core.security import require_no_temp_password_token
 from app.models.notification import NotificationCreate, NotificationResponse
 from app.services.notificaciones.expiry_notification_service import (
     dispatch_expiry_emails,
@@ -21,7 +21,7 @@ router = APIRouter()
 
 @router.get("/", response_model=List[NotificationResponse])
 async def get_notifications(
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Obtener todas las notificaciones del usuario autenticado"""
@@ -35,7 +35,7 @@ async def get_notifications(
 @router.get("/{notification_id}", response_model=NotificationResponse)
 async def get_notification(
     notification_id: str,
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Obtener notificación específica por ID"""
@@ -58,7 +58,7 @@ async def get_notification(
 @router.post("/", response_model=NotificationResponse)
 async def create_notification(
     notification_data: NotificationCreate,
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Crear nueva notificación"""
@@ -74,7 +74,7 @@ async def create_notification(
 @router.delete("/{notification_id}")
 async def delete_notification(
     notification_id: str,
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Eliminar notificación"""
@@ -97,7 +97,7 @@ async def delete_notification(
 @router.post("/payment-email")
 async def send_payment_email(
     tipo: str,
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """

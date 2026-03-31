@@ -5,13 +5,18 @@ from typing import Any, Dict, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 
 security = HTTPBearer(auto_error=False)
+
+MUST_CHANGE_PASSWORD_DETAIL = {
+    "code": "MUST_CHANGE_PASSWORD",
+    "message": "Debes cambiar tu contraseña temporal antes de continuar.",
+}
 
 
 def _get_password_hash(password: str) -> str:
@@ -90,6 +95,9 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
             "email": payload.get("email"),
             "name": payload.get("name", ""),
             "picture": payload.get("picture", ""),
+            "role_id": payload.get("role_id"),
+            "role_name": payload.get("role_name", ""),
+            "must_change_password": bool(payload.get("must_change_password")),
         }
     except JWTError:
         raise HTTPException(
@@ -118,7 +126,12 @@ def get_current_user(
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
-        user = db.query(User).filter(User.id == user_id).first()
+        user = (
+            db.query(User)
+            .options(joinedload(User.role))  # type: ignore[arg-type]
+            .filter(User.id == user_id)
+            .first()
+        )
         if user is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
         return user
@@ -128,3 +141,32 @@ def get_current_user(
             detail="Token inválido o expirado",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def require_no_temp_password_user(current_user: User = Depends(get_current_user)) -> User:
+    """Bloquea el resto de la API hasta que el usuario cambie la contraseña de un solo uso."""
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MUST_CHANGE_PASSWORD_DETAIL,
+        )
+    return current_user
+
+
+def require_no_temp_password_token(
+    user_token: dict = Depends(verify_token),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Misma regla que require_no_temp_password_user para rutas basadas en verify_token."""
+    uid = user_token.get("uid")
+    if not uid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+    user = db.query(User).filter(User.id == uid).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MUST_CHANGE_PASSWORD_DETAIL,
+        )
+    return user_token

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import verify_token
+from app.core.security import require_no_temp_password_token
 from app.exceptions import DriveAuthRequiredException
 from app.models.document import Document
 from app.services.almacenamiento import GoogleDriveService, S3Service
@@ -24,7 +24,7 @@ MSG_ERROR_INTERNO = "Error interno del servidor"
 
 
 class TokenPayload(TypedDict, total=False):
-    """Payload del JWT usado en verify_token."""
+    """Payload del JWT usado en require_no_temp_password_token."""
     uid: str
     email: Optional[str]
     name: Optional[str]
@@ -69,7 +69,7 @@ async def _get_drive_service_or_raise(uid: str, db: Session) -> GoogleDriveServi
 @router.get("/s3/folders/contents")
 async def get_s3_folder_contents(
     path: str = Query(..., description="Ruta de carpeta S3 (ej. users/{uid}/Documentos personales)"),
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
 ):
     """Contenido de una carpeta en Keepi Cloud (S3). path debe empezar con users/{uid}/."""
     try:
@@ -101,7 +101,7 @@ async def get_s3_folder_contents(
 
 @router.get("/keepi-cloud/root")
 async def get_keepi_cloud_root(
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Contenido raíz de Keepi Cloud (S3) del usuario: subcarpetas y archivos en users/{uid}/."""
@@ -136,7 +136,7 @@ async def get_keepi_cloud_root(
 @router.get("/drive/folders/{folder_id}/contents")
 async def get_drive_folder_contents(
     folder_id: str,
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Obtener contenido de una carpeta: subcarpetas y archivos."""
@@ -190,7 +190,7 @@ async def get_drive_folder_contents(
 @router.get("/drive/files/{file_id}/view-url")
 async def get_drive_file_view_url(
     file_id: str,
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Obtener URL para vista previa/descarga de un archivo de Google Drive."""
@@ -210,7 +210,7 @@ async def get_drive_file_view_url(
 @router.get("/drive/files/{file_id}/content")
 async def get_drive_file_content(
     file_id: str,
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Descargar contenido del archivo de Google Drive (para guardar en dispositivo)."""
@@ -232,7 +232,7 @@ async def get_drive_file_content(
 @router.delete("/drive/files/{file_id}")
 async def delete_drive_file(
     file_id: str,
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Eliminar archivo de Google Drive (permanente)."""
@@ -251,7 +251,7 @@ async def delete_drive_file(
 
 @router.get("/mobile/dashboard")
 async def get_mobile_dashboard(
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     limit: int = Query(10, description="Número de documentos a mostrar"),
     db: Session = Depends(get_db),
 ):
@@ -336,7 +336,7 @@ async def get_mobile_dashboard(
 @router.post("/mobile/analyze")
 async def mobile_analyze_document(
     file: UploadFile = File(...),
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Paso 1: Solo analizar archivo con Bedrock. No guarda. Devuelve resumen para el modal."""
@@ -375,7 +375,7 @@ async def mobile_save_analyzed_document(
     expiry_date: Optional[str] = Form(None),
     document_number: Optional[str] = Form(None),
     organization: Optional[str] = Form(None),
-    user_token: TokenPayload = Depends(verify_token),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """Paso 2: Guardar archivo ya analizado en la carpeta de la categoría (crear carpeta si no existe)."""

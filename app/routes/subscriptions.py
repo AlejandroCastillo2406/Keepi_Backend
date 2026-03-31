@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 # NOTA: Ajusta la importación de 'get_current_user' según cómo lo tengas en tu proyecto original
 # (puede ser desde app.api.dependencies, app.core.security, etc.)
-from app.core.security import get_current_user 
+from app.core.security import require_no_temp_password_user
 
 from app.models.user import User
 from app.models.subscription import (
@@ -43,7 +43,7 @@ async def get_available_plans(db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=SubscriptionResponse)
 async def get_my_subscription(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
     service: SubscriptionService = Depends(get_subscription_service)
 ):
@@ -56,7 +56,7 @@ async def get_my_subscription(
 
 @router.get("/check-analysis-limit")
 async def check_analysis_limit(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
     service: SubscriptionService = Depends(get_subscription_service)
 ):
@@ -65,7 +65,7 @@ async def check_analysis_limit(
 
 @router.get("/usage-stats")
 async def usage_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
     service: SubscriptionService = Depends(get_subscription_service),
 ):
@@ -101,7 +101,7 @@ async def usage_stats(
 
 @router.post("/increment-analysis")
 async def increment_analysis(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
     service: SubscriptionService = Depends(get_subscription_service)
 ):
@@ -118,7 +118,7 @@ async def increment_analysis(
 @router.post("/create-checkout-session")
 async def create_checkout_session(
     request: PaymentIntentRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
     service: SubscriptionService = Depends(get_subscription_service)
 ):
@@ -134,7 +134,7 @@ async def create_checkout_session(
 @router.post("/create-payment-intent", response_model=PaymentIntentResponse)
 async def create_payment_intent(
     request: PaymentIntentRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
     service: SubscriptionService = Depends(get_subscription_service)
 ):
@@ -146,7 +146,7 @@ async def create_payment_intent(
 
 @router.post("/cancel")
 async def cancel_subscription(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
     service: SubscriptionService = Depends(get_subscription_service)
 ):

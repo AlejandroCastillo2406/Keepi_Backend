@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -6,8 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.config.settings import settings
 from app.core.database import get_db
-from app.core.security import get_current_user, verify_token
-from app.models.user import User, UserCreate, UserLogin, UserResponse
+from app.auth.jwt_payloads import access_token_claims_for_user
+from app.core.security import (create_access_token, create_refresh_token,
+                               get_current_user, require_no_temp_password_token,
+                               verify_refresh_token, verify_token)
+from app.models.user import (PasswordChangeRequest, User, UserCreate, UserLogin,
+                             UserResponse)
 from app.services.autenticacion import GoogleOAuthService
 from app.services.usuarios import UserService
 
@@ -27,9 +32,6 @@ def _mobile_callback_base_url() -> str:
 
 MOBILE_CALLBACK_PATH = "/api/v1/auth/google/mobile-callback"
 APP_DEEP_LINK_SCHEME = "com.example.keepi"
-
-
-from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -54,30 +56,23 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
         
         user_service = UserService(db)
         user = await user_service.create_user(user_data)
-        
-        # Generar token de acceso para autenticar automáticamente
-        from datetime import timedelta
 
-        from app.core.security import create_access_token
-        
         access_token_expires = timedelta(minutes=30)
         access_token = create_access_token(
-            data={
-                "sub": str(user.id),
-                "email": user.email,
-                "name": user.name,
-            },
-            expires_delta=access_token_expires
+            data=access_token_claims_for_user(user),
+            expires_delta=access_token_expires,
         )
 
-        # Devolver datos del usuario con el token
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "id": user.id,
+            "id": str(user.id),
             "email": user.email,
             "name": user.name,
-            "created_at": user.created_at.isoformat() if user.created_at else None
+            "role_id": user.role_id,
+            "role_name": user.role.name if user.role else "",
+            "must_change_password": user.must_change_password,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
         }
         
     except ValueError as e:
@@ -118,24 +113,20 @@ async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
 async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
     """Renovar token de acceso usando refresh token """
     try:
-        from app.core.security import create_access_token, verify_refresh_token
-
-        # Verificar refresh token
         payload = verify_refresh_token(refresh_token)
         if not payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token inválido o expirado"
             )
-        
+
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token inválido"
             )
-        
-        # Verificar que el usuario existe y el refresh token coincide
+
         user_service = UserService(db)
         user = user_service.get_user_orm_by_uid(user_id)
 
@@ -145,19 +136,17 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
                 detail="Refresh token inválido"
             )
 
-        # Crear nuevo access token
-        access_token = create_access_token({
-            "sub": str(user.id),
-            "email": user.email,
-            "name": user.name,
-        })
-        
+        access_token = create_access_token(data=access_token_claims_for_user(user))
+
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "expires_in": 30 * 60  # 30 minutos en segundos
+            "expires_in": 30 * 60,
+            "must_change_password": user.must_change_password,
+            "role_id": user.role_id,
+            "role_name": user.role.name if user.role else "",
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -165,6 +154,46 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error renovando token: {str(e)}"
         )
+
+
+@router.post("/change-password")
+async def change_password(
+    body: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cambio de contraseña (incluye obligatorio para pacientes con contraseña temporal)."""
+    user_service = UserService(db)
+    try:
+        await user_service.change_password(
+            str(current_user.id),
+            body.current_password,
+            body.new_password,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    user = user_service.get_user_orm_by_uid(str(current_user.id))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+    claims = access_token_claims_for_user(user)
+    access_token = create_access_token(
+        data=claims,
+        expires_delta=timedelta(minutes=30),
+    )
+    new_refresh = create_refresh_token(claims)
+    user.refresh_token = new_refresh
+    db.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": new_refresh,
+        "token_type": "bearer",
+        "must_change_password": False,
+        "user": UserResponse.from_orm(user),
+    }
+
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
@@ -181,7 +210,7 @@ async def verify_authentication(user_token: dict = Depends(verify_token)):
     }
 
 @router.get("/current-user")
-async def get_current_user(user_token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+async def current_user_from_token(user_token: dict = Depends(verify_token), db: Session = Depends(get_db)):
     """Obtener información del usuario actual"""
     try:
         user_service = UserService(db)
@@ -198,7 +227,7 @@ async def get_current_user(user_token: dict = Depends(verify_token), db: Session
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/google/authorize")
-async def authorize_google_drive(user_token: dict = Depends(verify_token)):
+async def authorize_google_drive(user_token: dict = Depends(require_no_temp_password_token)):
     """Generar URL de autorización para Google Drive"""
     try:
         oauth_service = GoogleOAuthService()
@@ -227,7 +256,7 @@ async def authorize_google_drive(user_token: dict = Depends(verify_token)):
 
 @router.get("/google/mobile-authorize")
 async def mobile_authorize_google_drive(
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
     db: Session = Depends(get_db),
 ):
     """
@@ -305,7 +334,7 @@ async def google_mobile_callback(
 
 
 @router.get("/google/status")
-async def check_google_drive_status(user_token: dict = Depends(verify_token)):
+async def check_google_drive_status(user_token: dict = Depends(require_no_temp_password_token)):
     """Verificar estado de autorización con Google Drive"""
     try:
         oauth_service = GoogleOAuthService()
@@ -317,7 +346,7 @@ async def check_google_drive_status(user_token: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/google/revoke")
-async def revoke_google_drive_access(user_token: dict = Depends(verify_token)):
+async def revoke_google_drive_access(user_token: dict = Depends(require_no_temp_password_token)):
     """Revocar acceso a Google Drive"""
     try:
         oauth_service = GoogleOAuthService()
@@ -337,7 +366,7 @@ async def revoke_google_drive_access(user_token: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/google/refresh")
-async def refresh_google_drive_tokens(user_token: dict = Depends(verify_token)):
+async def refresh_google_drive_tokens(user_token: dict = Depends(require_no_temp_password_token)):
     """Renovar tokens de Google Drive"""
     try:
         oauth_service = GoogleOAuthService()
@@ -360,7 +389,7 @@ async def refresh_google_drive_tokens(user_token: dict = Depends(verify_token)):
 @router.post("/google/mobile-auth")
 async def google_mobile_auth(
     payload: GoogleMobileAuthRequest,
-    user_token: dict = Depends(verify_token),
+    user_token: dict = Depends(require_no_temp_password_token),
 ):
     """
     Recibe los tokens de Google obtenidos desde la app móvil (flutter_appauth),
