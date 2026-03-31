@@ -51,7 +51,7 @@ class PaymentReceiptDetails:
 
     @staticmethod
     def generic_placeholder() -> "PaymentReceiptDetails":
-        """Cuando no hay datos de Stripe (p. ej. prueba manual del endpoint)."""
+        """Cuando no hay datos de Stripe."""
         today = date.today()
         dstr = f"{today.day} de {_SPANISH_MONTHS_FULL[today.month - 1]} de {today.year}"
         brand = (settings.email_brand_name or "").strip() or "—"

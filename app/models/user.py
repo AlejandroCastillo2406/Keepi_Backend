@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
@@ -52,8 +52,10 @@ class UserBase(BaseModel):
     name: str
 
 class UserCreate(UserBase):
-    """Modelo para crear usuario"""
-    password: Optional[str] = None  # Para registro con contraseña
+    """Modelo para crear usuario (autoregistro: solo USER o DOCTOR; PACIENTE lo crea un médico)."""
+
+    password: Optional[str] = None
+    role_name: Literal["USER", "DOCTOR"] = "USER"
 
 class UserLogin(BaseModel):
     """Modelo para login de usuario"""

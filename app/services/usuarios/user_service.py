@@ -55,13 +55,16 @@ class UserService:
             return None
 
     async def create_user(self, user_data: UserCreate) -> User:
-        """Crear nuevo usuario (registro público → rol USER)."""
+        """Crear nuevo usuario (autoregistro como USER o DOCTOR)."""
         try:
             existing_user = self.db.query(User).filter(User.email == user_data.email).first()
             if existing_user:
                 raise ValueError("El usuario con este email ya existe")
 
-            rid = self.role_id_by_name(ROLE_USER)
+            role_key = user_data.role_name
+            if role_key not in (ROLE_USER, ROLE_DOCTOR):
+                raise ValueError("Solo puedes registrarte como usuario o como médico")
+            rid = self.role_id_by_name(role_key)
             user = User(
                 email=user_data.email,
                 name=user_data.name,
