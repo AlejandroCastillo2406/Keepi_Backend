@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.auth.jwt_payloads import access_token_claims_for_user
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT, ROLE_USER
-from app.models.patient_medical_record import MedicalRecordInput, PatientMedicalRecord
+from app.models.patient_medical_record import MedicalRecordInitialData, PatientMedicalRecord
 from app.models.role import Role
 from app.models.user import (User, UserCreate, UserLogin, UserResponse,
                              UserUpdate)
@@ -93,11 +93,11 @@ class UserService:
         doctor: User,
         email: str,
         name: str,
-        medical_record: Optional[MedicalRecordInput] = None,
+        medical_record: MedicalRecordInitialData,
     ) -> Tuple[User, str]:
         """
         Crea paciente con contraseña temporal, expediente médico y must_change_password=True.
-        Devuelve (usuario_orm, contraseña_plana) para enviar por correo.
+        Transacción única: usuario + expediente (columnas alineadas con BD existente).
         """
         if doctor.role is None or doctor.role.name != ROLE_DOCTOR:
             raise PermissionError("Solo un usuario con rol DOCTOR puede crear pacientes")
@@ -106,7 +106,6 @@ class UserService:
         if existing:
             raise ValueError("Ya existe un usuario con este email")
 
-        mr = medical_record or MedicalRecordInput()
         plain = secrets.token_urlsafe(16)
         rid = self.role_id_by_name(ROLE_PATIENT)
         user = User(
@@ -120,16 +119,19 @@ class UserService:
         self.db.add(user)
         self.db.flush()
 
+        mr = medical_record
         pmr = PatientMedicalRecord(
             patient_user_id=user.id,
             created_by_user_id=doctor.id,
-            date_of_birth=mr.date_of_birth,
+            birth_date=mr.birth_date,
             sex=mr.sex,
             blood_type=mr.blood_type,
             allergies=mr.allergies,
             chronic_conditions=mr.chronic_conditions,
-            current_medications=mr.current_medications,
-            medical_notes=mr.medical_notes,
+            medications=mr.medications,
+            surgical_history=mr.surgical_history,
+            family_history=mr.family_history,
+            notes=mr.notes,
             emergency_contact_name=mr.emergency_contact_name,
             emergency_contact_phone=mr.emergency_contact_phone,
         )

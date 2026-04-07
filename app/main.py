@@ -18,6 +18,7 @@ from app.routes import (
     cloud_storage,
     doctors,
     documents,
+    me,
     notifications,
     patient,
     subscriptions,
@@ -45,6 +46,7 @@ app.add_middleware(
 
 # REGISTRO DE RUTAS
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(me.router, prefix="/api/v1")
 app.include_router(doctors.router, prefix="/api/v1/doctors", tags=["Doctors"])
 app.include_router(patient.router, prefix="/api/v1/patient", tags=["Patient"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])

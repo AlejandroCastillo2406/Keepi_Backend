@@ -1,50 +1,56 @@
-"""Expediente médico del paciente autenticado (lectura y edición)."""
+"""Alias `/patient/*` del expediente (misma lógica que `/me/*`)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.roles import ROLE_PATIENT
-from app.core.security import require_no_temp_password_user
-from app.models.patient_medical_record import MedicalRecordPatientUpdate, MedicalRecordResponse
+from app.core.security import require_patient_user
+from app.models.patient_medical_record import MedicalRecordPatch, MedicalRecordResponse
 from app.models.user import User
-from app.services.patient_medical_record_service import PatientMedicalRecordService
+from app.services.medical import MedicalRecordService
 
 router = APIRouter()
 
 
 @router.get("/medical-record", response_model=MedicalRecordResponse)
 async def get_my_medical_record(
-    current_user: User = Depends(require_no_temp_password_user),
+    patient: User = Depends(require_patient_user),
     db: Session = Depends(get_db),
 ):
-    """El paciente consulta su expediente."""
-    if current_user.role is None or current_user.role.name != ROLE_PATIENT:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo los pacientes tienen expediente médico aquí.",
-        )
-    svc = PatientMedicalRecordService(db)
+    svc = MedicalRecordService(db)
     try:
-        return svc.get_response_for_patient(current_user)
+        return svc.get_response_for_patient(patient)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+
+@router.patch("/medical-record", response_model=MedicalRecordResponse)
+async def patch_my_medical_record(
+    body: MedicalRecordPatch,
+    patient: User = Depends(require_patient_user),
+    db: Session = Depends(get_db),
+):
+    svc = MedicalRecordService(db)
+    try:
+        return svc.patch_by_patient(patient, body)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
 
 @router.put("/medical-record", response_model=MedicalRecordResponse)
-async def update_my_medical_record(
-    body: MedicalRecordPatientUpdate,
-    current_user: User = Depends(require_no_temp_password_user),
+async def put_my_medical_record(
+    body: MedicalRecordPatch,
+    patient: User = Depends(require_patient_user),
     db: Session = Depends(get_db),
 ):
-    """El paciente actualiza su expediente (campos enviados)."""
-    if current_user.role is None or current_user.role.name != ROLE_PATIENT:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo los pacientes pueden editar su expediente.",
-        )
-    svc = PatientMedicalRecordService(db)
+    svc = MedicalRecordService(db)
     try:
-        return svc.update_for_patient(current_user, body)
+        return svc.patch_by_patient(patient, body)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.roles import ROLE_PATIENT
 from app.models.user import User
 
 security = HTTPBearer(auto_error=False)
@@ -170,3 +171,13 @@ def require_no_temp_password_token(
             detail=MUST_CHANGE_PASSWORD_DETAIL,
         )
     return user_token
+
+
+def require_patient_user(current_user: User = Depends(require_no_temp_password_user)) -> User:
+    """Solo usuarios con rol PACIENTE (y sin contraseña temporal pendiente)."""
+    if current_user.role is None or current_user.role.name != ROLE_PATIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este recurso solo está disponible para pacientes.",
+        )
+    return current_user

@@ -1,5 +1,7 @@
 """Endpoints exclusivos del flujo médico (alta de pacientes)."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
@@ -9,8 +11,8 @@ from app.core.security import require_no_temp_password_user
 from app.models.patient_medical_record import MedicalRecordResponse
 from app.models.user import DoctorCreatePatientRequest, DoctorCreatePatientResponse, User
 from app.models.user import User as UserModel
+from app.services.medical import MedicalRecordService
 from app.services.notificaciones.patient_invite_email_service import send_patient_invite_email
-from app.services.patient_medical_record_service import PatientMedicalRecordService
 from app.services.usuarios import UserService
 
 router = APIRouter()
@@ -97,20 +99,20 @@ async def list_my_patients(
 
 @router.get("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
 async def get_patient_medical_record(
-    patient_id: str,
+    patient_id: UUID,
     current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
-    """Expediente de un paciente dado de alta por el médico autenticado."""
+    """Expediente de un paciente dado de alta por este médico."""
     if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo usuarios con rol DOCTOR.",
         )
-    svc = PatientMedicalRecordService(db)
+    svc = MedicalRecordService(db)
     try:
-        return svc.get_response_for_doctor_patient(current_user, patient_id)
-    except PermissionError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+        return svc.get_response_for_doctor(current_user, patient_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
