@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
+from app.models.patient_medical_record import MedicalRecordResponse
 from app.models.user import DoctorCreatePatientRequest, DoctorCreatePatientResponse, User
 from app.models.user import User as UserModel
 from app.services.notificaciones.patient_invite_email_service import send_patient_invite_email
+from app.services.patient_medical_record_service import PatientMedicalRecordService
 from app.services.usuarios import UserService
 
 router = APIRouter()
@@ -36,6 +38,7 @@ async def create_patient_account(
             current_user,
             body.email.strip(),
             body.name.strip(),
+            body.medical_record,
         )
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
@@ -90,3 +93,24 @@ async def list_my_patients(
         }
         for u in rows
     ]
+
+
+@router.get("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
+async def get_patient_medical_record(
+    patient_id: str,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    """Expediente de un paciente dado de alta por el médico autenticado."""
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo usuarios con rol DOCTOR.",
+        )
+    svc = PatientMedicalRecordService(db)
+    try:
+        return svc.get_response_for_doctor_patient(current_user, patient_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

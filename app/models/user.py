@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
+
+from app.models.patient_medical_record import MedicalRecordInput
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -41,7 +43,12 @@ class User(Base):
     folders = relationship("Folder", back_populates="user")
     oauth_credentials = relationship("OAuthCredentials", back_populates="user")
     subscription = relationship("Subscription", back_populates="user", uselist=False)
-    
+    medical_record = relationship(
+        "PatientMedicalRecord",
+        back_populates="patient",
+        uselist=False,
+    )
+
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, name={self.name})>"
 
@@ -76,10 +83,11 @@ class PasswordChangeRequest(BaseModel):
 
 
 class DoctorCreatePatientRequest(BaseModel):
-    """Alta de paciente por médico."""
+    """Alta de paciente por médico + expediente médico inicial."""
 
     email: EmailStr
     name: str
+    medical_record: MedicalRecordInput = Field(default_factory=MedicalRecordInput)
 
 
 class DoctorCreatePatientResponse(BaseModel):

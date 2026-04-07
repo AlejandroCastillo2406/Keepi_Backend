@@ -63,8 +63,8 @@ class DatabaseConfig:
         try:
             from app.models import (document, folder,  # noqa: F401
                                     notification, notifications_log,
-                                    oauth_credentials, role, subscription,
-                                    user, user_config)
+                                    oauth_credentials, patient_medical_record,
+                                    role, subscription, user, user_config)
             Base.metadata.create_all(bind=engine)
             with SessionLocal() as db:
                 _seed_roles_if_empty(db)
