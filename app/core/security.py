@@ -181,3 +181,13 @@ def require_patient_user(current_user: User = Depends(require_no_temp_password_u
             detail="Este recurso solo está disponible para pacientes.",
         )
     return current_user
+
+def require_doctor_user(current_user: User = Depends(require_no_temp_password_user)) -> User:
+    """Solo usuarios con rol DOCTOR (y sin contraseña temporal pendiente)."""
+    # Verificamos si el rol no es nulo y si el nombre es "DOCTOR" (como está en tu BD)
+    if current_user.role is None or current_user.role.name != "DOCTOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso denegado. Este recurso solo está disponible para doctores.",
+        )
+    return current_user

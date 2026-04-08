@@ -3,9 +3,13 @@ import uuid
 import re
 import boto3
 import mimetypes
-from fastapi import APIRouter, BackgroundTasks, UploadFile, File, HTTPException
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File, HTTPException, Depends
 from app.core.config import settings
 from app.services.ocr.textract_service import extract_text_from_document
+
+# Importamos el guardián de seguridad y el modelo de usuario
+from app.core.security import require_doctor_user
+from app.models.user import User
 
 router = APIRouter()
 
@@ -16,19 +20,16 @@ s3_client = boto3.client(
     region_name=settings.aws_region,
 )
 
-# ==========================================
-# LÓGICA MEJORADA: BUSCADOR FLEXIBLE DE CÉDULA
-# ==========================================
 def procesar_receta_con_seguridad(texto: str):
     """
-    Busca la cédula de forma más flexible para formatos del IMSS.
+    Desglosa la receta asegurando extraer solo el nombre de la medicina,
+    la vía de administración en una palabra y los datos de tiempo.
     """
     texto_min = texto.lower()
     
-    # 1. VALIDACIÓN FLEXIBLE
-    # Buscamos que exista la palabra 'cedula' Y que exista un número de al menos 6 dígitos
+    # 1. VALIDACIÓN FLEXIBLE DE CÉDULA
     tiene_palabra_cedula = re.search(r'c[eé]dula', texto_min)
-    tiene_numero_cedula = re.search(r'\b\d{6,8}\b', texto_min) # Busca números de 6 a 8 dígitos
+    tiene_numero_cedula = re.search(r'\b\d{6,8}\b', texto_min)
 
     if not (tiene_palabra_cedula and tiene_numero_cedula):
         return None
@@ -49,26 +50,60 @@ def procesar_receta_con_seguridad(texto: str):
             dias_match = re.search(r'durante\s+(\d+)', l_low)
             dias = dias_match.group(1) if dias_match else "No detectado"
 
-            # Vía de Administración
+            # --- Vía de Administración (Solo una palabra) ---
             via = None 
-            if "vía de administración" in l_low:
-                via_texto = linea.split("administración")[-1].strip().capitalize()
-                if via_texto: via = via_texto
-            elif i > 0 and "vía de" in lineas[i-1].lower():
-                via_texto = lineas[i-1].split("administración")[-1].strip().capitalize()
-                if via_texto: via = via_texto
-
-            # Nombre del Medicamento (Lógica de salto para el IMSS)
-            nombre_med = "No identificado"
-            for j in range(i - 1, max(-1, i - 4), -1):
-                candidato = lineas[j]
-                candidato_low = candidato.lower()
-                if any(x in candidato_low for x in ["vía de", "administración", "receta", "folio", "médico", "cédula", "curp"]):
-                    continue
-                if len(candidato) > 5:
-                    nombre_med = re.sub(r'^\d+\s+', '', candidato).strip()
-                    break
+            linea_para_via = linea if "administraci" in l_low else (lineas[i-1] if i > 0 and "administraci" in lineas[i-1].lower() else "")
             
+            if linea_para_via:
+                match_via = re.search(r'administraci[oó]n\s+([a-zA-ZáéíóúÁÉÍÓÚ]+)', linea_para_via, re.IGNORECASE)
+                if match_via and match_via.group(1).strip():
+                    via = match_via.group(1).strip().capitalize()
+
+            # --- CORRECCIÓN: Solo el nombre de la medicina ---
+            nombre_med = "No identificado"
+            bloque_texto_medicamento = []
+            
+            for j in range(i - 1, max(-1, i - 8), -1):
+                candidato = lineas[j].strip()
+                candidato_low = candidato.lower()
+                
+                if len(candidato) < 4:
+                    continue
+                
+                if "vía de administración" in candidato_low and j != i - 1 and j != i:
+                    break
+                    
+                if any(x in candidato_low for x in ["fecha:", "primer nivel", "asegura tu", "esta receta", "folio"]):
+                    break
+                
+                bloque_texto_medicamento.insert(0, candidato)
+                
+                if re.match(r'^\d{4,7}\s+(?!MG\b|ML\b|UI\b|G\b)[a-zA-Z]', candidato, re.IGNORECASE):
+                    break
+
+            if bloque_texto_medicamento:
+                frase_completa = " ".join(bloque_texto_medicamento)
+                
+                # 1. Quitamos la clave numérica inicial
+                frase_sin_clave = re.sub(r'^\d{4,7}\s+(?!MG\b|ML\b|UI\b|G\b)', '', frase_completa, flags=re.IGNORECASE).strip()
+                
+                # 2. Cortamos hasta el primer punto (ej. "SITAGLIPTINA. COMPRIMIDO...")
+                nombre_corto = frase_sin_clave.split('.')[0].strip()
+                
+                # 3. Cortamos antes de cualquier forma farmacéutica para dejar solo el nombre
+                palabras_corte = ["GRAGEA", "TABLETA", "COMPRIMIDO", "SOLUCION", "CAPSULA", "ENVASE", "MG", "ML", "UI", "SUSPENSION", "JARABE", "AMPOLLETA"]
+                patron_corte = r'\b(?:' + '|'.join(palabras_corte) + r')\b'
+                match_corte = re.search(patron_corte, nombre_corto, flags=re.IGNORECASE)
+                
+                if match_corte:
+                    nombre_corto = nombre_corto[:match_corte.start()].strip()
+                
+                # Limpiamos el resultado final
+                nombre_med = nombre_corto.upper() if nombre_corto else frase_sin_clave.split()[0].upper()
+                
+                # Evitar guiones colgantes al final (ej: "EZETIMIBA-")
+                nombre_med = nombre_med.strip(" -")
+
             medicamentos_encontrados.append({
                 "medicamento": nombre_med,
                 "cada_cuantas_horas": horas,
@@ -78,11 +113,12 @@ def procesar_receta_con_seguridad(texto: str):
 
     return medicamentos_encontrados
 
-# ==========================================
-# LOS ENDPOINTS SE MANTIENEN IGUAL
-# ==========================================
+
 @router.post("/extraer-texto")
-async def extraer_texto_endpoint(file: UploadFile = File(...)):
+async def extraer_texto_endpoint(
+    file: UploadFile = File(...),
+    current_doctor: User = Depends(require_doctor_user)
+):
     if not file:
         raise HTTPException(status_code=400, detail="No hay archivo.")
         
@@ -112,12 +148,14 @@ async def extraer_texto_endpoint(file: UploadFile = File(...)):
         return {
             "status": "success",
             "filename": file.filename,
+            "doctor_autorizado": current_doctor.email,
             "recordatorios": resultados
         }
     except HTTPException as he:
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/generar-acceso-s3-seguro")
 async def generar_acceso_total_s3(file_key: str, email_usuario_autorizado: str, background_tasks: BackgroundTasks, tiempo_min: int = 60):
