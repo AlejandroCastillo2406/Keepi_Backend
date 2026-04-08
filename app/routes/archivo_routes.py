@@ -127,7 +127,7 @@ async def extraer_texto_endpoint(
         file_bytes = await file.read()
         texto_raw = ""
         
-        if content_type in ["image/jpeg", "image/png"]:
+        if content_type in ("image/jpeg", "image/png", "image/webp"):
             texto_raw = await extract_text_from_document(file_bytes=file_bytes)
         elif content_type == "application/pdf":
             temp_key = f"temp_ocr_{uuid.uuid4()}.pdf"
@@ -138,18 +138,19 @@ async def extraer_texto_endpoint(
             raise HTTPException(status_code=400, detail="Formato no soportado.")
 
         resultados = procesar_receta_con_seguridad(texto_raw)
-        
-        if resultados is None:
-            raise HTTPException(
-                status_code=403, 
-                detail="Receta no válida: No se detectó un número de cédula profesional clara."
-            )
-        
+        parse_ok = resultados is not None
+        recordatorios = resultados if parse_ok else []
+
         return {
             "status": "success",
             "filename": file.filename,
             "doctor_autorizado": current_doctor.email,
-            "recordatorios": resultados
+            "extracted_text": texto_raw,
+            "recordatorios": recordatorios,
+            "parse_ok": parse_ok,
+            "warning": None
+            if parse_ok
+            else "No se validó automáticamente el formato de receta (cédula). Revisa y corrige en el siguiente paso.",
         }
     except HTTPException as he:
         raise he

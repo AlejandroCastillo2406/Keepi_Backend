@@ -1,8 +1,11 @@
 """Endpoints exclusivos del flujo médico (alta de pacientes)."""
 
+import json
+from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -11,6 +14,7 @@ from app.core.security import require_no_temp_password_user
 from app.models.patient_medical_record import MedicalRecordResponse
 from app.models.user import DoctorCreatePatientRequest, DoctorCreatePatientResponse, User
 from app.models.user import User as UserModel
+from app.services.documento.document_service import DocumentService
 from app.services.medical import MedicalRecordService
 from app.services.notificaciones.patient_invite_email_service import send_patient_invite_email
 from app.services.usuarios import UserService
@@ -116,3 +120,89 @@ async def get_patient_medical_record(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+
+@router.post("/prescriptions/save")
+async def save_prescription_after_review(
+    patient_id: UUID = Form(...),
+    file: UploadFile = File(...),
+    medications_json: str = Form(
+        ...,
+        description='JSON array, ej. [{"medicamento":"...","cada_cuantas_horas":"8",...}]',
+    ),
+    extracted_text: Optional[str] = Form(None),
+    next_appointment_at: Optional[str] = Form(
+        None,
+        description="Fecha/hora próxima cita (ISO8601), opcional",
+    ),
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Tras corroborar la extracción: sube el archivo a la nube del médico (S3 o Drive según configuración)
+    y guarda el registro con medicación editada y opcionalmente la próxima cita.
+    """
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo usuarios con rol DOCTOR.",
+        )
+    mrs = MedicalRecordService(db)
+    try:
+        mrs.assert_doctor_owns_patient(current_user, patient_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+    try:
+        medications = json.loads(medications_json)
+        if not isinstance(medications, list):
+            raise ValueError("medications_json debe ser un array JSON")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"medications_json inválido: {e}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    next_dt: Optional[datetime] = None
+    if next_appointment_at and next_appointment_at.strip():
+        try:
+            next_dt = datetime.fromisoformat(next_appointment_at.strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="next_appointment_at debe ser ISO8601 válido",
+            )
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+
+    doc_svc = DocumentService(db)
+    try:
+        doc = await doc_svc.save_doctor_prescription_document(
+            doctor_user_id=str(current_user.id),
+            patient_id=str(patient_id),
+            file_data=raw,
+            file_name=file.filename or "receta.jpg",
+            file_type=file.content_type or "application/octet-stream",
+            medications=medications,
+            extracted_text=extracted_text,
+            next_appointment_at=next_dt,
+        )
+    except Exception as e:
+        from app.exceptions import DriveAuthRequiredException
+
+        if isinstance(e, DriveAuthRequiredException):
+            raise HTTPException(
+                status_code=401,
+                detail={"requires_drive_auth": True, "message": str(e)},
+            )
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "message": "Receta guardada en tu nube",
+        "document_id": str(doc.id),
+        "file_url": doc.file_url,
+        "next_appointment_at": next_dt.isoformat() if next_dt else None,
+    }
