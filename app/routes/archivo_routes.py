@@ -138,17 +138,18 @@ async def extraer_texto_endpoint(
             raise HTTPException(status_code=400, detail="Formato no soportado.")
 
         resultados = procesar_receta_con_seguridad(texto_raw)
-        cedula_ok = resultados is not None
+        
         if resultados is None:
-            resultados = []
-
+            raise HTTPException(
+                status_code=403, 
+                detail="Receta no válida: No se detectó un número de cédula profesional clara."
+            )
+        
         return {
             "status": "success",
             "filename": file.filename,
             "doctor_autorizado": current_doctor.email,
-            "raw_text": texto_raw,
-            "recordatorios": resultados,
-            "cedula_profesional_detectada": cedula_ok,
+            "recordatorios": resultados
         }
     except HTTPException as he:
         raise he

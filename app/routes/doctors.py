@@ -1,12 +1,8 @@
 """Endpoints exclusivos del flujo médico (alta de pacientes)."""
 
-import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -16,17 +12,10 @@ from app.models.patient_medical_record import MedicalRecordResponse
 from app.models.user import DoctorCreatePatientRequest, DoctorCreatePatientResponse, User
 from app.models.user import User as UserModel
 from app.services.medical import MedicalRecordService
-from app.services.medical.prescription_service import PrescriptionService
 from app.services.notificaciones.patient_invite_email_service import send_patient_invite_email
 from app.services.usuarios import UserService
 
 router = APIRouter()
-
-
-class RecetaConfirmPayload(BaseModel):
-    recordatorios: List[Dict[str, Any]] = Field(default_factory=list)
-    raw_text: str = ""
-    next_appointment_at: Optional[datetime] = None
 
 
 @router.post("/patients", response_model=DoctorCreatePatientResponse)
@@ -125,49 +114,5 @@ async def get_patient_medical_record(
         return svc.get_response_for_doctor(current_user, patient_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-
-
-@router.post("/patients/{patient_id}/recetas")
-async def guardar_receta_en_nube_paciente(
-    patient_id: UUID,
-    file: UploadFile = File(...),
-    payload: str = Form(...),
-    current_user: User = Depends(require_no_temp_password_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Guarda la receta en la nube del **paciente** (Keepi Cloud o Google Drive) y registra el documento.
-    """
-    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo usuarios con rol DOCTOR.",
-        )
-    try:
-        body = RecetaConfirmPayload.model_validate(json.loads(payload))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Payload inválido: {e}")
-
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Archivo vacío.")
-
-    svc = PrescriptionService(db)
-    try:
-        result = await svc.save_to_patient_cloud(
-            current_user,
-            patient_id,
-            file_bytes,
-            file.filename or "receta",
-            file.content_type or "application/octet-stream",
-            body.recordatorios,
-            body.raw_text,
-            body.next_appointment_at,
-        )
-        return {"status": "success", **result}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
