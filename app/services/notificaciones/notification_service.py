@@ -22,7 +22,7 @@ class NotificationService:
             .order_by(desc(Notification.created_at))
             .all()
         )
-        return [NotificationResponse.model_validate(n, from_attributes=True) for n in notifications]
+        return [self._to_response(n) for n in notifications]
 
     async def get_notification_by_id(
         self, notification_id: str, user_id: Any
@@ -36,7 +36,7 @@ class NotificationService:
         )
         if notification is None:
             return None
-        return NotificationResponse.model_validate(notification, from_attributes=True)
+        return self._to_response(notification)
 
     async def create_notification(
         self, user_id: Any, notification_data: NotificationCreate
@@ -56,7 +56,7 @@ class NotificationService:
         self.db.add(notification)
         self.db.commit()
         self.db.refresh(notification)
-        return NotificationResponse.model_validate(notification, from_attributes=True)
+        return self._to_response(notification)
 
     async def delete_notification(self, notification_id: str, user_id: Any) -> bool:
         """Eliminar notificación."""
@@ -72,4 +72,20 @@ class NotificationService:
         self.db.delete(notification)
         self.db.commit()
         return True
+
+    @staticmethod
+    def _to_response(notification: Notification) -> NotificationResponse:
+        return NotificationResponse(
+            id=str(notification.id),
+            user_id=str(notification.user_id),
+            document_id=str(notification.document_id) if notification.document_id else None,
+            title=notification.title,
+            message=notification.message,
+            type=notification.type,
+            target_date=notification.target_date,
+            payload=notification.payload or {},
+            read=bool(notification.read),
+            read_at=notification.read_at,
+            created_at=notification.created_at,
+        )
 
