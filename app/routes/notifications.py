@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import require_no_temp_password_token
+from app.core.security import require_no_temp_password_user
 from app.models.notification import NotificationCreate, NotificationResponse
+from app.models.user import User
 from app.services.notificaciones.expiry_notification_service import (
     dispatch_expiry_emails,
 )
@@ -21,13 +22,13 @@ router = APIRouter()
 
 @router.get("/", response_model=List[NotificationResponse])
 async def get_notifications(
-    user_token: dict = Depends(require_no_temp_password_token),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
     """Obtener todas las notificaciones del usuario autenticado"""
     try:
         notification_service = NotificationService(db)
-        notifications = await notification_service.get_user_notifications(user_token["uid"])
+        notifications = await notification_service.get_user_notifications(current_user.id)
         return notifications
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -35,14 +36,14 @@ async def get_notifications(
 @router.get("/{notification_id}", response_model=NotificationResponse)
 async def get_notification(
     notification_id: str,
-    user_token: dict = Depends(require_no_temp_password_token),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
     """Obtener notificación específica por ID"""
     try:
         notification_service = NotificationService(db)
         notification = await notification_service.get_notification_by_id(
-            notification_id, user_token["uid"]
+            notification_id, current_user.id
         )
         
         if notification:
@@ -58,14 +59,14 @@ async def get_notification(
 @router.post("/", response_model=NotificationResponse)
 async def create_notification(
     notification_data: NotificationCreate,
-    user_token: dict = Depends(require_no_temp_password_token),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
     """Crear nueva notificación"""
     try:
         notification_service = NotificationService(db)
         notification = await notification_service.create_notification(
-            user_token["uid"], notification_data
+            current_user.id, notification_data
         )
         return notification
     except Exception as e:
@@ -74,14 +75,14 @@ async def create_notification(
 @router.delete("/{notification_id}")
 async def delete_notification(
     notification_id: str,
-    user_token: dict = Depends(require_no_temp_password_token),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
     """Eliminar notificación"""
     try:
         notification_service = NotificationService(db)
         success = await notification_service.delete_notification(
-            notification_id, user_token["uid"]
+            notification_id, current_user.id
         )
         
         if success:
@@ -97,7 +98,7 @@ async def delete_notification(
 @router.post("/payment-email")
 async def send_payment_email(
     tipo: str,
-    user_token: dict = Depends(require_no_temp_password_token),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -114,7 +115,7 @@ async def send_payment_email(
         )
 
     user_service = UserService(db)
-    user = await user_service.get_user_by_uid(user_token["uid"])
+    user = await user_service.get_user_by_uid(str(current_user.id))
     if user is None or not user.email:
         raise HTTPException(status_code=400, detail="Usuario sin correo registrado")
 

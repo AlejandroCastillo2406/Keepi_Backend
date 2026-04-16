@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ class NotificationService:
     def __init__(self, db: Session):
         self.db = db
 
-    async def get_user_notifications(self, user_id: str) -> List[NotificationResponse]:
+    async def get_user_notifications(self, user_id: Any) -> List[NotificationResponse]:
         """Obtener todas las notificaciones de un usuario."""
         notifications = (
             self.db.query(Notification)
@@ -25,7 +25,7 @@ class NotificationService:
         return [NotificationResponse.model_validate(n, from_attributes=True) for n in notifications]
 
     async def get_notification_by_id(
-        self, notification_id: str, user_id: str
+        self, notification_id: str, user_id: Any
     ) -> Optional[NotificationResponse]:
         """Obtener notificación por ID."""
         notification = (
@@ -39,7 +39,7 @@ class NotificationService:
         return NotificationResponse.model_validate(notification, from_attributes=True)
 
     async def create_notification(
-        self, user_id: str, notification_data: NotificationCreate
+        self, user_id: Any, notification_data: NotificationCreate
     ) -> NotificationResponse:
         """Crear nueva notificación."""
         notification = Notification(
@@ -58,7 +58,7 @@ class NotificationService:
         self.db.refresh(notification)
         return NotificationResponse.model_validate(notification, from_attributes=True)
 
-    async def delete_notification(self, notification_id: str, user_id: str) -> bool:
+    async def delete_notification(self, notification_id: str, user_id: Any) -> bool:
         """Eliminar notificación."""
         notification = (
             self.db.query(Notification)
