@@ -170,8 +170,13 @@ async def confirm_prescription(
         db=db,
         user_id=str(prescription.patient_id),
         title=reminder_payload["title"],
-        body=reminder_payload["question"],
-        data={"prescription_id": str(prescription.id), "type": "prescription_assigned"},
+        body="",
+        data={
+            "prescription_id": str(prescription.id),
+            "type": "prescription_assigned",
+            "title": reminder_payload["title"],
+            "question": reminder_payload["question"],
+        },
     )
     return _to_patient_response(db, prescription)
 
