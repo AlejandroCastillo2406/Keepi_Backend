@@ -21,6 +21,8 @@ from app.routes import (
     me,
     notifications,
     patient,
+    prescriptions,
+    push_tokens,
     subscriptions,
     user_config,
 )
@@ -54,6 +56,8 @@ app.include_router(user_config.router, prefix="/api/v1/config", tags=["User Conf
 app.include_router(cloud_storage.router, prefix="/api/v1/cloud-storage", tags=["Cloud Storage"])
 app.include_router(subscriptions.router, prefix="/api/v1", tags=["Subscriptions"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
+app.include_router(prescriptions.router, prefix="/api/v1/prescriptions", tags=["Prescriptions"])
+app.include_router(push_tokens.router, prefix="/api/v1/push", tags=["Push"])
 app.include_router(plans.router, tags=["Admin Plans"])
 
 app.include_router(

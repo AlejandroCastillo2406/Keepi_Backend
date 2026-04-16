@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
     aws_region: str = os.getenv("AWS_REGION", "us-east-1")
     aws_s3_bucket: str = os.getenv("AWS_S3_BUCKET", "")
+    firebase_service_account_path: str = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
 
     stripe_secret_key: Optional[str] = None
     stripe_premium_price_id: Optional[str] = None
