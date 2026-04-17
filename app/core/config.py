@@ -72,6 +72,17 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = os.getenv("AWS_S3_BUCKET", "")
     firebase_service_account_path: str = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
 
+    @property
+    def firebase_service_account_path_resolved(self) -> str:
+        """Ruta al JSON de cuenta de servicio. Si FIREBASE_SERVICE_ACCOUNT_PATH es relativa, se resuelve desde la raíz del backend."""
+        raw = (self.firebase_service_account_path or "").strip()
+        if not raw:
+            return ""
+        p = Path(raw)
+        if p.is_absolute():
+            return str(p.resolve())
+        return str((backend_dir / p).resolve())
+
     stripe_secret_key: Optional[str] = None
     stripe_premium_price_id: Optional[str] = None
     stripe_webhook_secret: Optional[str] = None

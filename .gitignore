@@ -1,6 +1,8 @@
 # Entorno y secretos
 .env
 client_secrets.json
+# Firebase Admin SDK (solo en tu máquina / servidor)
+secrets/*.json
 
 # Python
 __pycache__/

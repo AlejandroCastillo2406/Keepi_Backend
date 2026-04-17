@@ -16,7 +16,11 @@ def _init_firebase() -> bool:
     global _firebase_initialized
     if _firebase_initialized:
         return True
-    creds_path = getattr(settings, "firebase_service_account_path", "")
+    creds_path = getattr(
+        settings,
+        "firebase_service_account_path_resolved",
+        "",
+    ) or getattr(settings, "firebase_service_account_path", "")
     if not creds_path:
         logger.info("FCM desactivado: falta FIREBASE_SERVICE_ACCOUNT_PATH")
         return False
