@@ -5,7 +5,7 @@ from typing import Any, Optional, TypedDict
 
 from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
                      UploadFile)
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -414,4 +414,49 @@ async def mobile_save_analyzed_document(
         if isinstance(e, DriveAuthRequiredException):
             raise HTTPException(status_code=401, detail={"requires_drive_auth": True, "message": str(e)})
         logger.exception("Error guardando documento analizado")
+        raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
+
+
+@router.get("/mobile/download/{document_id}")
+async def download_mobile_document(
+    document_id: uuid.UUID,
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    db: Session = Depends(get_db)
+):
+    """Descarga de documento S3 optimizada para redirección móvil."""
+    try:
+        user_uuid = uuid.UUID(user_token["uid"])
+        
+        # 1. Buscamos el documento en la base de datos validando que pertenezca al usuario
+        document = db.query(Document).filter(
+            Document.id == document_id, 
+            Document.user_id == user_uuid
+        ).first()
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Documento no encontrado o sin acceso")
+            
+        # 2. Obtenemos la URL segura usando el S3Service que ya tienes en el proyecto
+        s3_service = S3Service()
+        
+        # IMPORTANTE: Asegúrate de que el método para obtener la URL sea el correcto. 
+        # Si tu S3Service usa "get_file_url", "get_presigned_url", ajusta este nombre.
+        # Igualmente, ajusta 'document.file_path' si la ruta la guardas en 's3_key' u otro atributo.
+        file_path = getattr(document, "file_path", getattr(document, "s3_key", None))
+        
+        if not file_path:
+             raise HTTPException(status_code=400, detail="Documento sin ruta válida de almacenamiento")
+             
+        file_url = await s3_service.get_file_url(file_path) # o s3_service.get_presigned_url(file_path)
+        
+        if not file_url:
+            raise HTTPException(status_code=500, detail="No se pudo generar la URL de descarga")
+            
+        # 3. Redirigimos a Flutter hacia esa URL
+        return RedirectResponse(url=file_url)
+        
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error obteniendo URL de descarga móvil para S3")
         raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
