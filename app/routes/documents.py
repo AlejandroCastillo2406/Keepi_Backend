@@ -1,3 +1,4 @@
+import io
 import logging
 import uuid
 import base64
@@ -14,7 +15,7 @@ from app.core.database import get_db
 from app.core.security import require_no_temp_password_token
 from app.exceptions import DriveAuthRequiredException
 from app.models.document import Document
-from app.services.almacenamiento import GoogleDriveService, S3Service
+from app.services.almacenamiento import FolderService, GoogleDriveService, S3Service
 from app.services.autenticacion import GoogleOAuthService
 from app.services.documento import DocumentService
 from app.services.usuarios import UserConfigService, UserService
@@ -23,6 +24,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MSG_ERROR_INTERNO = "Error interno del servidor"
+
+# Misma categoría que el registro Document para estudios clínicos / solicitud del doctor.
+_PATIENT_CLINICAL_CATEGORY = "Análisis Clínicos"
 
 
 class TokenPayload(TypedDict, total=False):
@@ -462,20 +466,49 @@ async def upload_patient_document_direct(
         user_config = await config_service.get_or_create_user_config(uid)
         cloud_provider = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "google_drive"
 
+        folder_service = FolderService(db)
+        folder_result = await folder_service.ensure_category_folder_exists(
+            uid, _PATIENT_CLINICAL_CATEGORY, cloud_provider
+        )
+        if not folder_result.get("success"):
+            if folder_result.get("requires_drive_auth"):
+                raise HTTPException(
+                    status_code=401,
+                    detail=folder_result.get("error", "Google Drive no autorizado"),
+                    headers={"X-Drive-Auth-URL": folder_result.get("drive_auth_url", "")},
+                )
+            raise HTTPException(
+                status_code=400,
+                detail=folder_result.get("error", "No se pudo preparar la carpeta de destino"),
+            )
+
         drive_file_id = None
         s3_key = None
 
-        # 2. Subir a la nube
+        # 2. Subir a la nube (GoogleDriveService.upload_file requiere folder_id de Drive)
         if cloud_provider == "google_drive":
             oauth_service = GoogleOAuthService(db)
             credentials = await oauth_service.refresh_user_tokens(uid)
             if not credentials:
                 raise HTTPException(status_code=401, detail="Google Drive no autorizado")
+            drive_folder_id = folder_result.get("folder_id")
+            if not drive_folder_id:
+                raise HTTPException(status_code=500, detail="No se obtuvo carpeta en Google Drive")
             drive_service = GoogleDriveService(credentials)
-            drive_file_id = await drive_service.upload_file(content, filename, mime_type)
+            drive_file_id = await drive_service.upload_file(
+                content, filename, drive_folder_id, mime_type
+            )
         else:
             s3_service = S3Service()
-            s3_key = await s3_service.upload_file(uid, content, filename, mime_type)
+            folder_name = folder_result.get("folder_name") or "other"
+            upload_res = await s3_service.upload_document(
+                uid,
+                io.BytesIO(content),
+                filename,
+                mime_type,
+                folder=folder_name,
+            )
+            s3_key = upload_res.get("file_path")
 
         # 3. Guardar registro en la base de datos
         document = Document(
@@ -486,7 +519,7 @@ async def upload_patient_document_direct(
             s3_key=s3_key,
             filename=filename,
             type=mime_type.split("/")[0],
-            category="Análisis Clínicos",
+            category=_PATIENT_CLINICAL_CATEGORY,
             description="Subido desde la solicitud del doctor"
         )
         db.add(document)

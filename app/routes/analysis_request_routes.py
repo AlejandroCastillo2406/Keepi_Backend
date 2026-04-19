@@ -1,19 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
-from sqlalchemy.orm import Session
-from uuid import UUID
-from typing import List
 import base64
+import io
 import json
+import logging
+from typing import List
+from uuid import UUID
 
-# Importaciones de tu estructura real
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.dto.analysis_request_dto import AnalysisRequestCreate, AnalysisRequestResponse
-from app.repositories.analysis_request_repository import AnalysisRequestRepository
 from app.models.document import Document
-from app.services.almacenamiento import S3Service, GoogleDriveService
+from app.repositories.analysis_request_repository import AnalysisRequestRepository
+from app.services.almacenamiento import FolderService, GoogleDriveService, S3Service
+from app.services.autenticacion import GoogleOAuthService
 from app.services.usuarios import UserConfigService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+MSG_ERROR_INTERNO = "Error interno del servidor"
+
+_ANALYSIS_DOCUMENT_CATEGORY = "Análisis Clínicos"
 
 # --- FUNCIÓN DE UTILIDAD INTERNA (EVITA IMPORT CIRCULAR) ---
 def get_user_id_from_token(request: Request) -> str:
@@ -52,9 +59,13 @@ async def get_my_requests(
     db: Session = Depends(get_db)
 ):
     """Muestra todas las solicitudes que el paciente tiene pendientes por completar."""
-    patient_id = get_user_id_from_token(request)
+    patient_raw = get_user_id_from_token(request)
+    try:
+        patient_uuid = patient_raw if isinstance(patient_raw, UUID) else UUID(str(patient_raw))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Sesión inválida")
     repo = AnalysisRequestRepository(db)
-    return repo.get_pending_by_patient(patient_id)
+    return repo.get_pending_by_patient(patient_uuid)
 
 # 3. DOCTOR: Ver el historial completo de un paciente específico
 @router.get("/patient/{patient_id}", response_model=List[AnalysisRequestResponse])
@@ -101,14 +112,45 @@ async def upload_analysis_and_complete(
         cloud_provider = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "google_drive"
         drive_file_id = None
         s3_key = None
-        
+
+        folder_service = FolderService(db)
+        folder_result = await folder_service.ensure_category_folder_exists(
+            uid, _ANALYSIS_DOCUMENT_CATEGORY, cloud_provider
+        )
+        if not folder_result.get("success"):
+            if folder_result.get("requires_drive_auth"):
+                raise HTTPException(
+                    status_code=401,
+                    detail=folder_result.get("error", "Google Drive no autorizado"),
+                )
+            raise HTTPException(
+                status_code=400,
+                detail=folder_result.get("error", "No se pudo preparar la carpeta de destino"),
+            )
+
         if cloud_provider == "google_drive":
-            # (Aquí iría tu lógica real de auth_refresh para Drive)
-            drive_service = GoogleDriveService(...) 
-            drive_file_id = await drive_service.upload_file(content, filename, mime_type)
-        else: # assume keepi_cloud (S3)
+            oauth_service = GoogleOAuthService(db)
+            credentials = await oauth_service.refresh_user_tokens(uid)
+            if not credentials:
+                raise HTTPException(status_code=401, detail="Google Drive no autorizado")
+            drive_folder_id = folder_result.get("folder_id")
+            if not drive_folder_id:
+                raise HTTPException(status_code=500, detail="No se obtuvo carpeta en Google Drive")
+            drive_service = GoogleDriveService(credentials)
+            drive_file_id = await drive_service.upload_file(
+                content, filename, drive_folder_id, mime_type
+            )
+        else:
             s3_service = S3Service()
-            s3_key = await s3_service.upload_file(uid, content, filename, mime_type)
+            folder_name = folder_result.get("folder_name") or "other"
+            upload_res = await s3_service.upload_document(
+                uid,
+                io.BytesIO(content),
+                filename,
+                mime_type,
+                folder=folder_name,
+            )
+            s3_key = upload_res.get("file_path")
             
         # 4. Crear el Documento en la base de datos (tags para filtrar)
         document = Document(

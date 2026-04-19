@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.models.prescription import (
     Prescription,
     PrescriptionConfirmRequest,
@@ -22,10 +22,8 @@ from app.models.prescription import (
 )
 from app.models.user import User
 from app.routes.archivo_routes import procesar_receta_con_seguridad
-from app.services.notificaciones.fcm_push_service import (
-    build_reminder_prompt_payload,
-    send_push_to_user,
-)
+from app.services.notificaciones.fcm_push_service import build_reminder_prompt_payload
+from app.services.notificaciones.user_notify import notify_user_push_and_db
 from app.services.ocr.textract_service import extract_text_from_document
 
 router = APIRouter()
@@ -155,29 +153,21 @@ async def confirm_prescription(
 
     doctor_name = current_user.name or "Doctor"
     reminder_payload = build_reminder_prompt_payload(doctor_name)
-    db.add(
-        Notification(
-            user_id=prescription.patient_id,
-            title=reminder_payload["title"],
-            message=reminder_payload["question"],
-            type=NotificationType.INFO,
-            payload={"prescription_id": str(prescription.id), **reminder_payload},
-        )
-    )
-    db.commit()
-    db.refresh(prescription)
-    send_push_to_user(
-        db=db,
-        user_id=str(prescription.patient_id),
+    notify_user_push_and_db(
+        db,
+        prescription.patient_id,
         title=reminder_payload["title"],
-        body="",
-        data={
+        message=reminder_payload["question"],
+        notification_type=NotificationType.INFO,
+        payload={"prescription_id": str(prescription.id), **reminder_payload},
+        push_data={
             "prescription_id": str(prescription.id),
             "type": "prescription_assigned",
             "title": reminder_payload["title"],
             "question": reminder_payload["question"],
         },
     )
+    db.refresh(prescription)
     return _to_patient_response(db, prescription)
 
 

@@ -632,3 +632,36 @@ def send_payment_email_ses(
         return PaymentEmailResult(success=True, ses_message_id=result.get("MessageId"))
     except (BotoCoreError, ClientError) as exc:
         return PaymentEmailResult(success=False, error=str(exc))
+
+
+def send_simple_html_email_ses(to_email: str, subject: str, html_body: str) -> PaymentEmailResult:
+    """
+    Correo genérico por SES (HTML). Úsalo desde notificaciones unificadas u otros flujos
+    que no requieran plantillas de pago/vencimiento.
+    """
+    source_email = (settings.ses_from_email or "").strip()
+    source_name = (settings.ses_from_name or "").strip() or source_email
+    if not source_email:
+        return PaymentEmailResult(success=False, error="SES_FROM_EMAIL no configurado")
+    if not settings.aws_access_key_id or not settings.aws_secret_access_key:
+        return PaymentEmailResult(success=False, error="Credenciales AWS no configuradas")
+
+    client = boto3.client(
+        "ses",
+        region_name=settings.aws_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+    )
+
+    try:
+        result = client.send_email(
+            Source=f"{source_name} <{source_email}>",
+            Destination={"ToAddresses": [to_email.strip()]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {"Html": {"Data": html_body, "Charset": "UTF-8"}},
+            },
+        )
+        return PaymentEmailResult(success=True, ses_message_id=result.get("MessageId"))
+    except (BotoCoreError, ClientError) as exc:
+        return PaymentEmailResult(success=False, error=str(exc))
