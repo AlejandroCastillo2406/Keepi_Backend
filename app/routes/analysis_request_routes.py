@@ -5,7 +5,7 @@ import logging
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -77,7 +77,45 @@ async def get_patient_requests_history(
     repo = AnalysisRequestRepository(db)
     return repo.get_all_by_patient(patient_id)
 
-# 4. EXCLUSIVO PACIENTE: Subir archivo, vincularlo y completar la solicitud
+# 4a. EXCLUSIVO PACIENTE: Vincular un documento ya subido y completar la solicitud (flujo móvil: upload + PATCH)
+@router.patch("/{request_id}/complete", status_code=status.HTTP_200_OK)
+async def complete_analysis_with_document(
+    request_id: UUID,
+    request: Request,
+    document_id: UUID = Query(..., description="ID del documento creado tras la subida (ej. POST /documents/mobile/patient-upload)"),
+    db: Session = Depends(get_db),
+):
+    """
+    El paciente sube el archivo con `/documents/mobile/patient-upload` y luego llama aquí
+    para marcar la solicitud como completada y asociar el `document_id`.
+    """
+    uid = get_user_id_from_token(request)
+    try:
+        patient_uuid = uid if isinstance(uid, UUID) else UUID(str(uid))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Sesión inválida")
+
+    repo = AnalysisRequestRepository(db)
+    analysis_req = repo.get_by_id(request_id)
+    if not analysis_req or analysis_req.patient_id != patient_uuid or analysis_req.status != "pending":
+        raise HTTPException(status_code=404, detail="Solicitud no válida o ya completada.")
+
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc or doc.user_id != patient_uuid:
+        raise HTTPException(status_code=404, detail="Documento no encontrado o no pertenece al usuario.")
+
+    updated = repo.mark_as_completed(request_id, document_id)
+    if not updated:
+        raise HTTPException(status_code=500, detail="No se pudo completar la solicitud.")
+
+    return {
+        "message": "Solicitud completada.",
+        "request_id": str(request_id),
+        "document_id": str(document_id),
+    }
+
+
+# 4b. EXCLUSIVO PACIENTE: Subir archivo en un solo paso (multipart) y completar
 @router.patch("/{request_id}/upload")
 async def upload_analysis_and_complete(
     request_id: UUID, 
