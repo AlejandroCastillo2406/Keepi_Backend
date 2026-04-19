@@ -19,7 +19,8 @@ from app.models.subscription import (
 from app.models.plans import Plan, PlanResponse
 from app.services.subscription.subscription_service import SubscriptionService
 
-router = APIRouter(prefix="/subscriptions", tags=["Subscriptions"])
+# El prefijo /api/v1/subscriptions lo define app.main (include_router); no duplicar aquí.
+router = APIRouter(tags=["Subscriptions"])
 logger = logging.getLogger(__name__)
 
 def get_subscription_service() -> SubscriptionService:
