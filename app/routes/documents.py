@@ -484,6 +484,7 @@ async def upload_patient_document_direct(
 
         drive_file_id = None
         s3_key = None
+        file_url = None
 
         # 2. Subir a la nube (GoogleDriveService.upload_file requiere folder_id de Drive)
         if cloud_provider == "google_drive":
@@ -498,6 +499,8 @@ async def upload_patient_document_direct(
             drive_file_id = await drive_service.upload_file(
                 content, filename, drive_folder_id, mime_type
             )
+            if drive_file_id:
+                file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
         else:
             s3_service = S3Service()
             folder_name = folder_result.get("folder_name") or "other"
@@ -509,18 +512,22 @@ async def upload_patient_document_direct(
                 folder=folder_name,
             )
             s3_key = upload_res.get("file_path")
+            file_url = upload_res.get("signed_url")
 
-        # 3. Guardar registro en la base de datos
+        # 3. Guardar registro en la base de datos (columnas: name, file_name, file_type — no filename/type)
         document = Document(
             id=uuid.uuid4(),
             user_id=uuid.UUID(uid),
+            name=filename,
+            category=_PATIENT_CLINICAL_CATEGORY,
+            description="Subido desde la solicitud del doctor",
+            file_url=file_url,
+            file_name=filename,
+            file_size=len(content),
+            file_type=mime_type.split("/")[0],
             cloud_provider=cloud_provider,
             drive_file_id=drive_file_id,
             s3_key=s3_key,
-            filename=filename,
-            type=mime_type.split("/")[0],
-            category=_PATIENT_CLINICAL_CATEGORY,
-            description="Subido desde la solicitud del doctor"
         )
         db.add(document)
         db.commit()

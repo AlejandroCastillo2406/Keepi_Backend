@@ -112,6 +112,7 @@ async def upload_analysis_and_complete(
         cloud_provider = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "google_drive"
         drive_file_id = None
         s3_key = None
+        file_url = None
 
         folder_service = FolderService(db)
         folder_result = await folder_service.ensure_category_folder_exists(
@@ -140,6 +141,8 @@ async def upload_analysis_and_complete(
             drive_file_id = await drive_service.upload_file(
                 content, filename, drive_folder_id, mime_type
             )
+            if drive_file_id:
+                file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
         else:
             s3_service = S3Service()
             folder_name = folder_result.get("folder_name") or "other"
@@ -151,18 +154,22 @@ async def upload_analysis_and_complete(
                 folder=folder_name,
             )
             s3_key = upload_res.get("file_path")
-            
-        # 4. Crear el Documento en la base de datos (tags para filtrar)
+            file_url = upload_res.get("signed_url")
+
+        # 4. Crear el Documento en la base de datos (tags: ARRAY de strings en PostgreSQL)
         document = Document(
-            id=UUID(f"{uid[:8]}-{request_id.hex[8:12]}-4000-8000-{request_id.hex[16:28]}"), # Generar ID compuesto
             user_id=UUID(uid),
+            name=filename,
+            category=_ANALYSIS_DOCUMENT_CATEGORY,
+            description=f"Archivo subido para solicitud: {analysis_req.description}",
+            file_url=file_url,
+            file_name=filename,
+            file_size=len(content),
+            file_type=mime_type.split("/")[0],
             cloud_provider=cloud_provider,
             drive_file_id=drive_file_id,
             s3_key=s3_key,
-            filename=filename,
-            type=mime_type.split("/")[0], # ej: image o application (pdf)
-            tags={"analysis_request": str(request_id)},
-            description=f"Archivo subido para solicitud: {analysis_req.description}"
+            tags=[f"analysis_request:{request_id}"],
         )
         db.add(document)
         db.commit()
