@@ -50,7 +50,7 @@ def _notify_patient_new_analysis_request(
         if desc_preview
         else f"{doctor_name} te envió una solicitud de análisis."
     )
-    notify_user_push_and_db(
+    res = notify_user_push_and_db(
         db,
         patient_id,
         title="Nueva solicitud de análisis",
@@ -69,6 +69,14 @@ def _notify_patient_new_analysis_request(
             "body": body,
         },
     )
+    if res.push_devices_ok == 0:
+        logger.warning(
+            "Solicitud de análisis %s creada; notificación in-app OK (id=%s) pero push a 0 dispositivos "
+            "para paciente %s. Revisa FCM en servidor y que el paciente tenga token en user_device_tokens.",
+            analysis_request_id,
+            res.notification_id,
+            patient_id,
+        )
 
 
 def _notify_doctor_analysis_completed(
@@ -85,7 +93,7 @@ def _notify_doctor_analysis_completed(
         if desc_preview
         else f"{patient_name} subió el estudio solicitado."
     )
-    notify_user_push_and_db(
+    res = notify_user_push_and_db(
         db,
         analysis_req.doctor_id,
         title="Estudio completado",
@@ -107,6 +115,14 @@ def _notify_doctor_analysis_completed(
             "body": body,
         },
     )
+    if res.push_devices_ok == 0:
+        logger.warning(
+            "Solicitud %s completada; notificación in-app OK (id=%s) pero push a 0 dispositivos "
+            "para doctor %s.",
+            analysis_req.id,
+            res.notification_id,
+            analysis_req.doctor_id,
+        )
 
 # --- FUNCIÓN DE UTILIDAD INTERNA (EVITA IMPORT CIRCULAR) ---
 def get_user_id_from_token(request: Request) -> str:

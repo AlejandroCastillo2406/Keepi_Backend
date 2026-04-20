@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid as uuid_lib
 from pathlib import Path
 from typing import Dict
 
@@ -41,16 +42,30 @@ def _init_firebase() -> bool:
 
 
 def send_push_to_user(db: Session, user_id: str, title: str, body: str, data: Dict[str, str] | None = None) -> int:
+    try:
+        uid = uuid_lib.UUID(str(user_id).strip())
+    except (ValueError, AttributeError):
+        logger.warning("FCM: user_id inválido para push: %r", user_id)
+        return 0
+
     tokens = (
         db.query(UserDeviceToken)
-        .filter(UserDeviceToken.user_id == user_id)
+        .filter(UserDeviceToken.user_id == uid)
         .filter(UserDeviceToken.is_active.is_(True))
         .all()
     )
     if not tokens:
+        logger.info(
+            "FCM: ningún token activo para user_id=%s (la app debe registrar POST /api/v1/push/register tras login).",
+            uid,
+        )
         return 0
     if not _init_firebase():
-        logger.info("Push omitido para user_id=%s. title=%s body=%s", user_id, title, body)
+        logger.warning(
+            "FCM desactivado (falta JSON de cuenta de servicio o ruta inválida). Push no enviado. user_id=%s title=%s",
+            uid,
+            title,
+        )
         return 0
     try:
         from firebase_admin import messaging
