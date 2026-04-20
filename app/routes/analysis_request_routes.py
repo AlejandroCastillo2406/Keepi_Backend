@@ -10,8 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.dto.analysis_request_dto import AnalysisRequestCreate, AnalysisRequestResponse
+from app.models.analysis_request import AnalysisRequest
 from app.models.document import Document
+from app.models.notification import NotificationType
+from app.models.user import User
 from app.repositories.analysis_request_repository import AnalysisRequestRepository
+from app.services.notificaciones.user_notify import notify_user_push_and_db
 from app.services.almacenamiento import FolderService, GoogleDriveService, S3Service
 from app.services.autenticacion import GoogleOAuthService
 from app.services.usuarios import UserConfigService
@@ -21,6 +25,88 @@ logger = logging.getLogger(__name__)
 MSG_ERROR_INTERNO = "Error interno del servidor"
 
 _ANALYSIS_DOCUMENT_CATEGORY = "Análisis Clínicos"
+
+
+def _truncate(text: str, max_len: int) -> str:
+    t = (text or "").strip()
+    if len(t) <= max_len:
+        return t
+    return t[: max_len - 3] + "..."
+
+
+def _notify_patient_new_analysis_request(
+    db: Session,
+    *,
+    patient_id: UUID,
+    doctor_id: UUID,
+    analysis_request_id: UUID,
+    description: str,
+) -> None:
+    doctor = db.query(User).filter(User.id == doctor_id).first()
+    doctor_name = (doctor.name if doctor else None) or "Tu médico"
+    desc_preview = _truncate(description, 220)
+    body = (
+        f"{doctor_name} te pidió subir resultados: {desc_preview}"
+        if desc_preview
+        else f"{doctor_name} te envió una solicitud de análisis."
+    )
+    notify_user_push_and_db(
+        db,
+        patient_id,
+        title="Nueva solicitud de análisis",
+        message=body,
+        notification_type=NotificationType.INFO,
+        payload={
+            "analysis_request_id": str(analysis_request_id),
+            "doctor_id": str(doctor_id),
+            "description": description,
+        },
+        push_data={
+            "type": "analysis_request_assigned",
+            "analysis_request_id": str(analysis_request_id),
+            "doctor_id": str(doctor_id),
+            "title": "Nueva solicitud de análisis",
+            "body": body,
+        },
+    )
+
+
+def _notify_doctor_analysis_completed(
+    db: Session,
+    *,
+    analysis_req: AnalysisRequest,
+    document_id: UUID,
+) -> None:
+    patient = db.query(User).filter(User.id == analysis_req.patient_id).first()
+    patient_name = (patient.name if patient else None) or "Paciente"
+    desc_preview = _truncate(analysis_req.description or "", 180)
+    body = (
+        f"{patient_name} completó la solicitud: {desc_preview}"
+        if desc_preview
+        else f"{patient_name} subió el estudio solicitado."
+    )
+    notify_user_push_and_db(
+        db,
+        analysis_req.doctor_id,
+        title="Estudio completado",
+        message=body,
+        notification_type=NotificationType.INFO,
+        payload={
+            "analysis_request_id": str(analysis_req.id),
+            "patient_id": str(analysis_req.patient_id),
+            "document_id": str(document_id),
+            "description": analysis_req.description or "",
+        },
+        document_id=document_id,
+        push_data={
+            "type": "analysis_request_completed",
+            "analysis_request_id": str(analysis_req.id),
+            "patient_id": str(analysis_req.patient_id),
+            "document_id": str(document_id),
+            "title": "Estudio completado",
+            "body": body,
+        },
+    )
 
 # --- FUNCIÓN DE UTILIDAD INTERNA (EVITA IMPORT CIRCULAR) ---
 def get_user_id_from_token(request: Request) -> str:
@@ -44,13 +130,25 @@ async def create_request(
     db: Session = Depends(get_db)
 ):
     """Crea una solicitud de análisis vinculada al doctor que inició sesión."""
-    doctor_id = get_user_id_from_token(request)
+    doctor_raw = get_user_id_from_token(request)
+    try:
+        doctor_uuid = doctor_raw if isinstance(doctor_raw, UUID) else UUID(str(doctor_raw))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Sesión inválida")
     repo = AnalysisRequestRepository(db)
-    return repo.create(
-        doctor_id=doctor_id,
+    created = repo.create(
+        doctor_id=doctor_uuid,
         patient_id=data.patient_id,
-        description=data.description
+        description=data.description,
     )
+    _notify_patient_new_analysis_request(
+        db,
+        patient_id=data.patient_id,
+        doctor_id=doctor_uuid,
+        analysis_request_id=created.id,
+        description=data.description,
+    )
+    return created
 
 # 2. PACIENTE: Obtener mis solicitudes pendientes
 @router.get("/me", response_model=List[AnalysisRequestResponse])
@@ -107,6 +205,8 @@ async def complete_analysis_with_document(
     updated = repo.mark_as_completed(request_id, document_id)
     if not updated:
         raise HTTPException(status_code=500, detail="No se pudo completar la solicitud.")
+
+    _notify_doctor_analysis_completed(db, analysis_req=updated, document_id=document_id)
 
     return {
         "message": "Solicitud completada.",
@@ -215,7 +315,11 @@ async def upload_analysis_and_complete(
         
         # 5. Completar la solicitud de análisis vinculando el documento
         updated_request = repo.mark_as_completed(request_id, document.id)
-        
+        if not updated_request:
+            raise HTTPException(status_code=500, detail="No se pudo completar la solicitud.")
+
+        _notify_doctor_analysis_completed(db, analysis_req=updated_request, document_id=document.id)
+
         return {
             "message": "Archivo subido y solicitud completada.",
             "request_id": str(updated_request.id),
