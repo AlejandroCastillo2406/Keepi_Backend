@@ -16,6 +16,31 @@ from app.services.subscription.webhook_handlers import handle_webhook_event
 
 logger = logging.getLogger(__name__)
 
+
+def _effective_analysis_limit(db: Session, subscription: Subscription) -> int:
+    """
+    El límite mostrado y aplicado debe seguir al plan actual en `plans`,
+    no solo a la copia en `subscriptions` (puede quedar obsoleta si editas el plan en BD).
+    """
+    if subscription.plan_id:
+        plan = db.query(Plan).filter(Plan.id == subscription.plan_id).first()
+        if plan is not None:
+            return int(plan.analysis_limit)
+    return int(subscription.analysis_limit)
+
+
+def _analysis_remaining_with_limit(subscription: Subscription, limit: int) -> int:
+    if limit == -1:
+        return 999999 if subscription.status == SubscriptionStatus.ACTIVE else 0
+    return max(0, limit - int(subscription.analysis_used))
+
+
+def _has_analysis_remaining_with_limit(subscription: Subscription, limit: int) -> bool:
+    if limit == -1:
+        return subscription.status == SubscriptionStatus.ACTIVE
+    return int(subscription.analysis_used) < limit
+
+
 class SubscriptionService:
     def __init__(
         self, 
@@ -27,10 +52,31 @@ class SubscriptionService:
         self._stripe_checkout = stripe_checkout or StripeCheckoutService()
         self._stripe_subscription = stripe_subscription or StripeSubscriptionService()
 
+    def subscription_response_with_plan_limits(
+        self, db: Session, sub: Subscription
+    ) -> SubscriptionResponse:
+        base = SubscriptionResponse.from_orm(sub)
+        limit = _effective_analysis_limit(db, sub)
+        remaining = _analysis_remaining_with_limit(sub, limit)
+        has_rem = _has_analysis_remaining_with_limit(sub, limit)
+        if (
+            limit == base.analysis_limit
+            and remaining == base.analysis_remaining
+            and has_rem == base.has_analysis_remaining
+        ):
+            return base
+        return base.model_copy(
+            update={
+                "analysis_limit": limit,
+                "analysis_remaining": remaining,
+                "has_analysis_remaining": has_rem,
+            }
+        )
+
     async def get_user_subscription(self, user_id: str, db: Session) -> Optional[SubscriptionResponse]:
         repo = SubscriptionRepository(db)
         sub = repo.get_by_user_id(user_id)
-        return SubscriptionResponse.from_orm(sub) if sub else None
+        return self.subscription_response_with_plan_limits(db, sub) if sub else None
 
     async def get_or_create_subscription(self, user_id: str, db: Session) -> Subscription:
         repo = SubscriptionRepository(db)
@@ -39,7 +85,7 @@ class SubscriptionService:
     async def create_free_subscription(self, user_id: str, db: Session) -> SubscriptionResponse:
         repo = SubscriptionRepository(db)
         sub = repo.get_or_create_free(user_id)
-        return SubscriptionResponse.from_orm(sub)
+        return self.subscription_response_with_plan_limits(db, sub)
 
     async def create_checkout_session(self, user_id: str, request: PaymentIntentRequest, db: Session) -> Dict[str, Any]:
         repo = SubscriptionRepository(db)
@@ -128,8 +174,10 @@ class SubscriptionService:
     async def check_analysis_limit(self, user_id: str, db: Session) -> Dict[str, Any]:
         repo = SubscriptionRepository(db)
         subscription = repo.get_or_create_free(user_id)
-        can_analyze = subscription.has_analysis_remaining
-        
+        limit = _effective_analysis_limit(db, subscription)
+        can_analyze = _has_analysis_remaining_with_limit(subscription, limit)
+        remaining = _analysis_remaining_with_limit(subscription, limit)
+
         current_plan_code = None
         if subscription.plan_id:
             plan = db.query(Plan).filter(Plan.id == subscription.plan_id).first()
@@ -137,11 +185,11 @@ class SubscriptionService:
                 current_plan_code = plan.code
 
         return {
-            "can_analyze": can_analyze, 
-            "analysis_remaining": subscription.analysis_remaining, 
-            "analysis_used": subscription.analysis_used, 
+            "can_analyze": can_analyze,
+            "analysis_remaining": remaining,
+            "analysis_used": subscription.analysis_used,
             "plan": current_plan_code or "none",
-            "status": subscription.status, 
+            "status": subscription.status,
             "needs_subscription": not can_analyze and current_plan_code != "premium",
         }
 
