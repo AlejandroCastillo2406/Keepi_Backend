@@ -23,19 +23,19 @@ class Appointment(Base):
     __tablename__ = "appointments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    doctor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     patient_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    status = Column(String(60), nullable=False, default="pending_patient_confirmation", index=True)
+    appointment_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending_patient", index=True)
     reason = Column(Text, nullable=False, default="")
-    current_start_at = Column(DateTime(timezone=True), nullable=False)
-    current_end_at = Column(DateTime(timezone=True), nullable=False)
-    proposed_by = Column(String(20), nullable=False, default="doctor")
-    version = Column(Integer, nullable=False, default=1)
-    notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    doctor = relationship("User", foreign_keys=[doctor_id])
+    doctor = relationship("User", foreign_keys=[created_by_user_id])
     patient = relationship("User", foreign_keys=[patient_id])
     proposals = relationship(
         "AppointmentProposal",

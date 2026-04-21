@@ -21,27 +21,33 @@ from app.services.notificaciones.user_notify import notify_user_push_and_db
 router = APIRouter()
 
 ACTIVE_STATUSES = {
-    "pending_patient_confirmation",
-    "pending_doctor_review",
-    "counter_proposed_by_doctor",
+    "pending_patient",
+    "pending_doctor",
+    "counter_doctor",
     "confirmed",
 }
 
 
 def _to_response(row: Appointment) -> AppointmentResponse:
+    latest = row.proposals[-1] if row.proposals else None
+    current_start_at = latest.start_at if latest is not None else row.appointment_date
+    current_end_at = latest.end_at if latest is not None else row.appointment_date + timedelta(minutes=30)
+    proposed_by = latest.proposed_by if latest is not None else "doctor"
+    notes = latest.notes if latest is not None else None
+    version = len(row.proposals) if row.proposals else 1
     return AppointmentResponse(
         id=str(row.id),
-        doctor_id=str(row.doctor_id),
+        doctor_id=str(row.created_by_user_id),
         patient_id=str(row.patient_id),
         status=row.status,
         reason=row.reason,
-        current_start_at=row.current_start_at,
-        current_end_at=row.current_end_at,
-        proposed_by=row.proposed_by,
-        version=row.version,
-        notes=row.notes,
+        current_start_at=current_start_at,
+        current_end_at=current_end_at,
+        proposed_by=proposed_by,
+        version=version,
+        notes=notes,
         created_at=row.created_at,
-        updated_at=row.updated_at,
+        updated_at=row.created_at,
     )
 
 
@@ -71,20 +77,23 @@ def _assert_doctor_slot_available(
     end_at: datetime,
     exclude_appointment_id: UUID | None = None,
 ) -> None:
-    q = db.query(Appointment).filter(Appointment.doctor_id == doctor_id)
-    q = q.filter(Appointment.status.in_(tuple(ACTIVE_STATUSES)))
-    if exclude_appointment_id is not None:
-        q = q.filter(Appointment.id != exclude_appointment_id)
-    overlap = (
-        q.filter(Appointment.current_start_at < end_at)
-        .filter(Appointment.current_end_at > start_at)
-        .first()
+    rows = (
+        db.query(Appointment)
+        .filter(Appointment.created_by_user_id == doctor_id)
+        .filter(Appointment.status.in_(tuple(ACTIVE_STATUSES)))
+        .all()
     )
-    if overlap is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El doctor ya tiene una cita en ese horario.",
-        )
+    for row in rows:
+        if exclude_appointment_id is not None and row.id == exclude_appointment_id:
+            continue
+        latest = row.proposals[-1] if row.proposals else None
+        row_start = latest.start_at if latest is not None else row.appointment_date
+        row_end = latest.end_at if latest is not None else row.appointment_date + timedelta(minutes=30)
+        if row_start < end_at and row_end > start_at:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El doctor ya tiene una cita en ese horario.",
+            )
 
 
 def _append_proposal(
@@ -121,14 +130,11 @@ async def create_appointment(
     _assert_doctor_slot_available(db, doctor_id=current_user.id, start_at=start_at, end_at=end_at)
 
     row = Appointment(
-        doctor_id=current_user.id,
+        created_by_user_id=current_user.id,
         patient_id=UUID(body.patient_id),
-        status="pending_patient_confirmation",
+        appointment_date=start_at,
+        status="pending_patient",
         reason=body.reason.strip() or "Consulta médica",
-        current_start_at=start_at,
-        current_end_at=end_at,
-        proposed_by="doctor",
-        notes=body.notes,
     )
     db.add(row)
     db.flush()
@@ -152,8 +158,8 @@ async def create_appointment(
         payload={
             "appointment_id": str(row.id),
             "doctor_name": current_user.name,
-            "proposed_start_at": row.current_start_at.isoformat(),
-            "proposed_end_at": row.current_end_at.isoformat(),
+            "proposed_start_at": start_at.isoformat(),
+            "proposed_end_at": end_at.isoformat(),
             "reason": row.reason,
             "action": "patient_decision",
         },
@@ -176,10 +182,10 @@ async def get_doctor_calendar(
 ):
     rows = (
         db.query(Appointment)
-        .filter(Appointment.doctor_id == current_user.id)
-        .filter(Appointment.current_start_at >= start_at)
-        .filter(Appointment.current_start_at < end_at)
-        .order_by(Appointment.current_start_at.asc())
+        .filter(Appointment.created_by_user_id == current_user.id)
+        .filter(Appointment.appointment_date >= start_at)
+        .filter(Appointment.appointment_date < end_at)
+        .order_by(Appointment.appointment_date.asc())
         .all()
     )
     return [_to_response(r) for r in rows]
@@ -193,7 +199,7 @@ async def get_patient_appointments(
     rows = (
         db.query(Appointment)
         .filter(Appointment.patient_id == current_user.id)
-        .order_by(Appointment.current_start_at.desc())
+        .order_by(Appointment.appointment_date.desc())
         .all()
     )
     return [_to_response(r) for r in rows]
@@ -222,13 +228,12 @@ async def patient_confirm_appointment(
         raise HTTPException(status_code=404, detail="Cita no encontrada.")
 
     row.status = "confirmed"
-    row.version += 1
     db.commit()
     db.refresh(row)
 
     notify_user_push_and_db(
         db,
-        row.doctor_id,
+        row.created_by_user_id,
         title="Cita confirmada por paciente",
         message="El paciente confirmó la cita propuesta.",
         notification_type="appointment_confirmed",
@@ -252,12 +257,8 @@ async def patient_request_change(
         raise HTTPException(status_code=400, detail="Debes enviar proposed_start_at.")
 
     new_end_at = body.proposed_start_at + timedelta(minutes=body.duration_minutes)
-    row.current_start_at = body.proposed_start_at
-    row.current_end_at = new_end_at
-    row.status = "pending_doctor_review"
-    row.proposed_by = "patient"
-    row.version += 1
-    row.notes = body.notes
+    row.appointment_date = body.proposed_start_at
+    row.status = "pending_doctor"
     _append_proposal(
         db,
         appointment=row,
@@ -271,14 +272,14 @@ async def patient_request_change(
 
     notify_user_push_and_db(
         db,
-        row.doctor_id,
+        row.created_by_user_id,
         title="Paciente solicita cambio de cita",
         message="Tu paciente propuso nueva fecha/hora para la cita.",
         notification_type="appointment_change_requested",
         payload={
             "appointment_id": str(row.id),
-            "proposed_start_at": row.current_start_at.isoformat(),
-            "proposed_end_at": row.current_end_at.isoformat(),
+            "proposed_start_at": body.proposed_start_at.isoformat(),
+            "proposed_end_at": new_end_at.isoformat(),
             "action": "doctor_review",
         },
         push_data={
@@ -297,19 +298,18 @@ async def doctor_accept_patient_proposal(
     db: Session = Depends(get_db),
 ):
     row = db.query(Appointment).filter(Appointment.id == appointment_id).first()
-    if row is None or row.doctor_id != current_user.id:
+    if row is None or row.created_by_user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Cita no encontrada.")
 
     _assert_doctor_slot_available(
         db,
         doctor_id=current_user.id,
-        start_at=row.current_start_at,
-        end_at=row.current_end_at,
+        start_at=row.appointment_date,
+        end_at=row.appointment_date + timedelta(minutes=30),
         exclude_appointment_id=row.id,
     )
 
     row.status = "confirmed"
-    row.version += 1
     db.commit()
     db.refresh(row)
 
@@ -333,7 +333,7 @@ async def doctor_counter_propose(
     db: Session = Depends(get_db),
 ):
     row = db.query(Appointment).filter(Appointment.id == appointment_id).first()
-    if row is None or row.doctor_id != current_user.id:
+    if row is None or row.created_by_user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Cita no encontrada.")
     if body.proposed_start_at is None:
         raise HTTPException(status_code=400, detail="Debes enviar proposed_start_at.")
@@ -347,12 +347,8 @@ async def doctor_counter_propose(
         exclude_appointment_id=row.id,
     )
 
-    row.current_start_at = body.proposed_start_at
-    row.current_end_at = new_end_at
-    row.status = "counter_proposed_by_doctor"
-    row.proposed_by = "doctor"
-    row.version += 1
-    row.notes = body.notes
+    row.appointment_date = body.proposed_start_at
+    row.status = "counter_doctor"
     _append_proposal(
         db,
         appointment=row,
@@ -372,8 +368,8 @@ async def doctor_counter_propose(
         notification_type="appointment_counter_proposed",
         payload={
             "appointment_id": str(row.id),
-            "proposed_start_at": row.current_start_at.isoformat(),
-            "proposed_end_at": row.current_end_at.isoformat(),
+            "proposed_start_at": body.proposed_start_at.isoformat(),
+            "proposed_end_at": new_end_at.isoformat(),
             "action": "patient_decision",
         },
         push_data={
