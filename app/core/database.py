@@ -62,6 +62,7 @@ class DatabaseConfig:
             return
         try:
             from app.models import (document, folder,  # noqa: F401
+                                    appointment,
                                     notification, notifications_log,
                                     oauth_credentials, patient_medical_record,
                                     prescription, role, subscription, user,

@@ -1,5 +1,6 @@
 # Models Package
 from .plans import Plan
+from .appointment import Appointment, AppointmentProposal
 from .document import Document
 from .folder import Folder
 from .notification import Notification
@@ -29,4 +30,6 @@ __all__ = [
     "Subscription",
     "UserDeviceToken",
     "Plan",
+    "Appointment",
+    "AppointmentProposal",
 ]
