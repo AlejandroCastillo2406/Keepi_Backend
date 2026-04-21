@@ -28,6 +28,11 @@ ACTIVE_STATUSES = {
 }
 
 
+def _fmt_dt(value: datetime) -> str:
+    dt = value.strftime("%d/%m/%Y %H:%M")
+    return f"{dt} UTC"
+
+
 def _to_response(row: Appointment) -> AppointmentResponse:
     latest = row.proposals[-1] if row.proposals else None
     current_start_at = latest.start_at if latest is not None else row.appointment_date
@@ -153,7 +158,10 @@ async def create_appointment(
         db,
         row.patient_id,
         title="Nueva cita agendada",
-        message=f"El Dr. {current_user.name} agendó una cita contigo.",
+        message=(
+            f"El Dr. {current_user.name} agendó una cita para el "
+            f"{_fmt_dt(start_at)}."
+        ),
         notification_type="appointment_created",
         payload={
             "appointment_id": str(row.id),
@@ -235,7 +243,10 @@ async def patient_confirm_appointment(
         db,
         row.created_by_user_id,
         title="Cita confirmada por paciente",
-        message="El paciente confirmó la cita propuesta.",
+        message=(
+            "El paciente confirmó la cita del "
+            f"{_fmt_dt(row.appointment_date)}."
+        ),
         notification_type="appointment_confirmed",
         payload={"appointment_id": str(row.id), "status": row.status},
         push_data={"type": "appointment_confirmed", "appointment_id": str(row.id)},
@@ -274,7 +285,10 @@ async def patient_request_change(
         db,
         row.created_by_user_id,
         title="Paciente solicita cambio de cita",
-        message="Tu paciente propuso nueva fecha/hora para la cita.",
+        message=(
+            "Tu paciente propuso reagendar la cita al "
+            f"{_fmt_dt(body.proposed_start_at)}."
+        ),
         notification_type="appointment_change_requested",
         payload={
             "appointment_id": str(row.id),
@@ -317,7 +331,10 @@ async def doctor_accept_patient_proposal(
         db,
         row.patient_id,
         title="Doctor aceptó tu propuesta",
-        message="Tu propuesta de cambio fue aceptada. La cita quedó confirmada.",
+        message=(
+            "Tu propuesta fue aceptada. Cita confirmada para el "
+            f"{_fmt_dt(row.appointment_date)}."
+        ),
         notification_type="appointment_confirmed",
         payload={"appointment_id": str(row.id), "status": row.status},
         push_data={"type": "appointment_confirmed", "appointment_id": str(row.id)},
@@ -364,7 +381,10 @@ async def doctor_counter_propose(
         db,
         row.patient_id,
         title="Doctor propone nuevo horario",
-        message="El doctor envió una contrapropuesta de fecha/hora para tu cita.",
+        message=(
+            "El doctor envió una contrapropuesta para el "
+            f"{_fmt_dt(body.proposed_start_at)}."
+        ),
         notification_type="appointment_counter_proposed",
         payload={
             "appointment_id": str(row.id),
