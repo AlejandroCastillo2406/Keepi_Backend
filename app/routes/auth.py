@@ -14,11 +14,6 @@ from app.core.security import (create_access_token, create_refresh_token,
 from app.models.user import (PasswordChangeRequest, User, UserCreate, UserLogin,
                              UserResponse)
 from app.services.autenticacion import GoogleOAuthService
-from app.services.health_questionnaire_service import (
-    build_user_response_with_flags,
-    patient_must_complete_questionnaire,
-    seed_catalog_if_empty,
-)
 from app.services.usuarios import UserService
 
 router = APIRouter()
@@ -142,8 +137,6 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
             )
 
         access_token = create_access_token(data=access_token_claims_for_user(user))
-        seed_catalog_if_empty(db)
-        pending_q = patient_must_complete_questionnaire(db, user)
 
         return {
             "access_token": access_token,
@@ -152,7 +145,6 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
             "must_change_password": user.must_change_password,
             "role_id": user.role_id,
             "role_name": user.role.name if user.role else "",
-            "pending_health_questionnaire": pending_q,
         }
 
     except HTTPException:
@@ -194,25 +186,19 @@ async def change_password(
     user.refresh_token = new_refresh
     db.commit()
 
-    seed_catalog_if_empty(db)
-    uresp = build_user_response_with_flags(db, user)
     return {
         "access_token": access_token,
         "refresh_token": new_refresh,
         "token_type": "bearer",
         "must_change_password": False,
-        "pending_health_questionnaire": uresp.pending_health_questionnaire,
-        "user": uresp,
+        "user": UserResponse.from_orm(user),
     }
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Obtener información del usuario actual"""
-    return build_user_response_with_flags(db, current_user)
+    return UserResponse.from_orm(current_user)
 
 @router.get("/verify")
 async def verify_authentication(user_token: dict = Depends(verify_token)):

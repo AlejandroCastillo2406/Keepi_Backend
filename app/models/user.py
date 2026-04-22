@@ -116,12 +116,7 @@ class DoctorCreatePatientResponse(BaseModel):
     id: str
     email: EmailStr
     name: str
-    message: str = (
-        "Paciente creado. Credenciales enviadas por correo. "
-        "Tras el primer acceso completará un cuestionario de salud y, después, elegirá dónde guardar sus documentos. "
-        "Si aún no personalizas el cuestionario en Ajustes, verá todas las preguntas (generales y de varias especialidades) "
-        "hasta que lo configures."
-    )
+    message: str = "Paciente creado. Credenciales enviadas por correo."
 
 
 class UserResponse(UserBase):
@@ -133,17 +128,14 @@ class UserResponse(UserBase):
     must_change_password: bool = False
     created_at: datetime
     updated_at: datetime
-    created_by_user_id: Optional[str] = None
-    pending_health_questionnaire: bool = False
 
     class Config:
         from_attributes = True
 
     @classmethod
-    def from_orm(cls, obj, *, pending_health_questionnaire: bool = False):
+    def from_orm(cls, obj):
         """Convertir desde ORM asegurando que el ID sea string"""
         role_name = obj.role.name if getattr(obj, "role", None) is not None else ""
-        created_by = getattr(obj, "created_by_user_id", None)
         data = {
             "id": str(obj.id),
             "email": obj.email,
@@ -154,7 +146,5 @@ class UserResponse(UserBase):
             "must_change_password": bool(obj.must_change_password),
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
-            "created_by_user_id": str(created_by) if created_by is not None else None,
-            "pending_health_questionnaire": pending_health_questionnaire,
         }
         return cls(**data)

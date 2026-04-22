@@ -63,17 +63,16 @@ class DatabaseConfig:
         try:
             from app.models import (document, folder,  # noqa: F401
                                     appointment,
-                                    health_questionnaire,
                                     notification, notifications_log,
                                     oauth_credentials, patient_medical_record,
-                                    prescription, role, subscription, user,
+                                    prescription, questionnaire, role,
+                                    subscription, user,
                                     user_config, user_device_token)
+            from app.core.seed_questionnaire import seed_questionnaire
             Base.metadata.create_all(bind=engine)
             with SessionLocal() as db:
                 _seed_roles_if_empty(db)
-                from app.services.health_questionnaire_service import seed_catalog_if_empty
-
-                seed_catalog_if_empty(db)
+                seed_questionnaire(db)
             cls._initialized = True
             logger.info("Base de datos inicializada")
         except Exception as e:
