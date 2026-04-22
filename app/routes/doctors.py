@@ -105,6 +105,42 @@ async def list_my_patients(
     ]
 
 
+@router.post("/patients/{patient_id}/diagnostic-reminder")
+async def post_diagnostic_questionnaire_reminder(
+    patient_id: UUID,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Reenvía notificación push + bandeja para que el paciente complete el cuestionario diagnóstico.
+    Solo el doctor que dio de alta al paciente.
+    """
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo usuarios con rol DOCTOR.",
+        )
+
+    patient = db.query(UserModel).filter(UserModel.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    if patient.created_by_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para notificar a este paciente.",
+        )
+    patient_role_id = UserService(db).role_id_by_name(ROLE_PATIENT)
+    if patient.role_id != patient_role_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario no es un paciente.")
+
+    try:
+        notify_diagnostic_questionnaire_required(db, patient_id=patient.id, doctor=current_user)
+    except Exception as exc:
+        logger.warning("No se pudo notificar cuestionario diagnóstico: %s", exc)
+
+    return {"ok": True}
+
+
 @router.get("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
 async def get_patient_medical_record(
     patient_id: UUID,
