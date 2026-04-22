@@ -3,10 +3,10 @@ from typing import Optional
 from enum import Enum
 
 class EventType(str, Enum):
-    APPOINTMENT = "appointment"   # Citas
-    PRESCRIPTION = "prescription" # Recetas
-    ANALYSIS = "analysis"        # Documentos/Análisis
-    REGISTRATION = "registration" # Registro inicial
+    APPOINTMENT = "appointment"
+    PRESCRIPTION = "prescription"
+    ANALYSIS = "analysis"
+    REGISTRATION = "registration"
 
 class TimelineEventResponse(BaseModel):
     id: str
@@ -15,3 +15,6 @@ class TimelineEventResponse(BaseModel):
     title: str
     actor: str
     event_type: EventType
+
+    class Config:
+        from_attributes = True
