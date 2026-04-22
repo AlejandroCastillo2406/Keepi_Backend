@@ -63,8 +63,6 @@ class DatabaseConfig:
         try:
             from app.models import (document, folder,  # noqa: F401
                                     appointment,
-                                    medical_specialty,
-                                    questionnaire_catalog,
                                     notification, notifications_log,
                                     oauth_credentials, patient_medical_record,
                                     prescription, role, subscription, user,
@@ -72,12 +70,6 @@ class DatabaseConfig:
             Base.metadata.create_all(bind=engine)
             with SessionLocal() as db:
                 _seed_roles_if_empty(db)
-                try:
-                    from app.services.questionnaires.seed import seed_all_if_needed
-
-                    seed_all_if_needed(db)
-                except Exception as seed_exc:
-                    logger.warning("Seed de cuestionarios omitido: %s", seed_exc)
             cls._initialized = True
             logger.info("Base de datos inicializada")
         except Exception as e:

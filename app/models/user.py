@@ -30,12 +30,6 @@ class User(Base):
         nullable=True,
         index=True,
     )
-    specialty_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("medical_specialties.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
@@ -54,7 +48,6 @@ class User(Base):
         uselist=False,
         foreign_keys=[PatientMedicalRecord.patient_user_id],
     )
-    specialty = relationship("MedicalSpecialty", foreign_keys=[specialty_id])
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, name={self.name})>"
@@ -133,7 +126,6 @@ class UserResponse(UserBase):
     role_id: int
     role_name: str
     must_change_password: bool = False
-    specialty_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -144,7 +136,6 @@ class UserResponse(UserBase):
     def from_orm(cls, obj):
         """Convertir desde ORM asegurando que el ID sea string"""
         role_name = obj.role.name if getattr(obj, "role", None) is not None else ""
-        spec = getattr(obj, "specialty_id", None)
         data = {
             "id": str(obj.id),
             "email": obj.email,
@@ -153,7 +144,6 @@ class UserResponse(UserBase):
             "role_id": obj.role_id,
             "role_name": role_name,
             "must_change_password": bool(obj.must_change_password),
-            "specialty_id": str(spec) if spec is not None else None,
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
         }
