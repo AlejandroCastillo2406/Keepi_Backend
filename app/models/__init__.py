@@ -1,6 +1,13 @@
 # Models Package
 from .plans import Plan
 from .appointment import Appointment, AppointmentProposal
+from .health_questionnaire import (
+    HealthQuestionBank,
+    HealthQuestionDoctorVisibility,
+    HealthQuestionnaireAnswer,
+    HealthQuestionnaireSubmission,
+    PatientHealthCompletion,
+)
 from .document import Document
 from .folder import Folder
 from .notification import Notification
@@ -32,4 +39,9 @@ __all__ = [
     "Plan",
     "Appointment",
     "AppointmentProposal",
+    "HealthQuestionBank",
+    "HealthQuestionDoctorVisibility",
+    "HealthQuestionnaireSubmission",
+    "HealthQuestionnaireAnswer",
+    "PatientHealthCompletion",
 ]

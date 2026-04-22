@@ -11,10 +11,15 @@ from app.core.database import get_db
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
 from app.models.patient_medical_record import MedicalRecordResponse
+from app.models.health_questionnaire import (
+    DoctorQuestionnaireSettingsPatchRequest,
+    DoctorQuestionnaireSettingsResponse,
+)
 from app.models.user import DoctorCreatePatientRequest, DoctorCreatePatientResponse, User
 from app.models.user import User as UserModel
 from app.models.appointment import Appointment 
 from app.services.medical import MedicalRecordService
+from app.services.health_questionnaire_service import get_doctor_settings, patch_doctor_settings
 from app.services.notificaciones.patient_invite_email_service import send_patient_invite_email
 from app.services.usuarios import UserService
 
@@ -24,6 +29,37 @@ from app.dto.timeline_dto import TimelineEventResponse
 
 router = APIRouter()
 patient_repo = PatientRepository()
+
+# ==========================================
+# CUESTIONARIO DE SALUD (médico) — rutas literales ANTES de /patients/{uuid}/...
+# ==========================================
+
+
+@router.get("/health-questionnaire/settings", response_model=DoctorQuestionnaireSettingsResponse)
+@router.get("/me/health-questionnaire/settings", response_model=DoctorQuestionnaireSettingsResponse, include_in_schema=False)
+async def get_my_health_questionnaire_settings(
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    return get_doctor_settings(db, current_user)
+
+
+@router.patch("/health-questionnaire/settings", response_model=DoctorQuestionnaireSettingsResponse)
+@router.patch("/me/health-questionnaire/settings", response_model=DoctorQuestionnaireSettingsResponse, include_in_schema=False)
+async def patch_my_health_questionnaire_settings(
+    body: DoctorQuestionnaireSettingsPatchRequest,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    try:
+        return patch_doctor_settings(db, current_user, body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 # ==========================================
 # RUTAS DE PACIENTES

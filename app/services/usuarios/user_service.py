@@ -10,6 +10,7 @@ from app.models.patient_medical_record import MedicalRecordInitialData, PatientM
 from app.models.role import Role
 from app.models.user import (User, UserCreate, UserLogin, UserResponse,
                              UserUpdate)
+from app.services.health_questionnaire_service import build_user_response_with_flags
 from app.utils.auth import (create_access_token, create_refresh_token,
                             get_password_hash, verify_password)
 
@@ -49,7 +50,7 @@ class UserService:
                 .first()
             )
             if user:
-                return UserResponse.from_orm(user)
+                return build_user_response_with_flags(self.db, user)
             return None
         except Exception as e:
             print(f"Error obteniendo usuario: {e}")
@@ -211,6 +212,7 @@ class UserService:
             user.refresh_token = refresh_token
             self.db.commit()
 
+            uresp = build_user_response_with_flags(self.db, user)
             return {
                 "access_token": access_token,
                 "refresh_token": refresh_token,
@@ -219,7 +221,8 @@ class UserService:
                 "must_change_password": user.must_change_password,
                 "role_id": user.role_id,
                 "role_name": user.role.name if user.role else "",
-                "user": UserResponse.from_orm(user),
+                "pending_health_questionnaire": uresp.pending_health_questionnaire,
+                "user": uresp,
             }
         except Exception as e:
             print(f"Error en login: {e}")
@@ -244,7 +247,7 @@ class UserService:
             self.db.commit()
             self.db.refresh(user)
 
-            return UserResponse.from_orm(user)
+            return build_user_response_with_flags(self.db, user)
         except Exception as e:
             print(f"Error actualizando usuario: {e}")
             self.db.rollback()
