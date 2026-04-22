@@ -1,44 +1,74 @@
 from sqlalchemy.orm import Session
-from datetime import datetime
-# Importaciones corregidas según tu estructura:
 from app.models.user import User as UserModel
 from app.models.appointment import Appointment
+from app.models.prescription import Prescription
+from app.models.document import Document
 
 class PatientRepository:
     def get_timeline_events(self, db: Session, patient_id: str):
         all_events = []
 
-        # 1. Evento: Registro de Cuenta (Bienvenida)
-        patient = db.query(UserModel).filter(UserModel.id == patient_id).first()
-        if patient:
-            all_events.append({
-                "id": str(patient.id),
-                "date": patient.created_at.strftime("%d %b %Y"),
-                "time": patient.created_at.strftime("%I:%M %p"),
-                "title": "Bienvenido a Keepi",
-                "actor": "Sistema",
-                "event_type": "registration",
-                "description": "Se ha creado tu expediente digital",
-                "raw_dt": patient.created_at
-            })
+        # 1. REGISTRO (Bienvenida)
+        try:
+            patient = db.query(UserModel).filter(UserModel.id == patient_id).first()
+            if patient:
+                all_events.append({
+                    "id": str(patient.id),
+                    "date": patient.created_at.strftime("%d %b %Y"),
+                    "time": patient.created_at.strftime("%I:%M %p"),
+                    "title": "Bienvenido a Keepi",
+                    "actor": "Sistema",
+                    "event_type": "registration",
+                    "raw_dt": patient.created_at
+                })
+        except Exception: pass
 
-        # 2. Evento: Citas Médicas
-        appointments = db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
-        for appt in appointments:
-            # Usamos appointment_date que es el campo que tienes en tu modelo
-            dt_combined = appt.appointment_date
-            all_events.append({
-                "id": str(appt.id),
-                "date": dt_combined.strftime("%d %b %Y"),
-                "time": dt_combined.strftime("%I:%M %p"),
-                "title": f"Cita: {appt.reason}",
-                "actor": "Tu Médico",
-                "event_type": "appointment",
-                "description": appt.status,
-                "raw_dt": dt_combined
-            })
+        # 2. CITAS MÉDICAS
+        try:
+            appts = db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
+            for a in appts:
+                # Usamos appointment_date porque es tu campo en la DB
+                all_events.append({
+                    "id": str(a.id),
+                    "date": a.appointment_date.strftime("%d %b %Y"),
+                    "time": a.appointment_date.strftime("%I:%M %p"),
+                    "title": f"Cita: {a.reason}",
+                    "actor": "Médico",
+                    "event_type": "appointment",
+                    "raw_dt": a.appointment_date
+                })
+        except Exception: pass
 
-        # 3. Ordenar todo por fecha (Lo más nuevo arriba)
+        # 3. RECETAS ASIGNADAS
+        try:
+            prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
+            for p in prescriptions:
+                all_events.append({
+                    "id": str(p.id),
+                    "date": p.created_at.strftime("%d %b %Y"),
+                    "time": p.created_at.strftime("%I:%M %p"),
+                    "title": "Receta Médica",
+                    "actor": "Médico",
+                    "event_type": "prescription",
+                    "raw_dt": p.created_at
+                })
+        except Exception: pass
+
+        # 4. ANÁLISIS / DOCUMENTOS SUBIDOS
+        try:
+            docs = db.query(Document).filter(Document.patient_id == patient_id).all()
+            for d in docs:
+                all_events.append({
+                    "id": str(d.id),
+                    "date": d.created_at.strftime("%d %b %Y"),
+                    "time": d.created_at.strftime("%I:%M %p"),
+                    "title": f"Estudio: {d.name}",
+                    "actor": "Paciente",
+                    "event_type": "analysis",
+                    "raw_dt": d.created_at
+                })
+        except Exception: pass
+
+        # ORDENAR TODO: De más reciente a más antiguo
         all_events.sort(key=lambda x: x['raw_dt'], reverse=True)
-
         return all_events
