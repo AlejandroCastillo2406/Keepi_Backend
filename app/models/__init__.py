@@ -6,6 +6,10 @@ from .health_questionnaire import (
     HealthQuestionDoctorVisibility,
     HealthQuestionnaireAnswer,
     HealthQuestionnaireSubmission,
+    HealthQuestionnaireTemplate,
+    HealthQuestionnaireTemplateAssignment,
+    HealthQuestionnaireTemplateQuestion,
+    HealthSpecialty,
     PatientHealthCompletion,
 )
 from .document import Document
@@ -43,5 +47,9 @@ __all__ = [
     "HealthQuestionDoctorVisibility",
     "HealthQuestionnaireSubmission",
     "HealthQuestionnaireAnswer",
+    "HealthQuestionnaireTemplate",
+    "HealthQuestionnaireTemplateAssignment",
+    "HealthQuestionnaireTemplateQuestion",
+    "HealthSpecialty",
     "PatientHealthCompletion",
 ]
