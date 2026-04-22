@@ -21,8 +21,7 @@ from app.routes import (
     subscriptions,
     user_config,
     plans,
-    analysis_request_routes, # <--- Ahora esto funcionará bien
-    appointments,
+    analysis_request_routes,
 )
 
 from app.routes.archivo_routes import router as archivo_router
@@ -54,7 +53,6 @@ app.include_router(prescriptions.router, prefix="/api/v1/prescriptions", tags=["
 app.include_router(push_tokens.router, prefix="/api/v1/push", tags=["Push"])
 app.include_router(plans.router, prefix="/api/v1/plans", tags=["Admin Plans"])
 app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["Subscriptions"])
-app.include_router(appointments.router, prefix="/api/v1/appointments", tags=["Appointments"])
 
 # Registro de la nueva ruta
 app.include_router(
