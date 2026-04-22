@@ -22,8 +22,11 @@ router = APIRouter()
 
 ACTIVE_STATUSES = {
     "pending_patient",
+    "pending_patient_confirmation",
     "pending_doctor",
+    "pending_doctor_review",
     "counter_doctor",
+    "counter_proposed_by_doctor",
     "confirmed",
 }
 
@@ -264,41 +267,29 @@ async def patient_request_change(
     row = db.query(Appointment).filter(Appointment.id == appointment_id).first()
     if row is None or row.patient_id != current_user.id:
         raise HTTPException(status_code=404, detail="Cita no encontrada.")
-    if body.proposed_start_at is None:
-        raise HTTPException(status_code=400, detail="Debes enviar proposed_start_at.")
-
-    new_end_at = body.proposed_start_at + timedelta(minutes=body.duration_minutes)
-    row.appointment_date = body.proposed_start_at
-    row.status = "pending_doctor"
-    _append_proposal(
-        db,
-        appointment=row,
-        proposed_by="patient",
-        start_at=body.proposed_start_at,
-        end_at=new_end_at,
-        notes=body.notes,
-    )
+    row.status = "pending_doctor_review"
     db.commit()
     db.refresh(row)
 
     notify_user_push_and_db(
         db,
         row.created_by_user_id,
-        title="Paciente solicita cambio de cita",
+        title="Paciente no puede en ese horario",
         message=(
-            "Tu paciente propuso reagendar la cita al "
-            f"{_fmt_dt(body.proposed_start_at)}."
+            "Tu paciente indicó que no puede asistir al horario del "
+            f"{_fmt_dt(row.appointment_date)}. Propón una nueva hora."
         ),
         notification_type="appointment_change_requested",
         payload={
             "appointment_id": str(row.id),
-            "proposed_start_at": body.proposed_start_at.isoformat(),
-            "proposed_end_at": new_end_at.isoformat(),
+            "status": row.status,
+            "patient_notes": body.notes,
             "action": "doctor_review",
         },
         push_data={
             "type": "appointment_change_requested",
             "appointment_id": str(row.id),
+            "status": row.status,
             "action": "doctor_review",
         },
     )

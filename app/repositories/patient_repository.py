@@ -77,10 +77,8 @@ class PatientRepository:
                 creator = _user_name(db, p.created_by_user_id)
                 if creator:
                     subtitle = "Alta clínica en la plataforma (invitación de tu médico)"
-                    actor = creator
                 else:
                     subtitle = "Te registraste en Keepi"
-                    actor = p.name or "Tú"
 
                 raw_events.append(
                     {
@@ -88,7 +86,7 @@ class PatientRepository:
                         "date": _fmt_date(p.created_at),
                         "time": _fmt_time(p.created_at),
                         "title": "Cuenta creada en Keepi",
-                        "actor": actor,
+                        "actor": "Sistema",
                         "event_type": EventType.REGISTRATION,
                         "subtitle": subtitle,
                         "description": subtitle,
@@ -102,7 +100,6 @@ class PatientRepository:
         try:
             appts = db.query(Appointment).filter(Appointment.patient_id == pid).all()
             for a in appts:
-                doc_name = _user_name(db, a.created_by_user_id) or "Tu médico"
                 when = _as_utc(a.appointment_date)
                 if not when:
                     continue
@@ -112,7 +109,7 @@ class PatientRepository:
                         "date": _fmt_date(when),
                         "time": _fmt_time(when),
                         "title": "Cita médica",
-                        "actor": doc_name,
+                        "actor": "Doctor",
                         "event_type": EventType.APPOINTMENT,
                         "subtitle": (a.reason or "").strip() or "Consulta",
                         "description": (a.reason or "").strip() or "Consulta",
@@ -128,7 +125,6 @@ class PatientRepository:
             for pr in prescs:
                 if not pr.created_at:
                     continue
-                doc_name = _user_name(db, pr.doctor_id) or "Tu médico"
                 when = _as_utc(pr.created_at)
                 raw_events.append(
                     {
@@ -136,7 +132,7 @@ class PatientRepository:
                         "date": _fmt_date(when),
                         "time": _fmt_time(when),
                         "title": "Receta médica",
-                        "actor": doc_name,
+                        "actor": "Doctor",
                         "event_type": EventType.PRESCRIPTION,
                         "subtitle": "Receta registrada en tu expediente",
                         "description": "Receta registrada en tu expediente",
@@ -155,7 +151,6 @@ class PatientRepository:
                 .all()
             )
             for req in requests:
-                doc_name = _user_name(db, req.doctor_id) or "Tu médico"
                 desc = (req.description or "").strip() or "Estudio solicitado"
 
                 if req.created_at:
@@ -166,7 +161,7 @@ class PatientRepository:
                             "date": _fmt_date(when),
                             "time": _fmt_time(when),
                             "title": "Análisis solicitado por tu médico",
-                            "actor": doc_name,
+                            "actor": "Doctor",
                             "event_type": EventType.ANALYSIS_REQUEST,
                             "subtitle": desc,
                             "description": desc,
@@ -183,10 +178,10 @@ class PatientRepository:
                             "date": _fmt_date(when_u),
                             "time": _fmt_time(when_u),
                             "title": "Estudio subido",
-                            "actor": "Tú",
+                            "actor": "Paciente",
                             "event_type": EventType.ANALYSIS_UPLOAD,
-                            "subtitle": f"{desc} · Archivo vinculado a tu solicitud",
-                            "description": f"{desc} · Archivo vinculado a tu solicitud",
+                            "subtitle": f" Archivo vinculado a la solicitud de {desc}",
+                            "description": f"Archivo vinculado a la solicitud de {desc}",
                             "raw_dt": when_u,
                             "analysis_request_id": None,
                         }
