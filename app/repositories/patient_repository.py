@@ -1,87 +1,237 @@
+import logging
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
 from sqlalchemy.orm import Session
-from app.models.user import User as UserModel
+
+from app.dto.timeline_dto import EventType, TimelineEventResponse
+from app.models.analysis_request import AnalysisRequest
 from app.models.appointment import Appointment
 from app.models.prescription import Prescription
-from app.models.analysis_request import AnalysisRequest
+from app.models.user import User as UserModel
+
+logger = logging.getLogger(__name__)
+
+_MES = (
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+)
+
+
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _fmt_date(dt: datetime) -> str:
+    dt = _as_utc(dt) or dt
+    return f"{dt.day} {_MES[dt.month - 1].capitalize()} {dt.year}"
+
+
+def _fmt_time(dt: datetime) -> str:
+    dt = _as_utc(dt) or dt
+    h12 = dt.hour % 12 or 12
+    ampm = "AM" if dt.hour < 12 else "PM"
+    return f"{h12:02d}:{dt.minute:02d} {ampm}"
+
+
+def _user_name(db: Session, user_id) -> Optional[str]:
+    if user_id is None:
+        return None
+    u = db.query(UserModel).filter(UserModel.id == user_id).first()
+    return u.name if u else None
+
 
 class PatientRepository:
-    def get_timeline_events(self, db: Session, patient_id: str):
-        all_events = []
-
-        # 1. REGISTRO
+    def get_timeline_events(self, db: Session, patient_id: str) -> List[TimelineEventResponse]:
         try:
-            p = db.query(UserModel).filter(UserModel.id == patient_id).first()
+            pid = UUID(str(patient_id))
+        except (ValueError, TypeError):
+            logger.warning("patient_id inválido para timeline: %s", patient_id)
+            return []
+
+        raw_events: List[Dict[str, Any]] = []
+
+        # --- 1. Cuenta / registro ---
+        try:
+            p = (
+                db.query(UserModel)
+                .filter(UserModel.id == pid)
+                .first()
+            )
             if p and p.created_at:
-                all_events.append({
-                    "id": f"reg_{p.id}",
-                    "date": p.created_at.strftime("%d %b %Y"),
-                    "time": p.created_at.strftime("%I:%M %p"),
-                    "title": "Bienvenido a Keepi",
-                    "actor": "Sistema",
-                    "event_type": "registration",
-                    "raw_dt": p.created_at
-                })
-        except Exception: pass
+                creator = _user_name(db, p.created_by_user_id)
+                if creator:
+                    subtitle = "Alta clínica en la plataforma (invitación de tu médico)"
+                    actor = creator
+                else:
+                    subtitle = "Te registraste en Keepi"
+                    actor = p.name or "Tú"
 
-        # 2. CITAS
-        try:
-            appts = db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
-            for a in appts:
-                all_events.append({
-                    "id": f"appt_{a.id}",
-                    "date": a.appointment_date.strftime("%d %b %Y"),
-                    "time": a.appointment_date.strftime("%I:%M %p"),
-                    "title": f"Cita: {a.reason}",
-                    "actor": "Médico",
-                    "event_type": "appointment",
-                    "raw_dt": a.appointment_date
-                })
-        except Exception: pass
-
-        # 3. RECETAS
-        try:
-            prescs = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
-            for pr in prescs:
-                all_events.append({
-                    "id": f"pres_{pr.id}",
-                    "date": pr.created_at.strftime("%d %b %Y"),
-                    "time": pr.created_at.strftime("%I:%M %p"),
-                    "title": "Receta Médica",
-                    "actor": "Médico",
-                    "event_type": "prescription",
-                    "raw_dt": pr.created_at
-                })
-        except Exception: pass
-
-        # 4. ANÁLISIS (Usa tu tabla analysis_requests)
-        try:
-            # Consultamos tu modelo AnalysisRequest
-            requests = db.query(AnalysisRequest).filter(AnalysisRequest.patient_id == patient_id).all()
-            for req in requests:
-                # Evento Solicitud
-                if req.created_at:
-                    all_events.append({
-                        "id": f"asig_{req.id}",
-                        "date": req.created_at.strftime("%d %b %Y"),
-                        "time": req.created_at.strftime("%I:%M %p"),
-                        "title": f"Análisis solicitado: {req.description}",
-                        "actor": "Médico",
-                        "event_type": "analysis",
-                        "raw_dt": req.created_at
-                    })
-                # Evento Resultado
-                if req.completed_at:
-                    all_events.append({
-                        "id": f"comp_{req.id}",
-                        "date": req.completed_at.strftime("%d %b %Y"),
-                        "time": req.completed_at.strftime("%I:%M %p"),
-                        "title": f"Resultado disponible: {req.description}",
-                        "actor": "Paciente",
-                        "event_type": "analysis",
-                        "raw_dt": req.completed_at
-                    })
+                raw_events.append(
+                    {
+                        "id": f"reg_{p.id}",
+                        "date": _fmt_date(p.created_at),
+                        "time": _fmt_time(p.created_at),
+                        "title": "Cuenta creada en Keepi",
+                        "actor": actor,
+                        "event_type": EventType.REGISTRATION,
+                        "subtitle": subtitle,
+                        "description": subtitle,
+                        "raw_dt": _as_utc(p.created_at),
+                    }
+                )
         except Exception as e:
-            print(f"DEBUG: Error en bloque análisis: {e}")
+            logger.debug("timeline registro: %s", e)
 
-        all_events.sort(key=lambda x: x['raw_dt'], reverse=True)
-        return all_events
+        # --- 2. Citas ---
+        try:
+            appts = db.query(Appointment).filter(Appointment.patient_id == pid).all()
+            for a in appts:
+                doc_name = _user_name(db, a.created_by_user_id) or "Tu médico"
+                when = _as_utc(a.appointment_date)
+                if not when:
+                    continue
+                raw_events.append(
+                    {
+                        "id": f"appt_{a.id}",
+                        "date": _fmt_date(when),
+                        "time": _fmt_time(when),
+                        "title": "Cita médica",
+                        "actor": doc_name,
+                        "event_type": EventType.APPOINTMENT,
+                        "subtitle": (a.reason or "").strip() or "Consulta",
+                        "description": (a.reason or "").strip() or "Consulta",
+                        "raw_dt": when,
+                    }
+                )
+        except Exception as e:
+            logger.debug("timeline citas: %s", e)
+
+        # --- 3. Recetas ---
+        try:
+            prescs = db.query(Prescription).filter(Prescription.patient_id == pid).all()
+            for pr in prescs:
+                if not pr.created_at:
+                    continue
+                doc_name = _user_name(db, pr.doctor_id) or "Tu médico"
+                when = _as_utc(pr.created_at)
+                raw_events.append(
+                    {
+                        "id": f"pres_{pr.id}",
+                        "date": _fmt_date(when),
+                        "time": _fmt_time(when),
+                        "title": "Receta médica",
+                        "actor": doc_name,
+                        "event_type": EventType.PRESCRIPTION,
+                        "subtitle": "Receta registrada en tu expediente",
+                        "description": "Receta registrada en tu expediente",
+                        "raw_dt": when,
+                    }
+                )
+        except Exception as e:
+            logger.debug("timeline recetas: %s", e)
+
+        # --- 4. Solicitudes de análisis + subida de documento ---
+        try:
+            requests = (
+                db.query(AnalysisRequest)
+                .filter(AnalysisRequest.patient_id == pid)
+                .order_by(AnalysisRequest.created_at.asc())
+                .all()
+            )
+            for req in requests:
+                doc_name = _user_name(db, req.doctor_id) or "Tu médico"
+                desc = (req.description or "").strip() or "Estudio solicitado"
+
+                if req.created_at:
+                    when = _as_utc(req.created_at)
+                    raw_events.append(
+                        {
+                            "id": f"anreq_{req.id}",
+                            "date": _fmt_date(when),
+                            "time": _fmt_time(when),
+                            "title": "Análisis solicitado por tu médico",
+                            "actor": doc_name,
+                            "event_type": EventType.ANALYSIS_REQUEST,
+                            "subtitle": desc,
+                            "description": desc,
+                            "raw_dt": when,
+                            "analysis_request_id": req.id,
+                        }
+                    )
+
+                if req.document_id and req.completed_at:
+                    when_u = _as_utc(req.completed_at)
+                    raw_events.append(
+                        {
+                            "id": f"anupl_{req.id}",
+                            "date": _fmt_date(when_u),
+                            "time": _fmt_time(when_u),
+                            "title": "Estudio subido",
+                            "actor": "Tú",
+                            "event_type": EventType.ANALYSIS_UPLOAD,
+                            "subtitle": f"{desc} · Archivo vinculado a tu solicitud",
+                            "description": f"{desc} · Archivo vinculado a tu solicitud",
+                            "raw_dt": when_u,
+                            "analysis_request_id": None,
+                        }
+                    )
+        except Exception as e:
+            logger.debug("timeline análisis: %s", e)
+
+        raw_events.sort(key=lambda x: x["raw_dt"])
+
+        now = datetime.now(timezone.utc)
+        pending_rows = (
+            db.query(AnalysisRequest)
+            .filter(
+                AnalysisRequest.patient_id == pid,
+                AnalysisRequest.status == "pending",
+                AnalysisRequest.document_id.is_(None),
+            )
+            .all()
+        )
+        pending_request_ids = {r.id for r in pending_rows}
+
+        out: List[TimelineEventResponse] = []
+        for e in raw_events:
+            rid = e.get("analysis_request_id")
+            if e["raw_dt"] > now:
+                vstate = "future"
+            elif rid and rid in pending_request_ids:
+                vstate = "current"
+            else:
+                vstate = "completed"
+
+            occurred = e["raw_dt"].isoformat()
+            out.append(
+                TimelineEventResponse(
+                    id=e["id"],
+                    date=e["date"],
+                    time=e.get("time"),
+                    title=e["title"],
+                    actor=e["actor"],
+                    event_type=e["event_type"],
+                    subtitle=e.get("subtitle"),
+                    description=e.get("description") or (e.get("subtitle") or ""),
+                    occurred_at=occurred,
+                    visual_state=vstate,
+                )
+            )
+
+        return out

@@ -1,15 +1,20 @@
 """Alias `/patient/*` del expediente (misma lógica que `/me/*`)."""
 
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_patient_user
+from app.dto.timeline_dto import TimelineEventResponse
 from app.models.patient_medical_record import MedicalRecordPatch, MedicalRecordResponse
 from app.models.user import User
+from app.repositories.patient_repository import PatientRepository
 from app.services.medical import MedicalRecordService
 
 router = APIRouter()
+_patient_timeline_repo = PatientRepository()
 
 
 @router.get("/medical-record", response_model=MedicalRecordResponse)
@@ -39,6 +44,15 @@ async def patch_my_medical_record(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+
+@router.get("/timeline", response_model=List[TimelineEventResponse])
+async def get_my_care_timeline(
+    patient: User = Depends(require_patient_user),
+    db: Session = Depends(get_db),
+):
+    """Historial clínico-administrativo del paciente (cuenta, análisis, citas, recetas)."""
+    return _patient_timeline_repo.get_timeline_events(db, str(patient.id))
 
 
 @router.put("/medical-record", response_model=MedicalRecordResponse)
