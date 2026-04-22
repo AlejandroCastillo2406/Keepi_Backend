@@ -1,5 +1,6 @@
 """Endpoints exclusivos del flujo médico (alta de pacientes)."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,8 +14,10 @@ from app.models.user import DoctorCreatePatientRequest, DoctorCreatePatientRespo
 from app.models.user import User as UserModel
 from app.services.medical import MedicalRecordService
 from app.services.notificaciones.patient_invite_email_service import send_patient_invite_email
+from app.services.questionnaires.notify import notify_diagnostic_questionnaire_required
 from app.services.usuarios import UserService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -54,6 +57,11 @@ async def create_patient_account(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"No se pudo enviar el correo: {email_result.error}",
         )
+
+    try:
+        notify_diagnostic_questionnaire_required(db, patient_id=patient.id, doctor=current_user)
+    except Exception as exc:
+        logger.warning("No se pudo notificar cuestionario diagnóstico: %s", exc)
 
     return DoctorCreatePatientResponse(
         id=str(patient.id),

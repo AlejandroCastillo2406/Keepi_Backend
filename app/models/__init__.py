@@ -1,5 +1,15 @@
 # Models Package
 from .plans import Plan
+from .medical_specialty import MedicalSpecialty
+from .questionnaire_catalog import (
+    DoctorQuestionnaireSettings,
+    QuestionnaireAnswer,
+    QuestionnaireQuestion,
+    QuestionnaireQuestionOption,
+    QuestionnaireResponse,
+    QuestionnaireTemplate,
+    QuestionnaireVersion,
+)
 from .appointment import Appointment, AppointmentProposal
 from .document import Document
 from .folder import Folder
@@ -32,4 +42,12 @@ __all__ = [
     "Plan",
     "Appointment",
     "AppointmentProposal",
+    "MedicalSpecialty",
+    "QuestionnaireTemplate",
+    "QuestionnaireVersion",
+    "QuestionnaireQuestion",
+    "QuestionnaireQuestionOption",
+    "DoctorQuestionnaireSettings",
+    "QuestionnaireResponse",
+    "QuestionnaireAnswer",
 ]

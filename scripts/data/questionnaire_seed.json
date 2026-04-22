@@ -1,0 +1,208 @@
+{
+  "specialties": [
+    { "code": "general", "name_es": "Medicina general" },
+    { "code": "cardiology", "name_es": "Cardiología" },
+    { "code": "pediatrics", "name_es": "Pediatría" }
+  ],
+  "templates": [
+    {
+      "slug": "keepi_base",
+      "scope": "system_base",
+      "title": "Cuestionario base Keepi",
+      "steps": [
+        {
+          "section_key": "motivo",
+          "prompt": "¿Cuál es el motivo principal de tu consulta?",
+          "help_text": "Selecciona la opción que mejor describa tu situación actual.",
+          "response_type": "single_choice",
+          "config": { "layout": "vertical", "icon_style": "large" },
+          "options": [
+            { "value": "routine", "label": "Control rutinario", "icon_key": "stethoscope", "order_index": 0 },
+            { "value": "pain", "label": "Dolor o molestia", "icon_key": "bolt", "order_index": 1 },
+            { "value": "symptoms", "label": "Síntomas específicos", "icon_key": "grid", "order_index": 2 },
+            { "value": "followup", "label": "Seguimiento de tratamiento", "icon_key": "calendar", "order_index": 3 },
+            { "value": "other", "label": "Otro motivo", "icon_key": "more", "order_index": 4 }
+          ]
+        },
+        {
+          "section_key": "salud_general",
+          "prompt": "¿Cómo describirías tu estado de salud general?",
+          "help_text": "Considera tu bienestar en las últimas dos semanas.",
+          "response_type": "likert_emoji",
+          "config": { "scale": 5 },
+          "options": [
+            { "value": "excellent", "label": "Excelente — Me siento muy bien", "icon_key": "sentiment_very_satisfied", "order_index": 0 },
+            { "value": "good", "label": "Bueno — Me siento bien la mayoría del tiempo", "icon_key": "sentiment_satisfied", "order_index": 1 },
+            { "value": "fair", "label": "Regular — Podría estar mejor", "icon_key": "sentiment_neutral", "order_index": 2 },
+            { "value": "poor", "label": "Malo — He tenido varios malestares", "icon_key": "sentiment_dissatisfied", "order_index": 3 },
+            { "value": "very_poor", "label": "Muy malo — Me siento muy mal", "icon_key": "sentiment_very_dissatisfied", "order_index": 4 }
+          ]
+        },
+        {
+          "section_key": "sintomas",
+          "prompt": "¿Has presentado alguno de estos síntomas recientemente?",
+          "help_text": "Selecciona todos los que apliquen.",
+          "response_type": "multiple_choice_grid",
+          "config": { "columns": 3, "hint": "Puedes seleccionar más de una opción" },
+          "options": [
+            { "value": "headache", "label": "Dolor de cabeza", "icon_key": "head", "order_index": 0 },
+            { "value": "fever", "label": "Fiebre", "icon_key": "thermostat", "order_index": 1 },
+            { "value": "fatigue", "label": "Fatiga", "icon_key": "battery_alert", "order_index": 2 },
+            { "value": "nausea", "label": "Náuseas", "icon_key": "sick", "order_index": 3 },
+            { "value": "muscle_pain", "label": "Dolor muscular", "icon_key": "fitness_center", "order_index": 4 },
+            { "value": "cough", "label": "Tos", "icon_key": "masks", "order_index": 5 },
+            { "value": "sleep", "label": "Dificultad para dormir", "icon_key": "bedtime", "order_index": 6 },
+            { "value": "appetite", "label": "Pérdida de apetito", "icon_key": "restaurant", "order_index": 7 },
+            { "value": "other_sym", "label": "Otro síntoma", "icon_key": "more_horiz", "order_index": 8 }
+          ]
+        },
+        {
+          "section_key": "datos",
+          "prompt": "¿Cuál es tu edad?",
+          "help_text": "",
+          "response_type": "number",
+          "config": { "min": 0, "max": 120, "suffix": "años", "integer": true },
+          "options": []
+        },
+        {
+          "section_key": "datos",
+          "prompt": "¿Cuál es tu género?",
+          "help_text": "",
+          "response_type": "single_choice",
+          "config": { "layout": "vertical" },
+          "options": [
+            { "value": "female", "label": "Femenino", "icon_key": null, "order_index": 0 },
+            { "value": "male", "label": "Masculino", "icon_key": null, "order_index": 1 },
+            { "value": "prefer_not", "label": "Prefiero no decirlo", "icon_key": null, "order_index": 2 },
+            { "value": "other_g", "label": "Otro", "icon_key": null, "order_index": 3 }
+          ]
+        },
+        {
+          "section_key": "datos",
+          "prompt": "¿Cuál es tu estatura?",
+          "help_text": "",
+          "response_type": "height_picker",
+          "config": { "min_m": 1.0, "max_m": 2.5, "step": 0.01, "unit": "metros" },
+          "options": []
+        },
+        {
+          "section_key": "datos",
+          "prompt": "¿Cuál es tu peso actual?",
+          "help_text": "",
+          "response_type": "number",
+          "config": { "min": 1, "max": 400, "suffix": "kg", "decimal": true },
+          "options": []
+        },
+        {
+          "section_key": "alergias",
+          "prompt": "¿Tienes alguna alergia conocida?",
+          "help_text": "",
+          "response_type": "multiple_choice_grid",
+          "config": { "columns": 3, "allow_other_text": true, "other_label": "Otra (especificar)" },
+          "options": [
+            { "value": "food", "label": "Alimentos", "icon_key": "lunch_dining", "order_index": 0 },
+            { "value": "meds", "label": "Medicamentos", "icon_key": "medication", "order_index": 1 },
+            { "value": "pollen", "label": "Polen", "icon_key": "local_florist", "order_index": 2 },
+            { "value": "dust", "label": "Polvo", "icon_key": "cleaning_services", "order_index": 3 },
+            { "value": "latex", "label": "Látex", "icon_key": "glove", "order_index": 4 },
+            { "value": "none", "label": "Ninguna", "icon_key": "check_circle", "order_index": 5 }
+          ]
+        },
+        {
+          "section_key": "dolor",
+          "prompt": "En una escala del 0 al 10, ¿cuánto es tu nivel de dolor actualmente?",
+          "help_text": "",
+          "response_type": "scale_numeric",
+          "config": { "min": 0, "max": 10, "labels": { "0": "Sin dolor", "10": "Máximo" } },
+          "options": []
+        },
+        {
+          "section_key": "duracion",
+          "prompt": "¿Desde cuándo presentas estos síntomas?",
+          "help_text": "",
+          "response_type": "single_choice",
+          "config": { "layout": "vertical" },
+          "options": [
+            { "value": "lt1d", "label": "Menos de 1 día", "icon_key": null, "order_index": 0 },
+            { "value": "1_3d", "label": "1 a 3 días", "icon_key": null, "order_index": 1 },
+            { "value": "4_7d", "label": "4 a 7 días", "icon_key": null, "order_index": 2 },
+            { "value": "1_4w", "label": "1 a 4 semanas", "icon_key": null, "order_index": 3 },
+            { "value": "gt1m", "label": "Más de 1 mes", "icon_key": null, "order_index": 4 }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "specialty_cardiology",
+      "scope": "system_specialty",
+      "specialty_code": "cardiology",
+      "title": "Suplemento cardiología",
+      "steps": [
+        {
+          "section_key": "cardio",
+          "prompt": "¿Has tenido dolor u opresión en el pecho al hacer esfuerzo?",
+          "help_text": "",
+          "response_type": "single_choice",
+          "config": { "layout": "vertical" },
+          "options": [
+            { "value": "yes", "label": "Sí", "icon_key": null, "order_index": 0 },
+            { "value": "no", "label": "No", "icon_key": null, "order_index": 1 },
+            { "value": "unknown", "label": "No estoy seguro/a", "icon_key": null, "order_index": 2 }
+          ]
+        },
+        {
+          "section_key": "cardio",
+          "prompt": "¿Tienes antecedentes familiares de enfermedad cardíaca antes de los 55 años?",
+          "help_text": "",
+          "response_type": "single_choice",
+          "config": { "layout": "vertical" },
+          "options": [
+            { "value": "yes", "label": "Sí", "icon_key": null, "order_index": 0 },
+            { "value": "no", "label": "No", "icon_key": null, "order_index": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "specialty_general",
+      "scope": "system_specialty",
+      "specialty_code": "general",
+      "title": "Suplemento medicina general",
+      "steps": [
+        {
+          "section_key": "mg",
+          "prompt": "¿Cuándo fue tu última consulta médica general (no odontológica)?",
+          "help_text": "",
+          "response_type": "single_choice",
+          "config": { "layout": "vertical" },
+          "options": [
+            { "value": "lt6m", "label": "Menos de 6 meses", "icon_key": null, "order_index": 0 },
+            { "value": "6_12m", "label": "Entre 6 y 12 meses", "icon_key": null, "order_index": 1 },
+            { "value": "gt1y", "label": "Hace más de 1 año", "icon_key": null, "order_index": 2 },
+            { "value": "never", "label": "Nunca", "icon_key": null, "order_index": 3 }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "specialty_pediatrics",
+      "scope": "system_specialty",
+      "specialty_code": "pediatrics",
+      "title": "Suplemento pediatría",
+      "steps": [
+        {
+          "section_key": "ped",
+          "prompt": "¿El paciente menor asiste a controles de crecimiento y desarrollo al día?",
+          "help_text": "",
+          "response_type": "single_choice",
+          "config": { "layout": "vertical" },
+          "options": [
+            { "value": "yes", "label": "Sí", "icon_key": null, "order_index": 0 },
+            { "value": "no", "label": "No", "icon_key": null, "order_index": 1 },
+            { "value": "na", "label": "No aplica / No sé", "icon_key": null, "order_index": 2 }
+          ]
+        }
+      ]
+    }
+  ]
+}
