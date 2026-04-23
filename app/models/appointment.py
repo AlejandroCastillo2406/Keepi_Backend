@@ -45,6 +45,14 @@ class Appointment(Base):
 
 # --- DTOs (Pydantic Models) ---
 
+# EL QUE FALTABA: Para cuando el doctor crea la cita desde cero
+class AppointmentCreateRequest(BaseModel):
+    patient_id: str
+    appointment_date: datetime
+    reason: str = ""
+    duration_minutes: int = 30
+    notes: Optional[str] = None
+
 class AppointmentPatientCreateRequest(BaseModel):
     doctor_id: str
     reason: str = Field(..., description="Motivo de la consulta en texto")
@@ -62,7 +70,7 @@ class AppointmentResponse(BaseModel):
     id: PyUUID
     doctor_id: PyUUID
     patient_id: PyUUID
-    status: AppointmentStatus
+    status: str # Lo dejamos en str para evitar choques con data vieja en BD
     reason: str
     appointment_date: Optional[datetime] = None
     end_date: Optional[datetime] = None

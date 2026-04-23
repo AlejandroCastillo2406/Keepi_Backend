@@ -14,6 +14,5 @@ __all__ = [
     "plans",
     "prescriptions",
     "push_tokens",
-    "analysis_request_routes",
-    
+    "analysis_request_routes",   
 ]
