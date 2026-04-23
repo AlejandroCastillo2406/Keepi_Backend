@@ -46,12 +46,18 @@ async def get_doctor_calendar(
     current_user: User = Depends(require_doctor_user),
     db: Session = Depends(get_db),
 ):
+    from sqlalchemy import or_ # Importante para poder usar el "OR"
+    
     rows = (
         db.query(Appointment)
         .filter(Appointment.doctor_id == current_user.id)
-        .filter(Appointment.appointment_date >= start_at)
-        .filter(Appointment.appointment_date < end_at)
-        .order_by(Appointment.appointment_date.asc())
+        .filter(
+            or_(
+                Appointment.appointment_date == None, # Incluir las solicitudes sin fecha
+                Appointment.appointment_date.between(start_at, end_at) # Y las que están en el mes actual
+            )
+        )
+        .order_by(Appointment.created_at.desc())
         .all()
     )
     return rows
