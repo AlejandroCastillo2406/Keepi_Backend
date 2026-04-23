@@ -159,6 +159,11 @@ class QuestionnaireInvitationSummaryResponse(BaseModel):
 class QuestionnaireInvitationSendResponse(BaseModel):
     invitation: QuestionnaireInvitationSummaryResponse
     public_link: str
+    email_sent: bool = Field(
+        default=False,
+        description="True si SES aceptó el envío. Si es False, ver email_error y logs del backend.",
+    )
+    email_error: Optional[str] = None
 
 
 class PublicInvitationSubmitResponse(BaseModel):

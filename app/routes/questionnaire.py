@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import List, Literal, Optional
 
@@ -41,6 +42,7 @@ from app.services.notificaciones.questionnaire_invite_email_service import (
 from app.services.notificaciones.user_notify import notify_user_push_and_db
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 StatusFilter = Literal["all", "active", "inactive"]
@@ -262,14 +264,22 @@ def create_invitation(
 ):
     summary, raw_token = repo.create_invitation_batch(current_user.id, payload)
     public_link = build_public_questionnaire_link(raw_token)
-    send_questionnaire_invite_email(
+    email_res = send_questionnaire_invite_email(
         to_email=summary.patient_email,
         patient_name=summary.patient_name,
         public_link=public_link,
     )
+    if not email_res.success:
+        logger.warning(
+            "Invitación cuestionario creada pero el correo no se envió: %s → %s",
+            summary.patient_email,
+            email_res.error,
+        )
     return QuestionnaireInvitationSendResponse(
         invitation=summary,
         public_link=public_link,
+        email_sent=bool(email_res.success),
+        email_error=email_res.error,
     )
 
 
