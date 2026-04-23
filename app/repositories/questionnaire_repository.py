@@ -1022,7 +1022,7 @@ class QuestionnaireRepository:
 
         answer_by_item = {}
         for answer in payload.answers:
-            if answer.item_id in item_by_item:
+            if answer.item_id in item_by_id:
                 answer_by_item[answer.item_id] = answer.answer
 
         missing_required = [
