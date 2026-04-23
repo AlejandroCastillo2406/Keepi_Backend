@@ -92,6 +92,14 @@ async def respond_to_appointment(
     """El paciente acepta o rechaza la fecha propuesta por el doctor."""
     return AppointmentService.respond_to_proposal(db, appointment_id, str(patient.id), body)
 
+@router.get("/appointments", response_model=List[AppointmentResponse])
+async def get_my_appointments(
+    patient: User = Depends(require_patient_user),
+    db: Session = Depends(get_db),
+):
+    """Obtiene todas las citas asociadas al paciente logueado."""
+    return AppointmentService.get_appointments_by_patient(db, str(patient.id))
+
 
 # ==========================================
 # RUTA DE LÍNEA DE TIEMPO
