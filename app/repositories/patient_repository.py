@@ -134,8 +134,8 @@ class PatientRepository:
                         "title": "Receta médica",
                         "actor": "Doctor",
                         "event_type": EventType.PRESCRIPTION,
-                        "subtitle": "Receta registrada en tu expediente",
-                        "description": "Receta registrada en tu expediente",
+                        "subtitle": "Receta registrada en tu historial",
+                        "description": "Receta registrada en tu historial",
                         "raw_dt": when,
                     }
                 )

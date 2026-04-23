@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.auth.jwt_payloads import access_token_claims_for_user
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT, ROLE_USER
-from app.models.patient_medical_record import MedicalRecordInitialData, PatientMedicalRecord
 from app.models.role import Role
 from app.models.user import (User, UserCreate, UserLogin, UserResponse,
                              UserUpdate)
@@ -93,11 +92,9 @@ class UserService:
         doctor: User,
         email: str,
         name: str,
-        medical_record: MedicalRecordInitialData,
     ) -> Tuple[User, str]:
         """
-        Crea paciente con contraseña temporal, expediente médico y must_change_password=True.
-        Transacción única: usuario + expediente (columnas alineadas con BD existente).
+        Crea paciente con contraseña temporal y must_change_password=True.
         """
         if doctor.role is None or doctor.role.name != ROLE_DOCTOR:
             raise PermissionError("Solo un usuario con rol DOCTOR puede crear pacientes")
@@ -119,23 +116,6 @@ class UserService:
         self.db.add(user)
         self.db.flush()
 
-        mr = medical_record
-        pmr = PatientMedicalRecord(
-            patient_user_id=user.id,
-            created_by_user_id=doctor.id,
-            birth_date=mr.birth_date,
-            sex=mr.sex,
-            blood_type=mr.blood_type,
-            allergies=mr.allergies,
-            chronic_conditions=mr.chronic_conditions,
-            medications=mr.medications,
-            surgical_history=mr.surgical_history,
-            family_history=mr.family_history,
-            notes=mr.notes,
-            emergency_contact_name=mr.emergency_contact_name,
-            emergency_contact_phone=mr.emergency_contact_phone,
-        )
-        self.db.add(pmr)
         self.db.commit()
         self.db.refresh(user)
 

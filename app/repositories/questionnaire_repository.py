@@ -6,13 +6,27 @@ Aplica overrides del doctor al materializar las preguntas.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
+from jose import JWTError, jwt
 
+from app.core.config import settings
+from app.models.questionnaire_invitation import (
+    PublicInvitationSubmitRequest,
+    PublicInvitationSubmitResponse,
+    PublicInvitationViewResponse,
+    QuestionnaireInvitation,
+    QuestionnaireInvitationAnswer,
+    QuestionnaireInvitationItem,
+    QuestionnaireInvitationSummaryResponse,
+    QuestionnaireSendInvitationRequest,
+)
 from app.models.questionnaire import (
     DoctorQuestionOverride,
     Question,
@@ -31,6 +45,7 @@ from app.models.questionnaire import (
     TemplateResponse,
     TemplateUpdateRequest,
 )
+from app.models.user import User
 
 
 def _as_uuid(value: Optional[str]) -> Optional[uuid.UUID]:
@@ -676,3 +691,375 @@ class QuestionnaireRepository:
             )
         self._db.commit()
         return self.get_template(doctor_id, t.id)
+
+    # ────── Invitations (public token flow) ──────
+
+    @staticmethod
+    def _hash_token(raw_token: str) -> str:
+        return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _build_raw_token(invitation_id: uuid.UUID, expires_at: datetime) -> str:
+        payload = {
+            "sub": str(invitation_id),
+            "purpose": "questionnaire_invitation",
+            "exp": int(expires_at.timestamp()),
+        }
+        return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+    @staticmethod
+    def _decode_raw_token(raw_token: str) -> uuid.UUID:
+        try:
+            payload = jwt.decode(
+                raw_token,
+                settings.jwt_secret_key,
+                algorithms=[settings.jwt_algorithm],
+            )
+            if payload.get("purpose") != "questionnaire_invitation":
+                raise HTTPException(status_code=400, detail="Token inválido")
+            sub = payload.get("sub")
+            return uuid.UUID(str(sub))
+        except (JWTError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Token inválido o expirado") from exc
+
+    @staticmethod
+    def _invitation_to_summary(
+        inv: QuestionnaireInvitation, total_questions: int
+    ) -> QuestionnaireInvitationSummaryResponse:
+        return QuestionnaireInvitationSummaryResponse(
+            id=str(inv.id),
+            doctor_id=str(inv.doctor_id),
+            patient_id=str(inv.patient_id),
+            patient_name=inv.patient_name_snapshot,
+            patient_email=inv.patient_email_snapshot,
+            status=inv.status,
+            created_at=inv.created_at,
+            expires_at=inv.expires_at,
+            completed_at=inv.completed_at,
+            total_questions=total_questions,
+        )
+
+    def _load_patient_owned_by_doctor(self, doctor_id: uuid.UUID, patient_id: uuid.UUID) -> User:
+        patient = (
+            self._db.query(User)
+            .filter(User.id == patient_id, User.created_by_user_id == doctor_id)
+            .first()
+        )
+        if not patient:
+            raise HTTPException(status_code=404, detail="Paciente no vinculado al doctor")
+        return patient
+
+    def _build_snapshot_questions(
+        self,
+        doctor_id: uuid.UUID,
+        template_ids: List[uuid.UUID],
+        extra_question_ids: List[uuid.UUID],
+    ) -> List[dict]:
+        rows: List[dict] = []
+        seen: set[uuid.UUID] = set()
+
+        for t_id in template_ids:
+            template = (
+                self._db.query(Template)
+                .filter(Template.id == t_id, Template.doctor_id == doctor_id)
+                .first()
+            )
+            if not template:
+                raise HTTPException(status_code=404, detail=f"Plantilla no encontrada: {t_id}")
+
+            items = (
+                self._db.query(TemplateQuestion)
+                .filter(TemplateQuestion.template_id == template.id)
+                .order_by(TemplateQuestion.sort_order.asc())
+                .all()
+            )
+            question_ids = [i.question_id for i in items]
+            if not question_ids:
+                continue
+
+            questions = self._db.query(Question).filter(Question.id.in_(question_ids)).all()
+            question_by_id = {q.id: q for q in questions}
+            specialties = {}
+            spec_ids = {q.specialty_id for q in questions if q.specialty_id}
+            if spec_ids:
+                for s in self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all():
+                    specialties[s.id] = s.name
+
+            for item in items:
+                q = question_by_id.get(item.question_id)
+                if not q or q.id in seen:
+                    continue
+                seen.add(q.id)
+                rows.append(
+                    {
+                        "question_id": q.id,
+                        "question_text": q.text,
+                        "response_type": q.response_type,
+                        "options": list(q.options) if q.options else None,
+                        "help_text": q.help_text,
+                        "is_required": bool(q.is_required_default),
+                        "specialty_name": specialties.get(q.specialty_id) if q.specialty_id else None,
+                        "template_name": template.name,
+                    }
+                )
+
+        if extra_question_ids:
+            questions = (
+                self._db.query(Question)
+                .filter(
+                    Question.id.in_(extra_question_ids),
+                    or_(Question.origin == "system", Question.owner_user_id == doctor_id),
+                )
+                .all()
+            )
+            available = {q.id: q for q in questions}
+            missing = [str(qid) for qid in extra_question_ids if qid not in available]
+            if missing:
+                raise HTTPException(status_code=400, detail=f"Preguntas no disponibles: {', '.join(missing)}")
+
+            spec_ids = {q.specialty_id for q in questions if q.specialty_id}
+            specialties = {}
+            if spec_ids:
+                for s in self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all():
+                    specialties[s.id] = s.name
+
+            for qid in extra_question_ids:
+                q = available[qid]
+                if q.id in seen:
+                    continue
+                seen.add(q.id)
+                rows.append(
+                    {
+                        "question_id": q.id,
+                        "question_text": q.text,
+                        "response_type": q.response_type,
+                        "options": list(q.options) if q.options else None,
+                        "help_text": q.help_text,
+                        "is_required": bool(q.is_required_default),
+                        "specialty_name": specialties.get(q.specialty_id) if q.specialty_id else None,
+                        "template_name": None,
+                    }
+                )
+
+        if not rows:
+            raise HTTPException(status_code=400, detail="No hay preguntas para enviar en la invitación")
+        return rows
+
+    def create_invitation_batch(
+        self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
+    ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
+        patient_id = _as_uuid(data.patient_id)
+        if patient_id is None:
+            raise HTTPException(status_code=400, detail="patient_id inválido")
+        patient = self._load_patient_owned_by_doctor(doctor_id, patient_id)
+
+        template_ids = []
+        for tid in data.template_ids:
+            uid = _as_uuid(tid)
+            if uid is None:
+                raise HTTPException(status_code=400, detail=f"template_id inválido: {tid}")
+            template_ids.append(uid)
+
+        question_ids = []
+        for qid in data.question_ids:
+            uid = _as_uuid(qid)
+            if uid is None:
+                raise HTTPException(status_code=400, detail=f"question_id inválido: {qid}")
+            question_ids.append(uid)
+
+        snapshot = self._build_snapshot_questions(doctor_id, template_ids, question_ids)
+        hours = max(1, min(int(data.expires_in_hours or 72), 24 * 30))
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
+
+        invitation = QuestionnaireInvitation(
+            doctor_id=doctor_id,
+            patient_id=patient.id,
+            patient_email_snapshot=patient.email,
+            patient_name_snapshot=patient.name,
+            token_hash="__pending__",
+            status="pending",
+            expires_at=expires_at,
+        )
+        self._db.add(invitation)
+        self._db.flush()
+
+        raw_token = self._build_raw_token(invitation.id, expires_at)
+        invitation.token_hash = self._hash_token(raw_token)
+
+        for idx, item in enumerate(snapshot):
+            self._db.add(
+                QuestionnaireInvitationItem(
+                    invitation_id=invitation.id,
+                    question_id=item["question_id"],
+                    question_text_snapshot=item["question_text"],
+                    response_type_snapshot=item["response_type"],
+                    options_snapshot=item["options"],
+                    help_text_snapshot=item["help_text"],
+                    is_required_snapshot=item["is_required"],
+                    specialty_name_snapshot=item["specialty_name"],
+                    template_name_snapshot=item["template_name"],
+                    sort_order=idx,
+                )
+            )
+        self._db.commit()
+        self._db.refresh(invitation)
+        return self._invitation_to_summary(invitation, len(snapshot)), raw_token
+
+    def _mark_expired_if_needed(self, invitation: QuestionnaireInvitation) -> QuestionnaireInvitation:
+        if (
+            invitation.status == "pending"
+            and invitation.expires_at < datetime.now(timezone.utc)
+        ):
+            invitation.status = "expired"
+            self._db.commit()
+            self._db.refresh(invitation)
+        return invitation
+
+    def get_invitation_summary(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> QuestionnaireInvitationSummaryResponse:
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.id == invitation_id,
+                QuestionnaireInvitation.doctor_id == doctor_id,
+            )
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        inv = self._mark_expired_if_needed(inv)
+        total = (
+            self._db.query(func.count(QuestionnaireInvitationItem.id))
+            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+            .scalar()
+            or 0
+        )
+        return self._invitation_to_summary(inv, int(total))
+
+    def get_public_invitation_view(self, raw_token: str) -> PublicInvitationViewResponse:
+        invitation_id = self._decode_raw_token(raw_token)
+        token_hash = self._hash_token(raw_token)
+
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.id == invitation_id,
+                QuestionnaireInvitation.token_hash == token_hash,
+            )
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        inv = self._mark_expired_if_needed(inv)
+
+        if inv.status != "pending":
+            return PublicInvitationViewResponse(
+                invitation_id=str(inv.id),
+                patient_name=inv.patient_name_snapshot,
+                patient_email=inv.patient_email_snapshot,
+                status=inv.status,
+                expires_at=inv.expires_at,
+                questions=[],
+            )
+
+        items = (
+            self._db.query(QuestionnaireInvitationItem)
+            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+            .order_by(QuestionnaireInvitationItem.sort_order.asc())
+            .all()
+        )
+        return PublicInvitationViewResponse(
+            invitation_id=str(inv.id),
+            patient_name=inv.patient_name_snapshot,
+            patient_email=inv.patient_email_snapshot,
+            status=inv.status,
+            expires_at=inv.expires_at,
+            questions=[
+                {
+                    "item_id": str(i.id),
+                    "question_text": i.question_text_snapshot,
+                    "response_type": i.response_type_snapshot,
+                    "options": list(i.options_snapshot) if i.options_snapshot else None,
+                    "help_text": i.help_text_snapshot,
+                    "is_required": bool(i.is_required_snapshot),
+                    "specialty_name": i.specialty_name_snapshot,
+                    "template_name": i.template_name_snapshot,
+                }
+                for i in items
+            ],
+        )
+
+    def submit_public_invitation(
+        self, raw_token: str, payload: PublicInvitationSubmitRequest
+    ) -> tuple[PublicInvitationSubmitResponse, QuestionnaireInvitation]:
+        invitation_id = self._decode_raw_token(raw_token)
+        token_hash = self._hash_token(raw_token)
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.id == invitation_id,
+                QuestionnaireInvitation.token_hash == token_hash,
+            )
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+
+        inv = self._mark_expired_if_needed(inv)
+        if inv.status == "completed":
+            raise HTTPException(status_code=409, detail="Este cuestionario ya fue completado")
+        if inv.status != "pending":
+            raise HTTPException(status_code=400, detail="Invitación no disponible")
+
+        items = (
+            self._db.query(QuestionnaireInvitationItem)
+            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+            .all()
+        )
+        item_by_id = {str(i.id): i for i in items}
+        required_item_ids = {str(i.id) for i in items if i.is_required_snapshot}
+
+        answer_by_item = {}
+        for answer in payload.answers:
+            if answer.item_id in item_by_item:
+                answer_by_item[answer.item_id] = answer.answer
+
+        missing_required = [
+            iid for iid in required_item_ids if iid not in answer_by_item or answer_by_item[iid] in (None, "", [], {})
+        ]
+        if missing_required:
+            raise HTTPException(status_code=400, detail="Faltan respuestas obligatorias")
+
+        for item_id, answer in answer_by_item.items():
+            item_uuid = uuid.UUID(item_id)
+            existing = (
+                self._db.query(QuestionnaireInvitationAnswer)
+                .filter(QuestionnaireInvitationAnswer.invitation_item_id == item_uuid)
+                .first()
+            )
+            if existing:
+                existing.answer_json = {"value": answer}
+            else:
+                self._db.add(
+                    QuestionnaireInvitationAnswer(
+                        invitation_item_id=item_uuid,
+                        answer_json={"value": answer},
+                    )
+                )
+
+        now = datetime.now(timezone.utc)
+        inv.status = "completed"
+        inv.used_at = now
+        inv.completed_at = now
+        self._db.commit()
+        self._db.refresh(inv)
+
+        return (
+            PublicInvitationSubmitResponse(
+                invitation_id=str(inv.id),
+                status=inv.status,
+                completed_at=inv.completed_at or now,
+            ),
+            inv,
+        )

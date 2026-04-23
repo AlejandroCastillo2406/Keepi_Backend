@@ -2,14 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
-from app.models.patient_medical_record import MedicalRecordInitialData, PatientMedicalRecord
 
 
 # Modelo SQLAlchemy para la tabla de usuarios
@@ -42,12 +41,6 @@ class User(Base):
     folders = relationship("Folder", back_populates="user")
     oauth_credentials = relationship("OAuthCredentials", back_populates="user")
     subscription = relationship("Subscription", back_populates="user", uselist=False)
-    medical_record = relationship(
-        "PatientMedicalRecord",
-        back_populates="patient",
-        uselist=False,
-        foreign_keys=[PatientMedicalRecord.patient_user_id],
-    )
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, name={self.name})>"
@@ -83,40 +76,17 @@ class PasswordChangeRequest(BaseModel):
 
 
 class DoctorCreatePatientRequest(BaseModel):
-    """Alta de paciente por médico + expediente inicial."""
+    """Alta de paciente por médico."""
 
     email: EmailStr
     name: str
-    medical_record: MedicalRecordInitialData
-
-    @model_validator(mode="before")
-    @classmethod
-    def _wrap_legacy_body(cls, data: object) -> object:
-        if isinstance(data, dict) and "medical_record" not in data:
-            return {**data, "medical_record": {}}
-        return data
-
-    @model_validator(mode="after")
-    def _require_clinical_content(self) -> "DoctorCreatePatientRequest":
-        data = self.medical_record.model_dump()
-        has_value = False
-        for v in data.values():
-            if v is None:
-                continue
-            if isinstance(v, str) and not v.strip():
-                continue
-            has_value = True
-            break
-        if not has_value:
-            raise ValueError("Completa al menos un campo del expediente médico")
-        return self
 
 
 class DoctorCreatePatientResponse(BaseModel):
     id: str
     email: EmailStr
     name: str
-    message: str = "Paciente creado. Credenciales enviadas por correo."
+    message: str = "Paciente creado correctamente."
 
 
 class UserResponse(UserBase):

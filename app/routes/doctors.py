@@ -1,4 +1,4 @@
-"""Endpoints exclusivos del flujo médico (alta de pacientes, expedientes y gestión de citas)."""
+"""Endpoints exclusivos del flujo médico (alta de pacientes y gestión de citas)."""
 
 from uuid import UUID
 from datetime import datetime
@@ -10,12 +10,9 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
-from app.models.patient_medical_record import MedicalRecordResponse
 from app.models.user import DoctorCreatePatientRequest, DoctorCreatePatientResponse, User
 from app.models.user import User as UserModel
 from app.models.appointment import Appointment 
-from app.services.medical import MedicalRecordService
-from app.services.notificaciones.patient_invite_email_service import send_patient_invite_email
 from app.services.usuarios import UserService
 
 # IMPORTACIONES DEL TIMELINE
@@ -43,12 +40,11 @@ async def create_patient_account(
         raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
     svc = UserService(db)
     try:
-        patient, plain_password = await svc.create_patient_by_doctor(
-            current_user, body.email.strip(), body.name.strip(), body.medical_record,
+        patient, _plain_password = await svc.create_patient_by_doctor(
+            current_user, body.email.strip(), body.name.strip(),
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    send_patient_invite_email(patient.email, patient.name, plain_password)
     return DoctorCreatePatientResponse(id=str(patient.id), email=patient.email, name=patient.name)
 
 @router.get("/patients")
@@ -65,17 +61,8 @@ async def list_my_patients(
     return [{"id": str(u.id), "email": u.email, "name": u.name} for u in rows]
 
 # ==========================================
-# RUTAS DE CITAS Y EXPEDIENTE
+# RUTAS DE CITAS
 # ==========================================
-
-@router.get("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
-async def get_patient_medical_record(
-    patient_id: UUID,
-    current_user: User = Depends(require_no_temp_password_user),
-    db: Session = Depends(get_db),
-):
-    svc = MedicalRecordService(db)
-    return svc.get_response_for_doctor(current_user, patient_id)
 
 # NUEVO ENDPOINT: Doctor propone hora de la cita
 @router.post("/appointments/{appointment_id}/propose-time", response_model=AppointmentResponse)

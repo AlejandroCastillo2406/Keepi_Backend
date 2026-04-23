@@ -24,8 +24,21 @@ from app.models.questionnaire import (
     TemplateUpdateRequest,
     ToggleRequest,
 )
+from app.models.questionnaire_invitation import (
+    PublicInvitationSubmitRequest,
+    PublicInvitationSubmitResponse,
+    PublicInvitationViewResponse,
+    QuestionnaireInvitationSendResponse,
+    QuestionnaireInvitationSummaryResponse,
+    QuestionnaireSendInvitationRequest,
+)
 from app.models.user import User
 from app.repositories.questionnaire_repository import QuestionnaireRepository
+from app.services.notificaciones.questionnaire_invite_email_service import (
+    build_public_questionnaire_link,
+    send_questionnaire_invite_email,
+)
+from app.services.notificaciones.user_notify import notify_user_push_and_db
 
 router = APIRouter()
 
@@ -232,3 +245,85 @@ def upsert_template_questions(
     return repo.upsert_template_questions(
         current_user.id, _parse_uuid(template_id, "template_id"), payload
     )
+
+
+# ──────────────── Invitations (doctor + public token) ────────────────
+
+
+@router.post(
+    "/invitations",
+    response_model=QuestionnaireInvitationSendResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+def create_invitation(
+    payload: QuestionnaireSendInvitationRequest,
+    current_user: User = Depends(require_doctor_user),
+    repo: QuestionnaireRepository = Depends(_get_repo),
+):
+    summary, raw_token = repo.create_invitation_batch(current_user.id, payload)
+    public_link = build_public_questionnaire_link(raw_token)
+    send_questionnaire_invite_email(
+        to_email=summary.patient_email,
+        patient_name=summary.patient_name,
+        public_link=public_link,
+    )
+    return QuestionnaireInvitationSendResponse(
+        invitation=summary,
+        public_link=public_link,
+    )
+
+
+@router.get(
+    "/invitations/{invitation_id}",
+    response_model=QuestionnaireInvitationSummaryResponse,
+)
+def get_invitation(
+    invitation_id: str,
+    current_user: User = Depends(require_doctor_user),
+    repo: QuestionnaireRepository = Depends(_get_repo),
+):
+    return repo.get_invitation_summary(
+        current_user.id,
+        _parse_uuid(invitation_id, "invitation_id"),
+    )
+
+
+@router.get(
+    "/public/{token}",
+    response_model=PublicInvitationViewResponse,
+)
+def get_public_invitation(
+    token: str,
+    repo: QuestionnaireRepository = Depends(_get_repo),
+):
+    return repo.get_public_invitation_view(token)
+
+
+@router.post(
+    "/public/{token}/submit",
+    response_model=PublicInvitationSubmitResponse,
+)
+def submit_public_invitation(
+    token: str,
+    payload: PublicInvitationSubmitRequest,
+    repo: QuestionnaireRepository = Depends(_get_repo),
+):
+    response, invitation = repo.submit_public_invitation(token, payload)
+    notify_user_push_and_db(
+        repo._db,  # noqa: SLF001
+        invitation.doctor_id,
+        title="Cuestionario completado",
+        message=f"{invitation.patient_name_snapshot} completó su cuestionario de salud.",
+        notification_type="info",
+        payload={
+            "type": "questionnaire_completed",
+            "invitation_id": str(invitation.id),
+            "patient_id": str(invitation.patient_id),
+        },
+        push_data={
+            "type": "questionnaire_completed",
+            "invitation_id": str(invitation.id),
+            "patient_id": str(invitation.patient_id),
+        },
+    )
+    return response

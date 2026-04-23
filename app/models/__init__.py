@@ -6,8 +6,12 @@ from .folder import Folder
 from .notification import Notification
 from .notifications_log import NotificationsLog
 from .oauth_credentials import OAuthCredentials
-from .patient_medical_record import PatientMedicalRecord
 from .prescription import Prescription, PrescriptionItem
+from .questionnaire_invitation import (
+    QuestionnaireInvitation,
+    QuestionnaireInvitationAnswer,
+    QuestionnaireInvitationItem,
+)
 from .role import Role
 from .subscription import Subscription
 from .user import User
@@ -17,7 +21,6 @@ from .user_config import UserConfig
 # Exportar todos los modelos para que SQLAlchemy los registre
 __all__ = [
     "User",
-    "PatientMedicalRecord",
     "Prescription",
     "PrescriptionItem",
     "Role",
@@ -28,6 +31,9 @@ __all__ = [
     "Folder",
     "OAuthCredentials",
     "Subscription",
+    "QuestionnaireInvitation",
+    "QuestionnaireInvitationItem",
+    "QuestionnaireInvitationAnswer",
     "UserDeviceToken",
     "Plan",
     "Appointment",

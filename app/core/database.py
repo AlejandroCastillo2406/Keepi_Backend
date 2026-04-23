@@ -64,8 +64,8 @@ class DatabaseConfig:
             from app.models import (document, folder,  # noqa: F401
                                     appointment,
                                     notification, notifications_log,
-                                    oauth_credentials, patient_medical_record,
-                                    prescription, questionnaire, role,
+                                    oauth_credentials,
+                                    prescription, questionnaire, questionnaire_invitation, role,
                                     subscription, user,
                                     user_config, user_device_token)
             from app.core.seed_questionnaire import seed_questionnaire
