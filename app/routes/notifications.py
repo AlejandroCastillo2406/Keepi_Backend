@@ -17,6 +17,9 @@ from app.services.notificaciones import NotificationService
 from app.services.notificaciones.payment_email_service import send_payment_email_ses
 from app.services.usuarios.user_service import UserService
 
+# --- NUEVO IMPORT PARA PASTILLAS ---
+from app.services.notificaciones.pill_notification_service import run_pill_reminders_process
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -103,10 +106,6 @@ async def send_payment_email(
 ):
     """
     Enviar correo de confirmación de pago o recordatorio de vencimiento.
-
-    Parámetro `tipo`:
-    - "confirmacion_pago"
-    - "vencimiento"
     """
     if tipo not in {"confirmacion_pago", "vencimiento"}:
         raise HTTPException(
@@ -140,8 +139,7 @@ def run_expiry_emails(
     db: Session = Depends(get_db),
 ):
     """
-    Endpoint interno para que AWS (EventBridge/Lambda) dispare el envío de recordatorios
-    por vencimiento. No autentica con JWT; usa `EXPIRY_EMAIL_CRON_TOKEN`.
+    Endpoint interno para enviar recordatorios de vencimiento.
     """
     expected = os.getenv("EXPIRY_EMAIL_CRON_TOKEN")
     if not expected or x_internal_token != expected:
@@ -150,10 +148,26 @@ def run_expiry_emails(
     effective_send_date = send_date or datetime.now(timezone.utc).date()
     result = dispatch_expiry_emails(db, send_date=effective_send_date, days_before=days_before)
     payload = result.to_dict()
-    logger.info(
-        "run-expiry-emails OK send_date=%s days_before=%s %s",
-        effective_send_date,
-        days_before,
-        payload,
-    )
+    logger.info("run-expiry-emails OK")
     return payload
+
+# --- NUEVO ENDPOINT PARA RECORDATORIO DE PASTILLAS ---
+@router.post("/run-pill-reminders", summary="Run Pill Reminders")
+async def run_pill_reminders(
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint interno para procesar notificaciones de pastillas cada hora.
+    """
+    expected = os.getenv("EXPIRY_EMAIL_CRON_TOKEN")
+    if not expected or x_internal_token != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        result = await run_pill_reminders_process(db)
+        logger.info("Pill reminders process completed")
+        return result
+    except Exception as e:
+        logger.error(f"Error processing pill reminders: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
