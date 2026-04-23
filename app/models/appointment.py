@@ -1,109 +1,83 @@
 import uuid
+from uuid import UUID as PyUUID
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from pydantic import BaseModel, Field, ConfigDict
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
 
+# 1. Estados exactos del nuevo flujo
 AppointmentStatus = Literal[
-    "pending_patient_confirmation",
-    "pending_doctor_review",
-    "counter_proposed_by_doctor",
-    "confirmed",
+    "pending_doctor_proposal",  # Paciente solicitó, espera que el Dr. ponga fecha/hora
+    "pending_patient_approval", # Dr. propuso, espera confirmación del paciente
+    "scheduled",                # Paciente aceptó la propuesta
+    "canceled",                 # Paciente rechazó (o Dr. canceló)
 ]
-ProposedBy = Literal["doctor", "patient"]
-
 
 class Appointment(Base):
     __tablename__ = "appointments"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    created_by_user_id = Column(
-        UUID(as_uuid=True),
+    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
+    doctor_id = Column(
+        PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    patient_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    appointment_date = Column(DateTime(timezone=True), nullable=False, index=True)
-    status = Column(String(20), nullable=False, default="pending_patient", index=True)
+    patient_id = Column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    appointment_date = Column(DateTime(timezone=True), nullable=True, index=True)
+    end_date = Column(DateTime(timezone=True), nullable=True)
+    
+    status = Column(String(50), nullable=False, default="pending_doctor_proposal", index=True)
     reason = Column(Text, nullable=False, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    doctor = relationship("User", foreign_keys=[created_by_user_id])
+    doctor = relationship("User", foreign_keys=[doctor_id])
     patient = relationship("User", foreign_keys=[patient_id])
-    proposals = relationship(
-        "AppointmentProposal",
-        back_populates="appointment",
-        cascade="all, delete-orphan",
-        order_by="AppointmentProposal.created_at.asc()",
-    )
 
 
-class AppointmentProposal(Base):
-    __tablename__ = "appointment_proposals"
+# --- DTOs (Pydantic Models) ---
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    appointment_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("appointments.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    proposed_by = Column(String(20), nullable=False)
-    start_at = Column(DateTime(timezone=True), nullable=False)
-    end_at = Column(DateTime(timezone=True), nullable=False)
-    notes = Column(Text, nullable=True)
-    sequence = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    appointment = relationship("Appointment", back_populates="proposals")
-
-
+# EL QUE FALTABA: Para cuando el doctor crea la cita desde cero
 class AppointmentCreateRequest(BaseModel):
     patient_id: str
     appointment_date: datetime
-    reason: str = Field(default="Consulta médica")
+    reason: str = ""
+    duration_minutes: int = 30
+    notes: Optional[str] = None
+
+class AppointmentPatientCreateRequest(BaseModel):
+    doctor_id: str
+    reason: str = Field(..., description="Motivo de la consulta en texto")
+
+class AppointmentDoctorProposeRequest(BaseModel):
+    proposed_start_at: datetime = Field(..., description="Día y hora propuesta por el doctor")
     duration_minutes: int = Field(default=30, ge=15, le=240)
     notes: Optional[str] = None
 
-
-class AppointmentActionRequest(BaseModel):
-    proposed_start_at: Optional[datetime] = None
-    duration_minutes: int = Field(default=30, ge=15, le=240)
-    notes: Optional[str] = None
-
+class AppointmentPatientRespondRequest(BaseModel):
+    action: Literal["accept", "reject"] = Field(..., description="Si rechaza, el status pasa a canceled")
 
 class AppointmentResponse(BaseModel):
-    id: str
-    doctor_id: str
-    patient_id: str
-    status: str
+    # Usamos PyUUID para que Pydantic lo reconozca como tipo nativo de Python
+    id: PyUUID
+    doctor_id: PyUUID
+    patient_id: PyUUID
+    status: str # Lo dejamos en str para evitar choques con data vieja en BD
     reason: str
-    current_start_at: datetime
-    current_end_at: datetime
-    proposed_by: str
-    version: int
-    notes: Optional[str] = None
+    appointment_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     created_at: datetime
-    updated_at: datetime
-
-
-class AppointmentProposalResponse(BaseModel):
-    id: str
-    appointment_id: str
-    proposed_by: str
-    start_at: datetime
-    end_at: datetime
-    notes: Optional[str] = None
-    sequence: int
-    created_at: datetime
-
-
-class AppointmentWithHistoryResponse(AppointmentResponse):
-    proposals: list[AppointmentProposalResponse] = Field(default_factory=list)
+    
+    # Configuración para Pydantic v2 (resuelve el error de validación)
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True
+    )

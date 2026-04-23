@@ -22,6 +22,10 @@ from app.services.usuarios import UserService
 from app.repositories.patient_repository import PatientRepository
 from app.dto.timeline_dto import TimelineEventResponse
 
+# IMPORTACIONES NUEVAS PARA EL FLUJO DE CITAS
+from app.models.appointment import AppointmentDoctorProposeRequest, AppointmentResponse
+from app.services.medical.appointment_service import AppointmentService
+
 router = APIRouter()
 patient_repo = PatientRepository()
 
@@ -72,6 +76,20 @@ async def get_patient_medical_record(
 ):
     svc = MedicalRecordService(db)
     return svc.get_response_for_doctor(current_user, patient_id)
+
+# NUEVO ENDPOINT: Doctor propone hora de la cita
+@router.post("/appointments/{appointment_id}/propose-time", response_model=AppointmentResponse)
+async def propose_appointment_time(
+    appointment_id: str,
+    body: AppointmentDoctorProposeRequest,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    """El doctor asigna fecha y hora a la solicitud del paciente."""
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+        
+    return AppointmentService.propose_doctor_time(db, appointment_id, str(current_user.id), body)
 
 # ==========================================
 # RUTA DE LÍNEA DE TIEMPO

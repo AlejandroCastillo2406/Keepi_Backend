@@ -26,7 +26,7 @@ from app.routes import (
     subscriptions,
     user_config,
     plans,
-    analysis_request_routes, # <--- Ahora esto funcionará bien
+    analysis_request_routes,
     appointments,
     questionnaire,
 )
