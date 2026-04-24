@@ -17,7 +17,6 @@ def send_questionnaire_invite_email(*, to_email: str, patient_name: str, public_
     
     safe_name = html_escape(patient_name or "", quote=True)
     safe_href = html_escape(public_link or "", quote=True)
-<<<<<<< HEAD
     safe_brand = html_escape(brand, quote=True)
     
     # URL pública del logo en GitHub
@@ -57,16 +56,3 @@ def send_questionnaire_invite_email(*, to_email: str, patient_name: str, public_
 </body></html>"""
 
     return send_simple_html_email_ses(to_email, subject, html)
-=======
-    html = f"""
-    <div style='font-family: Arial, sans-serif; color: #1d2939;'>
-      <h2>Cuestionario de salud</h2>
-      <p>Hola {safe_name},</p>
-      <p>Tu doctor te compartió un cuestionario de salud. Ábrelo en el siguiente enlace:</p>
-      <p><a href="{safe_href}">Completar cuestionario</a></p>
-      <p style="font-size:14px;color:#475467;">Este enlace es válido durante <strong>24 horas</strong>.</p>
-      <p>Si el enlace expiró, solicita uno nuevo a tu doctor.</p>
-    </div>
-    """
-    return send_simple_html_email_ses(to_email, subject, html)
->>>>>>> e38b4a9af2a4719f536906466aad6afced4b2ec5
