@@ -7,6 +7,7 @@ Aplica overrides del doctor al materializar las preguntas.
 from __future__ import annotations
 
 import hashlib
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -14,9 +15,6 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
-from jose import JWTError, jwt
-
-from app.core.config import settings
 from app.models.questionnaire_invitation import (
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
@@ -699,28 +697,23 @@ class QuestionnaireRepository:
         return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _build_raw_token(invitation_id: uuid.UUID, expires_at: datetime) -> str:
-        payload = {
-            "sub": str(invitation_id),
-            "purpose": "questionnaire_invitation",
-            "exp": int(expires_at.timestamp()),
-        }
-        return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    def _generate_invitation_secret_token() -> str:
+        """Token opaco (URL-safe) para el link público. En BD solo se guarda SHA-256."""
+        return secrets.token_urlsafe(32)
 
-    @staticmethod
-    def _decode_raw_token(raw_token: str) -> uuid.UUID:
-        try:
-            payload = jwt.decode(
-                raw_token,
-                settings.jwt_secret_key,
-                algorithms=[settings.jwt_algorithm],
-            )
-            if payload.get("purpose") != "questionnaire_invitation":
-                raise HTTPException(status_code=400, detail="Token inválido")
-            sub = payload.get("sub")
-            return uuid.UUID(str(sub))
-        except (JWTError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail="Token inválido o expirado") from exc
+    def _get_invitation_for_public_token(self, raw_token: str) -> QuestionnaireInvitation:
+        stripped = (raw_token or "").strip()
+        if not stripped:
+            raise HTTPException(status_code=400, detail="Token inválido")
+        token_hash = self._hash_token(stripped)
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(QuestionnaireInvitation.token_hash == token_hash)
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        return inv
 
     @staticmethod
     def _invitation_to_summary(
@@ -868,7 +861,8 @@ class QuestionnaireRepository:
             question_ids.append(uid)
 
         snapshot = self._build_snapshot_questions(doctor_id, template_ids, question_ids)
-        hours = max(1, min(int(data.expires_in_hours or 72), 24 * 30))
+        # Vigencia fija del link: 24 h (no configurable por el doctor).
+        hours = 24
         expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
 
         invitation = QuestionnaireInvitation(
@@ -883,7 +877,7 @@ class QuestionnaireRepository:
         self._db.add(invitation)
         self._db.flush()
 
-        raw_token = self._build_raw_token(invitation.id, expires_at)
+        raw_token = self._generate_invitation_secret_token()
         invitation.token_hash = self._hash_token(raw_token)
 
         for idx, item in enumerate(snapshot):
@@ -938,19 +932,7 @@ class QuestionnaireRepository:
         return self._invitation_to_summary(inv, int(total))
 
     def get_public_invitation_view(self, raw_token: str) -> PublicInvitationViewResponse:
-        invitation_id = self._decode_raw_token(raw_token)
-        token_hash = self._hash_token(raw_token)
-
-        inv = (
-            self._db.query(QuestionnaireInvitation)
-            .filter(
-                QuestionnaireInvitation.id == invitation_id,
-                QuestionnaireInvitation.token_hash == token_hash,
-            )
-            .first()
-        )
-        if not inv:
-            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        inv = self._get_invitation_for_public_token(raw_token)
         inv = self._mark_expired_if_needed(inv)
 
         if inv.status != "pending":
@@ -993,19 +975,7 @@ class QuestionnaireRepository:
     def submit_public_invitation(
         self, raw_token: str, payload: PublicInvitationSubmitRequest
     ) -> tuple[PublicInvitationSubmitResponse, QuestionnaireInvitation]:
-        invitation_id = self._decode_raw_token(raw_token)
-        token_hash = self._hash_token(raw_token)
-        inv = (
-            self._db.query(QuestionnaireInvitation)
-            .filter(
-                QuestionnaireInvitation.id == invitation_id,
-                QuestionnaireInvitation.token_hash == token_hash,
-            )
-            .first()
-        )
-        if not inv:
-            raise HTTPException(status_code=404, detail="Invitación no encontrada")
-
+        inv = self._get_invitation_for_public_token(raw_token)
         inv = self._mark_expired_if_needed(inv)
         if inv.status == "completed":
             raise HTTPException(status_code=409, detail="Este cuestionario ya fue completado")

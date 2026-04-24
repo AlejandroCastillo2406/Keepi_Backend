@@ -21,6 +21,7 @@ def send_questionnaire_invite_email(*, to_email: str, patient_name: str, public_
       <p>Hola {safe_name},</p>
       <p>Tu doctor te compartió un cuestionario de salud. Ábrelo en el siguiente enlace:</p>
       <p><a href="{safe_href}">Completar cuestionario</a></p>
+      <p style="font-size:14px;color:#475467;">Este enlace es válido durante <strong>24 horas</strong>.</p>
       <p>Si el enlace expiró, solicita uno nuevo a tu doctor.</p>
     </div>
     """
