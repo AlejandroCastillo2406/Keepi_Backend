@@ -3,7 +3,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 class EventType(str, Enum):
     APPOINTMENT = "appointment"
     PRESCRIPTION = "prescription"
@@ -11,7 +10,12 @@ class EventType(str, Enum):
     ANALYSIS_REQUEST = "analysis_request"
     ANALYSIS_UPLOAD = "analysis_upload"
     REGISTRATION = "registration"
+    QUESTIONNAIRE = "questionnaire"  # <-- Nuevo evento de cuestionario
 
+class QuestionnaireStatus(str, Enum):
+    PENDING = "pending"        
+    COMPLETED = "completed"    
+    UNANSWERED = "unanswered"  
 
 class TimelineEventResponse(BaseModel):
     id: str
@@ -24,6 +28,10 @@ class TimelineEventResponse(BaseModel):
     description: str = ""
     occurred_at: str = Field(..., description="ISO-8601 para ordenar en cliente")
     visual_state: Literal["completed", "current", "future"] = "completed"
+    
+    # Nuevos campos
+    questionnaire_status: Optional[QuestionnaireStatus] = None
+    completed_at: Optional[str] = None
 
     class Config:
         from_attributes = True
