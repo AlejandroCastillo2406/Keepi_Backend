@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-
+from pydantic import BaseModel
+from typing import Any
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -46,6 +48,10 @@ class QuestionnaireInvitation(Base):
         order_by="QuestionnaireInvitationItem.sort_order.asc()",
     )
 
+class PatientResponseItemView(BaseModel):
+    question_text: str
+    answer_value: Any
+    answered_at: datetime
 
 class QuestionnaireInvitationItem(Base):
     __tablename__ = "questionnaire_invitation_items"

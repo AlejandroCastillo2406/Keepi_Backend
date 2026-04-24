@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import List, Literal, Optional
+from datetime import datetime
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -32,6 +34,9 @@ from app.models.questionnaire_invitation import (
     QuestionnaireInvitationSendResponse,
     QuestionnaireInvitationSummaryResponse,
     QuestionnaireSendInvitationRequest,
+    QuestionnaireInvitation,
+    QuestionnaireInvitationItem,
+    QuestionnaireInvitationAnswer,
 )
 from app.models.user import User
 from app.repositories.questionnaire_repository import QuestionnaireRepository
@@ -46,6 +51,12 @@ logger = logging.getLogger(__name__)
 
 
 StatusFilter = Literal["all", "active", "inactive"]
+
+
+class PatientResponseItemView(BaseModel):
+    question_text: str
+    answer_value: Any
+    answered_at: datetime
 
 
 def _get_repo(db: Session = Depends(get_db)) -> QuestionnaireRepository:
@@ -337,3 +348,42 @@ def submit_public_invitation(
         },
     )
     return response
+
+
+# ──────────────── Respuestas del Paciente ────────────────
+
+@router.get(
+    "/patients/{patient_id}/responses",
+    response_model=List[PatientResponseItemView],
+)
+def get_patient_questionnaire_responses(
+    patient_id: str,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    pat_uuid = _parse_uuid(patient_id, "patient_id")
+    
+    respuestas_db = (
+        db.query(
+            QuestionnaireInvitationItem.question_text_snapshot.label("question_text"),
+            QuestionnaireInvitationAnswer.answer_json.label("answer_value"),
+            QuestionnaireInvitationAnswer.answered_at
+        )
+        .select_from(QuestionnaireInvitation)
+        .join(QuestionnaireInvitationItem, QuestionnaireInvitationItem.invitation_id == QuestionnaireInvitation.id)
+        .join(QuestionnaireInvitationAnswer, QuestionnaireInvitationAnswer.invitation_item_id == QuestionnaireInvitationItem.id)
+        .filter(QuestionnaireInvitation.patient_id == pat_uuid)
+        .filter(QuestionnaireInvitation.doctor_id == current_user.id)
+        .filter(QuestionnaireInvitation.status == "completed")
+        .order_by(QuestionnaireInvitationAnswer.answered_at.desc())
+        .all()
+    )
+
+    return [
+        PatientResponseItemView(
+            question_text=r.question_text,
+            answer_value=r.answer_value,
+            answered_at=r.answered_at
+        )
+        for r in respuestas_db
+    ]
