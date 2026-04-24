@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -137,10 +137,13 @@ class PublicInvitationSubmitRequest(BaseModel):
 
 
 class QuestionnaireSendInvitationRequest(BaseModel):
+    """Cuerpo para crear invitación. El link público siempre vence a las 24 h."""
+
+    model_config = ConfigDict(extra="ignore")
+
     patient_id: str
     template_ids: List[str] = Field(default_factory=list)
     question_ids: List[str] = Field(default_factory=list)
-    expires_in_hours: int = 72
 
 
 class QuestionnaireInvitationSummaryResponse(BaseModel):
