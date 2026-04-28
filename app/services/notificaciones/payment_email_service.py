@@ -33,14 +33,12 @@ _SPANISH_MONTHS_FULL = (
 
 
 def format_unix_to_spanish_date(ts: int) -> str:
-    """Fecha legible en español (UTC) a partir de timestamp Unix."""
     dt = datetime.fromtimestamp(ts, tz=timezone.utc)
     return f"{dt.day} de {_SPANISH_MONTHS_FULL[dt.month - 1]} de {dt.year}"
 
 
 @dataclass(frozen=True)
 class PaymentReceiptDetails:
-    """Valores que se muestran en el HTML de confirmación de pago (desde Stripe o fallback)."""
 
     plan_line: str
     amount_line: str
@@ -51,7 +49,6 @@ class PaymentReceiptDetails:
 
     @staticmethod
     def generic_placeholder() -> "PaymentReceiptDetails":
-        """Cuando no hay datos de Stripe."""
         today = date.today()
         dstr = f"{today.day} de {_SPANISH_MONTHS_FULL[today.month - 1]} de {today.year}"
         brand = (settings.email_brand_name or "").strip() or "—"
@@ -78,15 +75,15 @@ def _svg_error() -> str:
     return (
         '<table role="presentation" cellspacing="0" cellpadding="0" border="0"'
         ' align="center" style="margin:0 auto;">'
-        '<tr>'
+        "<tr>"
         '<td width="64" height="64"'
         ' style="width:64px;height:64px;border-radius:50%;background:#DC2626;'
-        'text-align:center;vertical-align:middle;'
+        "text-align:center;vertical-align:middle;"
         'font-size:28px;color:#ffffff;font-weight:700;line-height:64px;">'
-        '&#10005;'
-        '</td>'
-        '</tr>'
-        '</table>'
+        "&#10005;"
+        "</td>"
+        "</tr>"
+        "</table>"
     )
 
 
@@ -634,17 +631,17 @@ def send_payment_email_ses(
         return PaymentEmailResult(success=False, error=str(exc))
 
 
-def send_simple_html_email_ses(to_email: str, subject: str, html_body: str) -> PaymentEmailResult:
-    """
-    Correo genérico por SES (HTML). Úsalo desde notificaciones unificadas u otros flujos
-    que no requieran plantillas de pago/vencimiento.
-    """
+def send_simple_html_email_ses(
+    to_email: str, subject: str, html_body: str
+) -> PaymentEmailResult:
     source_email = (settings.ses_from_email or "").strip()
     source_name = (settings.ses_from_name or "").strip() or source_email
     if not source_email:
         return PaymentEmailResult(success=False, error="SES_FROM_EMAIL no configurado")
     if not settings.aws_access_key_id or not settings.aws_secret_access_key:
-        return PaymentEmailResult(success=False, error="Credenciales AWS no configuradas")
+        return PaymentEmailResult(
+            success=False, error="Credenciales AWS no configuradas"
+        )
 
     client = boto3.client(
         "ses",

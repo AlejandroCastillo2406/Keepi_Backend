@@ -11,17 +11,18 @@ def build_public_questionnaire_link(raw_token: str) -> str:
     return f"{base}/q/{raw_token}"
 
 
-def send_questionnaire_invite_email(*, to_email: str, patient_name: str, public_link: str):
+def send_questionnaire_invite_email(
+    *, to_email: str, patient_name: str, public_link: str
+):
     brand = (getattr(settings, "email_brand_name", "") or "").strip() or "Keepi"
     subject = f"{brand} - Cuestionario de salud"
-    
+
     safe_name = html_escape(patient_name or "", quote=True)
     safe_href = html_escape(public_link or "", quote=True)
     safe_brand = html_escape(brand, quote=True)
-    
-    # URL pública del logo en GitHub
+
     logo_url = "https://raw.githubusercontent.com/AlejandroCastillo2406/Keepi_Front/master/assets/icons/logo.png"
-    
+
     html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8" /></head>
 <body style="font-family:system-ui,sans-serif;background:#f3f4f6;padding:24px;">

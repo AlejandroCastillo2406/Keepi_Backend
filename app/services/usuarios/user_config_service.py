@@ -1,101 +1,95 @@
 import logging
+import uuid
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.user_config import (CloudProvider, CloudProviderInfo,
-                                    UserConfig, UserConfigCreate,
-                                    UserConfigResponse, UserConfigUpdate)
+from app.models.user_config import (
+    CloudProvider,
+    CloudProviderInfo,
+    UserConfig,
+    UserConfigCreate,
+    UserConfigResponse,
+    UserConfigUpdate,
+)
+from app.repositories.user_config_repository import UserConfigRepository
 
 logger = logging.getLogger(__name__)
 
 
 class UserConfigService:
-    def __init__(self, db: Session):
+    def __init__(
+        self,
+        db: Session,
+        user_config_repository: UserConfigRepository | None = None,
+    ):
         self.db = db
-    
+        self._repo = user_config_repository or UserConfigRepository(db)
+
+    def _uid(self, user_id: str) -> uuid.UUID:
+        return uuid.UUID(str(user_id))
+
     async def get_user_config(self, user_id: str) -> Optional[UserConfigResponse]:
-        """Obtener configuración del usuario"""
         try:
-            config = self.db.query(UserConfig).filter(UserConfig.user_id == user_id).first()
-            if config:
-                return UserConfigResponse.from_orm(config)
+            row = self._repo.get_by_user_id(user_id)
+            if row:
+                return UserConfigResponse.from_orm(row)
             return None
-            
         except Exception as e:
-            logger.error(f"Error obteniendo configuración de usuario: {str(e)}")
+            logger.error("Error obteniendo configuración de usuario: %s", e)
             raise
-    
-    async def create_user_config(self, user_id: str, config_data: UserConfigCreate) -> UserConfigResponse:
-        """Crear configuración de usuario"""
+
+    async def create_user_config(
+        self, user_id: str, config_data: UserConfigCreate
+    ) -> UserConfigResponse:
         try:
-            # Crear instancia de configuración
-            config = UserConfig(
-                user_id=user_id,
+            row = UserConfig(
+                user_id=self._uid(user_id),
                 cloud_provider=config_data.cloud_provider.value,
-                notification_preferences=config_data.notification_preferences or {}
+                notification_preferences=config_data.notification_preferences or {},
             )
-            
-            self.db.add(config)
-            self.db.commit()
-            self.db.refresh(config)
-            
-            return UserConfigResponse.from_orm(config)
-            
+            self._repo.add(row)
+            return UserConfigResponse.from_orm(row)
         except Exception as e:
-            logger.error(f"Error creando configuración de usuario: {str(e)}")
+            logger.error("Error creando configuración de usuario: %s", e)
             self.db.rollback()
             raise
-    
-    async def update_user_config(self, user_id: str, config_data: UserConfigUpdate) -> Optional[UserConfigResponse]:
-        """Actualizar configuración de usuario"""
+
+    async def update_user_config(
+        self, user_id: str, config_data: UserConfigUpdate
+    ) -> Optional[UserConfigResponse]:
         try:
-            config = self.db.query(UserConfig).filter(UserConfig.user_id == user_id).first()
-            
+            config = self._repo.get_by_user_id(user_id)
             if not config:
                 return None
-            
-            # Actualizar campos
             if config_data.cloud_provider is not None:
                 config.cloud_provider = config_data.cloud_provider.value
-            
             if config_data.notification_preferences is not None:
                 config.notification_preferences = config_data.notification_preferences
-            
-            # Guardar cambios
-            self.db.commit()
-            self.db.refresh(config)
-            
+            self._repo.save(config)
             return UserConfigResponse.from_orm(config)
-            
         except Exception as e:
-            logger.error(f"Error actualizando configuración de usuario: {str(e)}")
+            logger.error("Error actualizando configuración de usuario: %s", e)
             self.db.rollback()
             raise
-    
+
     async def get_or_create_user_config(self, user_id: str) -> UserConfigResponse:
-        """Obtener o crear configuración de usuario por defecto"""
         try:
             config = await self.get_user_config(user_id)
-            
             if not config:
-                # Crear configuración por defecto: sin configurar (primera vez)
                 default_config = UserConfigCreate(
                     cloud_provider=CloudProvider.NOT_CONFIGURED,
-                    notification_preferences={}
+                    notification_preferences={},
                 )
                 config = await self.create_user_config(user_id, default_config)
-            
             return config
-            
         except Exception as e:
-            logger.error(f"Error obteniendo/creando configuración de usuario: {str(e)}")
+            logger.error("Error obteniendo/creando configuración de usuario: %s", e)
             raise
-    
+
     async def get_available_cloud_providers(self) -> list[CloudProviderInfo]:
-        """Obtener proveedores de nube disponibles"""
         try:
-            providers = [
+            return [
                 CloudProviderInfo(
                     provider=CloudProvider.GOOGLE_DRIVE,
                     name="Google Drive",
@@ -104,10 +98,10 @@ class UserConfigService:
                         "Integración con Google Workspace",
                         "Acceso desde cualquier dispositivo",
                         "Colaboración en tiempo real",
-                        "15GB de almacenamiento gratuito"
+                        "15GB de almacenamiento gratuito",
                     ],
                     storage_limit="15GB (gratuito)",
-                    is_available=True
+                    is_available=True,
                 ),
                 CloudProviderInfo(
                     provider=CloudProvider.KEEPI_CLOUD,
@@ -117,33 +111,26 @@ class UserConfigService:
                         "Almacenamiento dedicado por usuario",
                         "Categorización automática con IA",
                         "Análisis avanzado de documentos",
-                        "Carpetas organizadas automáticamente"
+                        "Carpetas organizadas automáticamente",
                     ],
                     storage_limit="1GB (gratuito)",
-                    is_available=True
-                )
+                    is_available=True,
+                ),
             ]
-            
-            return providers
-            
         except Exception as e:
-            logger.error(f"Error obteniendo proveedores de nube: {str(e)}")
+            logger.error("Error obteniendo proveedores de nube: %s", e)
             raise
-    
-    async def switch_cloud_provider(self, user_id: str, new_provider: CloudProvider) -> UserConfigResponse:
-        """Cambiar proveedor de nube del usuario"""
+
+    async def switch_cloud_provider(
+        self, user_id: str, new_provider: CloudProvider
+    ) -> UserConfigResponse:
         try:
-            config_update = UserConfigUpdate(cloud_provider=new_provider)
-            updated_config = await self.update_user_config(user_id, config_update)
-            
-            if not updated_config:
+            updated = await self.update_user_config(
+                user_id, UserConfigUpdate(cloud_provider=new_provider)
+            )
+            if not updated:
                 raise ValueError("No se pudo actualizar la configuración del usuario")
-            
-            # Aquí podrías agregar lógica adicional para migrar documentos
-            # entre proveedores si es necesario
-            
-            return updated_config
-            
+            return updated
         except Exception as e:
-            logger.error(f"Error cambiando proveedor de nube: {str(e)}")
+            logger.error("Error cambiando proveedor de nube: %s", e)
             raise

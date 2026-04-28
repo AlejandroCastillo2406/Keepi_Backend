@@ -7,7 +7,7 @@ from typing import Dict
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.user_device_token import UserDeviceToken
+from app.repositories.user_device_token_repository import UserDeviceTokenRepository
 
 logger = logging.getLogger(__name__)
 _firebase_initialized = False
@@ -41,19 +41,16 @@ def _init_firebase() -> bool:
         return False
 
 
-def send_push_to_user(db: Session, user_id: str, title: str, body: str, data: Dict[str, str] | None = None) -> int:
+def send_push_to_user(
+    db: Session, user_id: str, title: str, body: str, data: Dict[str, str] | None = None
+) -> int:
     try:
         uid = uuid_lib.UUID(str(user_id).strip())
     except (ValueError, AttributeError):
         logger.warning("FCM: user_id inválido para push: %r", user_id)
         return 0
 
-    tokens = (
-        db.query(UserDeviceToken)
-        .filter(UserDeviceToken.user_id == uid)
-        .filter(UserDeviceToken.is_active.is_(True))
-        .all()
-    )
+    tokens = UserDeviceTokenRepository(db).list_active_for_user(uid)
     if not tokens:
         logger.info(
             "FCM: ningún token activo para user_id=%s (la app debe registrar POST /api/v1/push/register tras login).",
@@ -96,4 +93,3 @@ def build_reminder_prompt_payload(doctor_name: str) -> dict:
         "doctor_name": doctor_name,
         "title": f"El doctor {doctor_name} te asigno una receta",
     }
-

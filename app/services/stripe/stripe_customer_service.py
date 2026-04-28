@@ -1,7 +1,3 @@
-"""
-Creación de clientes en Stripe.
-Responsabilidad única: llamar a Stripe API para crear/obtener customer.
-"""
 import logging
 
 import stripe
@@ -13,14 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 class StripeCustomerService:
-    """Crea clientes en Stripe a partir de un User."""
 
     def create_customer(self, user: User) -> str:
-        """
-        Crea un cliente en Stripe para el usuario.
-        Returns: stripe_customer_id
-        Raises: ValueError si no hay API key; stripe.Error en fallos de API.
-        """
         ensure_stripe_key()
         payload = {
             "email": user.email,

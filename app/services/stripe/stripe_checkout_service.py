@@ -1,20 +1,14 @@
-"""
-Creación de Checkout Sessions de Stripe (flujo de pago por redirección).
-Responsabilidad única: crear la sesión de checkout y devolver URL y metadatos.
-"""
 import logging
 from typing import Any, Dict
 
 import stripe
 
-from app.services.stripe.stripe_config import (ensure_stripe_key,
-                                               get_payment_urls)
+from app.services.stripe.stripe_config import ensure_stripe_key, get_payment_urls
 
 logger = logging.getLogger(__name__)
 
 
 class StripeCheckoutService:
-    """Crea sesiones de checkout de Stripe para suscripciones."""
 
     def create_checkout_session(
         self,
@@ -23,10 +17,6 @@ class StripeCheckoutService:
         user_id: str,
         plan_value: str,
     ) -> Dict[str, Any]:
-        """
-        Crea una Checkout Session en modo subscription.
-        Returns: dict con checkout_session_id, checkout_url, success_url, cancel_url.
-        """
         ensure_stripe_key()
         success_url, cancel_url = get_payment_urls()
         session = stripe.checkout.Session.create(

@@ -13,86 +13,85 @@ from app.core.database import Base
 
 
 class SubscriptionStatus(str, Enum):
-    """Estados de suscripción"""
     ACTIVE = "active"
-    INACTIVE = "inactive" 
+    INACTIVE = "inactive"
     CANCELED = "canceled"
     PAST_DUE = "past_due"
     TRIALING = "trialing"
 
-# NOTA: Hemos eliminado SubscriptionPlan (Enum) porque ahora 
-# la información de los planes es dinámica y viene de la base de datos.
 
-# Modelo SQLAlchemy para suscripciones
 class Subscription(Base):
     __tablename__ = "subscriptions"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True, unique=True)
-    
-    # NUEVO: Llave foránea que enlaza con la tabla de planes
-    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=True, index=True)
-    
-    # Información de Stripe
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+        unique=True,
+    )
+
+    plan_id = Column(
+        UUID(as_uuid=True), ForeignKey("plans.id"), nullable=True, index=True
+    )
+
     stripe_customer_id = Column(String(255), nullable=True, index=True)
     stripe_subscription_id = Column(String(255), nullable=True, index=True)
     stripe_price_id = Column(String(255), nullable=True)
-    
-    # Detalles de la suscripción
+
     status = Column(String(50), nullable=False, default=SubscriptionStatus.INACTIVE)
     trial_end = Column(DateTime(timezone=True), nullable=True)
     current_period_start = Column(DateTime(timezone=True), nullable=True)
     current_period_end = Column(DateTime(timezone=True), nullable=True)
-    
-    # Límites y uso (Se copian del Plan al usuario para mantener un historial seguro)
-    # Convención: -1 significa análisis ilimitados
-    analysis_limit = Column(Integer, nullable=False, default=2)  
+
+    analysis_limit = Column(Integer, nullable=False, default=2)
     analysis_used = Column(Integer, nullable=False, default=0)
-    
-    # Metadatos
-    extra_metadata = Column(Text, nullable=True)  # JSON como string para metadatos adicionales
-    
-    # Control de fechas
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    extra_metadata = Column(Text, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
     canceled_at = Column(DateTime(timezone=True), nullable=True)
-    
-    # Relaciones
+
     user = relationship("User", back_populates="subscription")
-    plan = relationship("Plan") # <--- Relación con el modelo creado en el Paso 1
-    
+    plan = relationship("Plan")
+
     def __repr__(self):
         return f"<Subscription(id={self.id}, user_id={self.user_id}, plan_id={self.plan_id}, status={self.status})>"
-    
+
     @property
     def has_analysis_remaining(self) -> bool:
-        """Verificar dinámicamente si el usuario tiene análisis restantes"""
-        if self.analysis_limit == -1: # -1 = Ilimitado
+        if self.analysis_limit == -1:
             return self.status == SubscriptionStatus.ACTIVE
         return self.analysis_used < self.analysis_limit
-    
+
     @property
     def analysis_remaining(self) -> int:
-        """Obtener número de análisis restantes dinámicamente"""
-        if self.analysis_limit == -1: # -1 = Ilimitado
+        if self.analysis_limit == -1:
             return 999999 if self.status == SubscriptionStatus.ACTIVE else 0
         return max(0, self.analysis_limit - self.analysis_used)
 
 
-# Modelos Pydantic para la API
 class SubscriptionBase(BaseModel):
-    """Modelo base para suscripción"""
     plan_id: Optional[str] = None
     analysis_limit: int = 2
 
+
 class SubscriptionCreate(SubscriptionBase):
-    """Modelo para crear suscripción"""
     user_id: str
     stripe_customer_id: Optional[str] = None
     trial_end: Optional[datetime] = None
 
+
 class SubscriptionUpdate(BaseModel):
-    """Modelo para actualizar suscripción"""
     plan_id: Optional[str] = None
     status: Optional[SubscriptionStatus] = None
     stripe_subscription_id: Optional[str] = None
@@ -104,8 +103,8 @@ class SubscriptionUpdate(BaseModel):
     analysis_used: Optional[int] = None
     extra_metadata: Optional[str] = None
 
+
 class SubscriptionResponse(SubscriptionBase):
-    """Modelo de respuesta para suscripción"""
     id: str
     user_id: str
     stripe_customer_id: Optional[str] = None
@@ -122,13 +121,12 @@ class SubscriptionResponse(SubscriptionBase):
     created_at: datetime
     updated_at: datetime
     canceled_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
-    
+
     @classmethod
     def from_orm(cls, obj):
-        """Convertir desde ORM asegurando que los UUIDs sean strings"""
         data = {
             "id": str(obj.id),
             "user_id": str(obj.user_id),
@@ -147,19 +145,23 @@ class SubscriptionResponse(SubscriptionBase):
             "extra_metadata": obj.extra_metadata,
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
-            "canceled_at": obj.canceled_at
+            "canceled_at": obj.canceled_at,
         }
         return cls(**data)
 
+
 class PaymentIntentRequest(BaseModel):
-    """Modelo para crear Payment Intent de Stripe"""
     plan_code: Optional[str] = None
     payment_method_id: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
     def _coerce_plan_code(cls, data):
-        if isinstance(data, dict) and data.get("plan_code") in (None, "") and data.get("plan") not in (None, ""):
+        if (
+            isinstance(data, dict)
+            and data.get("plan_code") in (None, "")
+            and data.get("plan") not in (None, "")
+        ):
             data = dict(data)
             data["plan_code"] = data.get("plan")
         return data
@@ -170,14 +172,14 @@ class PaymentIntentRequest(BaseModel):
             raise ValueError("plan_code requerido (o usa el campo 'plan')")
         return self
 
+
 class PaymentIntentResponse(BaseModel):
-    """Respuesta del Payment Intent"""
     client_secret: str
     status: str
     subscription_id: Optional[str] = None
 
+
 class WebhookEvent(BaseModel):
-    """Modelo para eventos de webhook de Stripe"""
     id: str
     type: str
     data: dict

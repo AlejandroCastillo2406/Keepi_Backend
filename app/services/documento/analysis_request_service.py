@@ -1,0 +1,308 @@
+from __future__ import annotations
+
+import io
+import logging
+import uuid
+from typing import Any, Dict, List
+from uuid import UUID
+
+from fastapi import HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from app.dto.analysis_request_dto import AnalysisRequestCreate, AnalysisRequestResponse
+from app.models.analysis_request import AnalysisRequest
+from app.models.document import Document
+from app.repositories.analysis_request_repository import AnalysisRequestRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.user_repository import UserRepository
+from app.services.almacenamiento import FolderService, GoogleDriveService, S3Service
+from app.services.autenticacion import GoogleOAuthService
+from app.services.notificaciones.notification_service import NotificationService
+from app.services.usuarios import UserConfigService
+
+logger = logging.getLogger(__name__)
+_MSG_ERROR_INTERNO = "Error interno del servidor"
+_ANALYSIS_DOCUMENT_CATEGORY = "Análisis Clínicos"
+
+
+def _truncate(text: str, max_len: int) -> str:
+    t = (text or "").strip()
+    if len(t) <= max_len:
+        return t
+    return t[: max_len - 3] + "..."
+
+
+class AnalysisRequestService:
+    def __init__(
+        self,
+        db: Session,
+        notification_service: NotificationService | None = None,
+    ) -> None:
+        self._db = db
+        self._repo = AnalysisRequestRepository(db)
+        self._docs = DocumentRepository(db)
+        self._users = UserRepository(db)
+        self._notifications = notification_service or NotificationService(db)
+
+    def _notify_patient_new(
+        self,
+        *,
+        patient_id: UUID,
+        doctor_id: UUID,
+        analysis_request_id: UUID,
+        description: str,
+    ) -> None:
+        doctor = self._users.get_by_id_plain(doctor_id)
+        doctor_name = (doctor.name if doctor else None) or "Tu médico"
+        desc_preview = _truncate(description, 220)
+        body = (
+            f"{doctor_name} te pidió subir resultados: {desc_preview}"
+            if desc_preview
+            else f"{doctor_name} te envió una solicitud de análisis."
+        )
+        res = self._notifications.notify_user_push_in_app(
+            patient_id,
+            title="Nueva solicitud de análisis",
+            message=body,
+            notification_type="info",
+            payload={
+                "analysis_request_id": str(analysis_request_id),
+                "doctor_id": str(doctor_id),
+                "description": description,
+            },
+            push_data={
+                "type": "analysis_request_assigned",
+                "analysis_request_id": str(analysis_request_id),
+                "doctor_id": str(doctor_id),
+                "title": "Nueva solicitud de análisis",
+                "body": body,
+            },
+        )
+        if res.push_devices_ok == 0:
+            logger.warning(
+                "Solicitud de análisis %s creada; push a 0 dispositivos para paciente %s.",
+                analysis_request_id,
+                patient_id,
+            )
+
+    def _notify_doctor_completed(
+        self, *, analysis_req: AnalysisRequest, document_id: UUID
+    ) -> None:
+        patient = self._users.get_by_id_plain(analysis_req.patient_id)
+        patient_name = (patient.name if patient else None) or "Paciente"
+        desc_preview = _truncate(analysis_req.description or "", 180)
+        body = (
+            f"{patient_name} completó la solicitud: {desc_preview}"
+            if desc_preview
+            else f"{patient_name} subió el estudio solicitado."
+        )
+        res = self._notifications.notify_user_push_in_app(
+            analysis_req.doctor_id,
+            title="Estudio completado",
+            message=body,
+            notification_type="info",
+            payload={
+                "analysis_request_id": str(analysis_req.id),
+                "patient_id": str(analysis_req.patient_id),
+                "document_id": str(document_id),
+                "description": analysis_req.description or "",
+            },
+            document_id=document_id,
+            push_data={
+                "type": "analysis_request_completed",
+                "analysis_request_id": str(analysis_req.id),
+                "patient_id": str(analysis_req.patient_id),
+                "document_id": str(document_id),
+                "title": "Estudio completado",
+                "body": body,
+            },
+        )
+        if res.push_devices_ok == 0:
+            logger.warning(
+                "Solicitud %s completada; push a 0 dispositivos para doctor %s.",
+                analysis_req.id,
+                analysis_req.doctor_id,
+            )
+
+    def create_request(
+        self, doctor_id: UUID, data: AnalysisRequestCreate
+    ) -> AnalysisRequestResponse:
+        created = self._repo.create(
+            doctor_id=doctor_id,
+            patient_id=data.patient_id,
+            description=data.description,
+        )
+        self._notify_patient_new(
+            patient_id=data.patient_id,
+            doctor_id=doctor_id,
+            analysis_request_id=created.id,
+            description=data.description,
+        )
+        return created
+
+    def get_pending_for_patient(
+        self, patient_id: UUID
+    ) -> List[AnalysisRequestResponse]:
+        return self._repo.get_pending_by_patient(patient_id)
+
+    def list_history_for_patient(
+        self, patient_id: UUID
+    ) -> List[AnalysisRequestResponse]:
+        return self._repo.get_all_by_patient(patient_id)
+
+    def complete_with_existing_document(
+        self,
+        *,
+        patient_id: UUID,
+        request_id: UUID,
+        document_id: UUID,
+    ) -> Dict[str, str]:
+        analysis_req = self._repo.get_by_id(request_id)
+        if (
+            not analysis_req
+            or analysis_req.patient_id != patient_id
+            or analysis_req.status != "pending"
+        ):
+            raise HTTPException(
+                status_code=404, detail="Solicitud no válida o ya completada."
+            )
+        doc = self._docs.get_by_id(str(document_id), str(patient_id))
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail="Documento no encontrado o no pertenece al usuario.",
+            )
+        updated = self._repo.mark_as_completed(request_id, document_id)
+        if not updated:
+            raise HTTPException(
+                status_code=500, detail="No se pudo completar la solicitud."
+            )
+        self._notify_doctor_completed(analysis_req=updated, document_id=document_id)
+        return {
+            "message": "Solicitud completada.",
+            "request_id": str(request_id),
+            "document_id": str(document_id),
+        }
+
+    async def upload_and_complete(
+        self,
+        *,
+        patient_uid: str,
+        request_id: UUID,
+        file: UploadFile,
+    ) -> Dict[str, Any]:
+        repo = self._repo
+        analysis_req = repo.get_by_id(request_id)
+        if (
+            not analysis_req
+            or str(analysis_req.patient_id) != patient_uid
+            or analysis_req.status != "pending"
+        ):
+            raise HTTPException(
+                status_code=404, detail="Solicitud no válida o ya completada."
+            )
+        try:
+            content = await file.read()
+            filename = (
+                file.filename
+                or f"estudio_{request_id.hex}.{file.content_type.split('/')[-1]}"
+            )
+            mime_type = file.content_type or "application/octet-stream"
+
+            config_service = UserConfigService(self._db)
+            user_config = await config_service.get_or_create_user_config(patient_uid)
+
+            cloud_provider = (
+                user_config.cloud_provider.value
+                if user_config and user_config.cloud_provider
+                else "google_drive"
+            )
+            drive_file_id = None
+            s3_key = None
+            file_url = None
+
+            folder_service = FolderService(self._db)
+            folder_result = await folder_service.ensure_category_folder_exists(
+                patient_uid, _ANALYSIS_DOCUMENT_CATEGORY, cloud_provider
+            )
+            if not folder_result.get("success"):
+                if folder_result.get("requires_drive_auth"):
+                    raise HTTPException(
+                        status_code=401,
+                        detail=folder_result.get("error", "Google Drive no autorizado"),
+                    )
+                raise HTTPException(
+                    status_code=400,
+                    detail=folder_result.get(
+                        "error", "No se pudo preparar la carpeta de destino"
+                    ),
+                )
+
+            if cloud_provider == "google_drive":
+                oauth_service = GoogleOAuthService(self._db)
+                credentials = await oauth_service.refresh_user_tokens(patient_uid)
+                if not credentials:
+                    raise HTTPException(
+                        status_code=401, detail="Google Drive no autorizado"
+                    )
+                drive_folder_id = folder_result.get("folder_id")
+                if not drive_folder_id:
+                    raise HTTPException(
+                        status_code=500, detail="No se obtuvo carpeta en Google Drive"
+                    )
+                drive_service = GoogleDriveService(credentials)
+                drive_file_id = await drive_service.upload_file(
+                    content, filename, drive_folder_id, mime_type
+                )
+                if drive_file_id:
+                    file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
+            else:
+                s3_service = S3Service()
+                folder_name = folder_result.get("folder_name") or "other"
+                upload_res = await s3_service.upload_document(
+                    patient_uid,
+                    io.BytesIO(content),
+                    filename,
+                    mime_type,
+                    folder=folder_name,
+                )
+                s3_key = upload_res.get("file_path")
+                file_url = upload_res.get("signed_url")
+
+            document = Document(
+                user_id=UUID(patient_uid),
+                name=filename,
+                category=_ANALYSIS_DOCUMENT_CATEGORY,
+                description=f"Archivo subido para solicitud: {analysis_req.description}",
+                file_url=file_url,
+                file_name=filename,
+                file_size=len(content),
+                file_type=mime_type.split("/")[0],
+                cloud_provider=cloud_provider,
+                drive_file_id=drive_file_id,
+                s3_key=s3_key,
+                tags=[f"analysis_request:{request_id}"],
+            )
+            self._docs.persist(document)
+
+            updated_request = repo.mark_as_completed(request_id, document.id)
+            if not updated_request:
+                raise HTTPException(
+                    status_code=500, detail="No se pudo completar la solicitud."
+                )
+
+            self._notify_doctor_completed(
+                analysis_req=updated_request, document_id=document.id
+            )
+
+            return {
+                "message": "Archivo subido y solicitud completada.",
+                "request_id": str(updated_request.id),
+                "document_id": str(document.id),
+            }
+        except HTTPException:
+            raise
+        except Exception:
+            self._db.rollback()
+            logger.exception("Error en upload_and_complete")
+            raise HTTPException(status_code=500, detail=_MSG_ERROR_INTERNO) from None

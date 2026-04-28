@@ -1,4 +1,3 @@
-# Models Package
 from .plans import Plan
 from .appointment import Appointment
 from .document import Document
@@ -18,7 +17,6 @@ from .user import User
 from .user_device_token import UserDeviceToken
 from .user_config import UserConfig
 
-# Exportar todos los modelos para que SQLAlchemy los registre
 __all__ = [
     "User",
     "Prescription",

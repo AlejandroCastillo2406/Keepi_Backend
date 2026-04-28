@@ -4,10 +4,17 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.subscription import PaymentIntentRequest, PaymentIntentResponse, Subscription, SubscriptionResponse, SubscriptionStatus
-from app.models.plans import Plan
-from app.models.user import User
+from app.models.subscription import (
+    PaymentIntentRequest,
+    PaymentIntentResponse,
+    Subscription,
+    SubscriptionResponse,
+    SubscriptionStatus,
+)
+from app.models.plans import PlanResponse
+from app.repositories.plan_repository import PlanRepository
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.repositories.user_repository import UserRepository
 from app.services.stripe.stripe_checkout_service import StripeCheckoutService
 from app.services.stripe.stripe_config import get_price_id_for_plan
 from app.services.stripe.stripe_customer_service import StripeCustomerService
@@ -18,12 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 def _effective_analysis_limit(db: Session, subscription: Subscription) -> int:
-    """
-    El límite mostrado y aplicado debe seguir al plan actual en `plans`,
-    no solo a la copia en `subscriptions` (puede quedar obsoleta si editas el plan en BD).
-    """
     if subscription.plan_id:
-        plan = db.query(Plan).filter(Plan.id == subscription.plan_id).first()
+        plan = PlanRepository(db).get_by_id(subscription.plan_id)
         if plan is not None:
             return int(plan.analysis_limit)
     return int(subscription.analysis_limit)
@@ -43,10 +46,10 @@ def _has_analysis_remaining_with_limit(subscription: Subscription, limit: int) -
 
 class SubscriptionService:
     def __init__(
-        self, 
-        stripe_customer: Optional[StripeCustomerService] = None, 
-        stripe_checkout: Optional[StripeCheckoutService] = None, 
-        stripe_subscription: Optional[StripeSubscriptionService] = None, 
+        self,
+        stripe_customer: Optional[StripeCustomerService] = None,
+        stripe_checkout: Optional[StripeCheckoutService] = None,
+        stripe_subscription: Optional[StripeSubscriptionService] = None,
     ) -> None:
         self._stripe_customer = stripe_customer or StripeCustomerService()
         self._stripe_checkout = stripe_checkout or StripeCheckoutService()
@@ -73,28 +76,36 @@ class SubscriptionService:
             }
         )
 
-    async def get_user_subscription(self, user_id: str, db: Session) -> Optional[SubscriptionResponse]:
+    async def get_user_subscription(
+        self, user_id: str, db: Session
+    ) -> Optional[SubscriptionResponse]:
         repo = SubscriptionRepository(db)
         sub = repo.get_by_user_id(user_id)
         return self.subscription_response_with_plan_limits(db, sub) if sub else None
 
-    async def get_or_create_subscription(self, user_id: str, db: Session) -> Subscription:
+    async def get_or_create_subscription(
+        self, user_id: str, db: Session
+    ) -> Subscription:
         repo = SubscriptionRepository(db)
         return repo.get_or_create_free(user_id)
 
-    async def create_free_subscription(self, user_id: str, db: Session) -> SubscriptionResponse:
+    async def create_free_subscription(
+        self, user_id: str, db: Session
+    ) -> SubscriptionResponse:
         repo = SubscriptionRepository(db)
         sub = repo.get_or_create_free(user_id)
         return self.subscription_response_with_plan_limits(db, sub)
 
-    async def create_checkout_session(self, user_id: str, request: PaymentIntentRequest, db: Session) -> Dict[str, Any]:
+    async def create_checkout_session(
+        self, user_id: str, request: PaymentIntentRequest, db: Session
+    ) -> Dict[str, Any]:
         repo = SubscriptionRepository(db)
         try:
             user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
         except (ValueError, TypeError):
             raise ValueError("user_id inválido") from None
 
-        user = db.query(User).filter(User.id == user_uuid).first()
+        user = UserRepository(db).get_by_id_plain(user_uuid)
         if not user:
             raise ValueError("Usuario no encontrado")
 
@@ -105,19 +116,23 @@ class SubscriptionService:
             subscription = repo.get_by_user_id(user_id)
 
         if request.plan_code != "premium":
-            raise ValueError("Solo se soporta el plan premium para crear checkout session")
+            raise ValueError(
+                "Solo se soporta el plan premium para crear checkout session"
+            )
         price_id = get_price_id_for_plan("premium")
 
         return self._stripe_checkout.create_checkout_session(
-            customer_id=subscription.stripe_customer_id, 
-            price_id=price_id, 
-            user_id=str(user_id), 
-            plan_value=request.plan_code, 
+            customer_id=subscription.stripe_customer_id,
+            price_id=price_id,
+            user_id=str(user_id),
+            plan_value=request.plan_code,
         )
 
-    async def create_payment_intent(self, user_id: str, request: PaymentIntentRequest, db: Session) -> PaymentIntentResponse:
+    async def create_payment_intent(
+        self, user_id: str, request: PaymentIntentRequest, db: Session
+    ) -> PaymentIntentResponse:
         repo = SubscriptionRepository(db)
-        user = db.query(User).filter(User.id == user_id).first()
+        user = UserRepository(db).get_by_id_plain(user_id)
         if not user:
             raise ValueError("Usuario no encontrado")
 
@@ -131,32 +146,36 @@ class SubscriptionService:
             subscription = repo.get_by_user_id(user_id)
 
         if request.plan_code != "premium":
-            raise ValueError("Solo se soporta el plan premium para crear payment intent")
+            raise ValueError(
+                "Solo se soporta el plan premium para crear payment intent"
+            )
         price_id = get_price_id_for_plan("premium")
 
         result = self._stripe_subscription.create_subscription(
-            customer_id=subscription.stripe_customer_id, 
-            price_id=price_id, 
-            user_id=str(user_id), 
-            plan_value=request.plan_code, 
+            customer_id=subscription.stripe_customer_id,
+            price_id=price_id,
+            user_id=str(user_id),
+            plan_value=request.plan_code,
         )
 
         repo.set_payment_intent_created(
-            subscription, 
-            stripe_subscription_id=result["stripe_subscription_id"], 
-            stripe_price_id=price_id, 
-            plan_code=request.plan_code, 
-            current_period_start=result["current_period_start"], 
-            current_period_end=result["current_period_end"], 
+            subscription,
+            stripe_subscription_id=result["stripe_subscription_id"],
+            stripe_price_id=price_id,
+            plan_code=request.plan_code,
+            current_period_start=result["current_period_start"],
+            current_period_end=result["current_period_end"],
         )
 
         return PaymentIntentResponse(
-            client_secret=result.get("client_secret") or "", 
-            status=result.get("status") or "requires_payment_method", 
-            subscription_id=result["stripe_subscription_id"], 
+            client_secret=result.get("client_secret") or "",
+            status=result.get("status") or "requires_payment_method",
+            subscription_id=result["stripe_subscription_id"],
         )
 
-    async def handle_webhook_event(self, event_data: Dict[str, Any], db: Session) -> bool:
+    async def handle_webhook_event(
+        self, event_data: Dict[str, Any], db: Session
+    ) -> bool:
         return handle_webhook_event(event_data, db)
 
     async def cancel_subscription(self, user_id: str, db: Session) -> bool:
@@ -165,8 +184,10 @@ class SubscriptionService:
         if not subscription or not subscription.stripe_subscription_id:
             logger.warning("No hay suscripción activa para usuario %s", user_id)
             return False
-            
-        self._stripe_subscription.cancel_subscription(subscription.stripe_subscription_id)
+
+        self._stripe_subscription.cancel_subscription(
+            subscription.stripe_subscription_id
+        )
         repo.set_canceled_to_free(subscription)
         logger.info("Suscripción cancelada para usuario %s", user_id)
         return True
@@ -180,7 +201,7 @@ class SubscriptionService:
 
         current_plan_code = None
         if subscription.plan_id:
-            plan = db.query(Plan).filter(Plan.id == subscription.plan_id).first()
+            plan = PlanRepository(db).get_by_id(subscription.plan_id)
             if plan:
                 current_plan_code = plan.code
 
@@ -200,3 +221,46 @@ class SubscriptionService:
             logger.warning("No hay suscripción para usuario %s", user_id)
             return False
         return repo.increment_analysis_used(subscription)
+
+    @staticmethod
+    def resolve_plan_code(db: Session, plan_id: Optional[str]) -> Optional[str]:
+        if not plan_id:
+            return None
+        try:
+            pid = uuid.UUID(plan_id)
+        except (ValueError, TypeError):
+            return None
+        plan = PlanRepository(db).get_by_id(pid)
+        return plan.code if plan else None
+
+    async def list_public_plans(self, db: Session) -> list[PlanResponse]:
+        plans = PlanRepository(db).list_active_ordered_by_price()
+        return [PlanResponse.from_orm(plan) for plan in plans]
+
+    async def build_usage_stats(self, db: Session, user_id: str) -> Dict[str, Any]:
+        sub = await self.get_user_subscription(user_id, db)
+        if not sub:
+            sub = await self.create_free_subscription(user_id, db)
+
+        plan_code = None
+        if sub.plan_id:
+            try:
+                plan_id_uuid = uuid.UUID(sub.plan_id)
+                plan = PlanRepository(db).get_by_id(plan_id_uuid)
+                plan_code = plan.code if plan else None
+            except Exception:
+                plan_code = None
+
+        status_value = getattr(sub.status, "value", sub.status)
+
+        return {
+            "current_period": {
+                "analysis_used": sub.analysis_used,
+                "analysis_limit": sub.analysis_limit,
+                "analysis_remaining": sub.analysis_remaining,
+            },
+            "subscription_status": {
+                "plan": plan_code,
+                "status": status_value,
+            },
+        }

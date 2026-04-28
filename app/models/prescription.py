@@ -15,32 +15,52 @@ class Prescription(Base):
     __tablename__ = "prescriptions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    doctor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    patient_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    doctor_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
+    patient_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
     source_file_name = Column(String(255), nullable=True)
     source_file_type = Column(String(100), nullable=True)
     source_s3_key = Column(String(500), nullable=True)
     extracted_text = Column(Text, nullable=True)
     status = Column(String(40), nullable=False, default="draft_ocr")
     patient_reminders_enabled = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
 
-    items = relationship("PrescriptionItem", back_populates="prescription", cascade="all, delete-orphan")
+    items = relationship(
+        "PrescriptionItem", back_populates="prescription", cascade="all, delete-orphan"
+    )
 
 
 class PrescriptionItem(Base):
     __tablename__ = "prescription_items"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    prescription_id = Column(UUID(as_uuid=True), ForeignKey("prescriptions.id", ondelete="CASCADE"), nullable=False, index=True)
+    prescription_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prescriptions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     medication = Column(String(255), nullable=False)
     every_hours = Column(Integer, nullable=True)
     duration_days = Column(Integer, nullable=True)
     route = Column(String(120), nullable=True)
     raw_payload = Column(JSON, nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     prescription = relationship("Prescription", back_populates="items")
 
@@ -75,4 +95,3 @@ class PrescriptionPatientResponse(BaseModel):
     confirmed_at: Optional[datetime] = None
     reminders_enabled: bool = False
     items: List[PrescriptionItemIn] = []
-

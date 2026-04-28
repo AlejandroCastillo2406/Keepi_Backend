@@ -3,8 +3,16 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
-from sqlalchemy import (JSON, Boolean, Column, DateTime, ForeignKey, Integer,
-                        String, Text)
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -12,12 +20,13 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 
-# Modelo SQLAlchemy para la tabla de documentos
 class Document(Base):
     __tablename__ = "documents"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
     name = Column(String(255), nullable=False)
     category = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
@@ -33,28 +42,35 @@ class Document(Base):
     s3_key = Column(String(500), nullable=True)
     extracted_text = Column(Text, nullable=True)
     ai_analysis = Column(JSON, nullable=True, default=dict)
-    folder_id = Column(UUID(as_uuid=True), ForeignKey("folders.id"), nullable=True, index=True)
+    folder_id = Column(
+        UUID(as_uuid=True), ForeignKey("folders.id"), nullable=True, index=True
+    )
     is_archived = Column(Boolean, default=False, nullable=False)
     is_favorite = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    
-    # Relaciones
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
     user = relationship("User", back_populates="documents")
     folder = relationship("Folder", back_populates="documents")
-    
+
     def __repr__(self):
         return f"<Document(id={self.id}, name={self.name}, category={self.category})>"
 
-# Modelos Pydantic para la API
+
 class DocumentBase(BaseModel):
-    """Modelo base para documento"""
     name: str
     category: str
     description: Optional[str] = None
 
+
 class DocumentCreate(DocumentBase):
-    """Modelo para crear documento"""
     file_url: Optional[str] = None
     file_name: Optional[str] = None
     file_size: Optional[int] = None
@@ -63,15 +79,15 @@ class DocumentCreate(DocumentBase):
     document_metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     drive_file_id: Optional[str] = None
-    drive_folder_id: Optional[str] = None  # se resuelve a folder_id al crear
+    drive_folder_id: Optional[str] = None
     folder_id: Optional[str] = None
     cloud_provider: Optional[str] = None
     s3_key: Optional[str] = None
     extracted_text: Optional[str] = None
     ai_analysis: Optional[Dict[str, Any]] = None
 
+
 class DocumentUpdate(BaseModel):
-    """Modelo para actualizar documento"""
     name: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
@@ -85,8 +101,8 @@ class DocumentUpdate(BaseModel):
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
 
+
 class DocumentResponse(DocumentBase):
-    """Modelo de respuesta para documento"""
     id: str
     user_id: str
     file_url: Optional[str] = None
@@ -105,13 +121,12 @@ class DocumentResponse(DocumentBase):
     is_favorite: bool = False
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
-    
+
     @classmethod
     def from_orm(cls, obj):
-        """Convertir desde ORM asegurando que los UUIDs sean strings"""
         data = {
             "id": str(obj.id),
             "user_id": str(obj.user_id),
@@ -134,12 +149,12 @@ class DocumentResponse(DocumentBase):
             "is_archived": obj.is_archived,
             "is_favorite": obj.is_favorite,
             "created_at": obj.created_at,
-            "updated_at": obj.updated_at
+            "updated_at": obj.updated_at,
         }
         return cls(**data)
 
+
 class DocumentMetadata(BaseModel):
-    """Modelo para metadatos de documento"""
     tipo: Optional[str] = None
     numero: Optional[str] = None
     aseguradora: Optional[str] = None

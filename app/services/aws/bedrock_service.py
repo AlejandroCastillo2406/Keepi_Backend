@@ -10,13 +10,12 @@ from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
+
 class BedrockService:
     def __init__(self):
-        """Inicializa el servicio de Amazon Bedrock"""
         try:
             self.bedrock_client = boto3.client(
-                'bedrock-runtime',
-                region_name='us-east-1'  # Cambiar según tu región
+                "bedrock-runtime", region_name="us-east-1"
             )
             self.model_id = "anthropic.claude-3-haiku-20240307-v1:0"
         except Exception as e:
@@ -24,12 +23,11 @@ class BedrockService:
             self.bedrock_client = None
 
     async def analyze_document_content(
-        self, text: str, filename: str, existing_folder_names: Optional[List[str]] = None
+        self,
+        text: str,
+        filename: str,
+        existing_folder_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """
-        Analiza el contenido del documento usando Claude 3 Haiku.
-        existing_folder_names: nombres de carpetas existentes del usuario; si el documento encaja en una, usarla.
-        """
         if not self.bedrock_client:
             return {
                 "category": "Sin categoría",
@@ -37,20 +35,20 @@ class BedrockService:
                 "expiry_date": None,
                 "recommended_name": None,
                 "tags": [],
-                "error": "Bedrock no disponible"
+                "error": "Bedrock no disponible",
             }
 
         try:
-            prompt = self._create_analysis_prompt(text, filename, existing_folder_names or [])
-            
-            # Llamar a Claude
+            prompt = self._create_analysis_prompt(
+                text, filename, existing_folder_names or []
+            )
+
             response = await self._call_claude(prompt)
-            
-            # Parsear respuesta
+
             result = self._parse_claude_response(response)
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Error analizando documento con Bedrock: {e}")
             return {
@@ -59,7 +57,7 @@ class BedrockService:
                 "expiry_date": None,
                 "recommended_name": None,
                 "tags": [],
-                "error": str(e)
+                "error": str(e),
             }
 
     async def analyze_image_for_category(
@@ -69,11 +67,6 @@ class BedrockService:
         media_type: str = "image/jpeg",
         existing_folder_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """
-        Analiza una imagen (foto/documento escaneado) con Claude 3 Haiku visión.
-        Se usa cuando Textract no extrae texto suficiente (ej. foto de documento).
-        Devuelve el mismo formato que analyze_document_content.
-        """
         if not self.bedrock_client:
             return {
                 "category": "MANUAL_CLASSIFICATION_REQUIRED",
@@ -84,13 +77,19 @@ class BedrockService:
                 "error": "Bedrock no disponible",
             }
         try:
-            prompt = self._create_image_analysis_prompt(filename, existing_folder_names or [])
+            prompt = self._create_image_analysis_prompt(
+                filename, existing_folder_names or []
+            )
             content = [
                 {
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": media_type if media_type.startswith("image/") else "image/jpeg",
+                        "media_type": (
+                            media_type
+                            if media_type.startswith("image/")
+                            else "image/jpeg"
+                        ),
                         "data": base64.b64encode(image_bytes).decode("utf-8"),
                     },
                 },
@@ -113,8 +112,9 @@ class BedrockService:
                 "error": str(e),
             }
 
-    def _create_image_analysis_prompt(self, filename: str, existing_folder_names: List[str]) -> str:
-        """Prompt para que Claude analice la imagen y devuelva categoría y metadatos en JSON."""
+    def _create_image_analysis_prompt(
+        self, filename: str, existing_folder_names: List[str]
+    ) -> str:
         folders_instruction = ""
         if existing_folder_names:
             folders_list = ", ".join(f'"{n}"' for n in existing_folder_names[:50])
@@ -149,7 +149,6 @@ Responde SOLO con este JSON válido (sin markdown ni texto extra):
 """
 
     async def _call_claude_multimodal(self, content: list) -> str:
-        """Invocar Claude con contenido multimodal (imagen + texto)."""
         try:
             body = {
                 "anthropic_version": "bedrock-2023-05-31",
@@ -170,7 +169,6 @@ Responde SOLO con este JSON válido (sin markdown ni texto extra):
     def _create_analysis_prompt(
         self, text: str, filename: str, existing_folder_names: List[str]
     ) -> str:
-        """Crea el prompt para Claude 3 Haiku (una sola llamada con todo)."""
         folders_instruction = ""
         if existing_folder_names:
             folders_list = ", ".join(f'"{n}"' for n in existing_folder_names[:50])
@@ -214,28 +212,22 @@ TEXTO DEL DOCUMENTO:
 """
 
     async def _call_claude(self, prompt: str) -> str:
-        """Llama a Claude 3 Haiku a través de Bedrock"""
         try:
             body = {
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": 1000,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                "messages": [{"role": "user", "content": prompt}],
             }
 
             response = self.bedrock_client.invoke_model(
                 modelId=self.model_id,
                 body=json.dumps(body),
-                contentType="application/json"
+                contentType="application/json",
             )
 
-            response_body = json.loads(response['body'].read())
-            return response_body['content'][0]['text']
-            
+            response_body = json.loads(response["body"].read())
+            return response_body["content"][0]["text"]
+
         except ClientError as e:
             logger.error(f"Error llamando a Claude: {e}")
             raise
@@ -244,47 +236,47 @@ TEXTO DEL DOCUMENTO:
             raise
 
     def _parse_claude_response(self, response: str) -> Dict[str, Any]:
-        """Parsea la respuesta de Claude"""
         try:
-            # Limpiar la respuesta para extraer solo el JSON
+
             response = response.strip()
-            if response.startswith('```json'):
+            if response.startswith("```json"):
                 response = response[7:]
-            if response.endswith('```'):
+            if response.endswith("```"):
                 response = response[:-3]
-            
-            # Parsear JSON
+
             result = json.loads(response)
-            
-            # Validar y limpiar resultado
-            category = result.get('category', 'Sin categoría')
-            confidence = float(result.get('confidence', 0.0))
-            expiry_date = result.get('expiry_date')
-            
-            # Validar fecha de vencimiento
+
+            category = result.get("category", "Sin categoría")
+            confidence = float(result.get("confidence", 0.0))
+            expiry_date = result.get("expiry_date")
+
             if expiry_date and expiry_date != "null":
                 try:
-                    # Si ya viene con tiempo, normalizar a formato Z
-                    if 'T' in expiry_date:
-                        # Evitar duplicados de sufijo. Tomar solo fecha y forzar 00:00:00Z
-                        date_part = expiry_date.split('T')[0]
-                        parsed_date = datetime.strptime(date_part, '%Y-%m-%d')
-                        expiry_date = parsed_date.strftime('%Y-%m-%dT00:00:00Z')
+
+                    if "T" in expiry_date:
+
+                        date_part = expiry_date.split("T")[0]
+                        parsed_date = datetime.strptime(date_part, "%Y-%m-%d")
+                        expiry_date = parsed_date.strftime("%Y-%m-%dT00:00:00Z")
                     else:
-                        # Convertir YYYY-MM-DD -> YYYY-MM-DDT00:00:00Z
-                        parsed_date = datetime.strptime(expiry_date, '%Y-%m-%d')
-                        expiry_date = parsed_date.strftime('%Y-%m-%dT00:00:00Z')
+
+                        parsed_date = datetime.strptime(expiry_date, "%Y-%m-%d")
+                        expiry_date = parsed_date.strftime("%Y-%m-%dT00:00:00Z")
                 except ValueError:
                     expiry_date = None
             else:
                 expiry_date = None
-            
-            recommended_name = result.get('recommended_name')
-            if recommended_name is not None and isinstance(recommended_name, str) and recommended_name.strip():
+
+            recommended_name = result.get("recommended_name")
+            if (
+                recommended_name is not None
+                and isinstance(recommended_name, str)
+                and recommended_name.strip()
+            ):
                 recommended_name = recommended_name.strip()
             else:
                 recommended_name = None
-            tags = result.get('tags')
+            tags = result.get("tags")
             if not isinstance(tags, list):
                 tags = []
             tags = [str(t).strip().lower() for t in tags if t and str(t).strip()][:10]
@@ -295,7 +287,7 @@ TEXTO DEL DOCUMENTO:
                 "expiry_date": expiry_date,
                 "recommended_name": recommended_name,
                 "tags": tags,
-                "error": None
+                "error": None,
             }
 
         except json.JSONDecodeError as e:
@@ -306,7 +298,7 @@ TEXTO DEL DOCUMENTO:
                 "expiry_date": None,
                 "recommended_name": None,
                 "tags": [],
-                "error": "Error parseando respuesta de Claude"
+                "error": "Error parseando respuesta de Claude",
             }
         except Exception as e:
             logger.error(f"Error procesando respuesta de Claude: {e}")
@@ -316,35 +308,39 @@ TEXTO DEL DOCUMENTO:
                 "expiry_date": None,
                 "recommended_name": None,
                 "tags": [],
-                "error": str(e)
+                "error": str(e),
             }
 
     def extract_dates_from_text(self, text: str) -> List[str]:
-        """Extrae fechas del texto usando expresiones regulares"""
         date_patterns = [
-            r'\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b',  # DD/MM/YYYY o DD-MM-YYYY
-            r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b',  # YYYY/MM/DD o YYYY-MM-DD
-            r'\b\d{1,2}\s+de\s+\w+\s+de\s+\d{4}\b',  # DD de MES de YYYY
-            r'\b\w+\s+\d{1,2},?\s+\d{4}\b',  # MES DD, YYYY
+            r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b",
+            r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b",
+            r"\b\d{1,2}\s+de\s+\w+\s+de\s+\d{4}\b",
+            r"\b\w+\s+\d{1,2},?\s+\d{4}\b",
         ]
-        
+
         dates = []
         for pattern in date_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             dates.extend(matches)
-        
+
         return dates
 
     def is_expiry_date(self, date_str: str, context: str) -> bool:
-        """Determina si una fecha es probablemente de vencimiento"""
         expiry_keywords = [
-            'vencimiento', 'expira', 'válido hasta', 'caduca',
-            'expiry', 'expires', 'valid until', 'expires on'
+            "vencimiento",
+            "expira",
+            "válido hasta",
+            "caduca",
+            "expiry",
+            "expires",
+            "valid until",
+            "expires on",
         ]
-        
+
         context_lower = context.lower()
         for keyword in expiry_keywords:
             if keyword in context_lower:
                 return True
-        
+
         return False

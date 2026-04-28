@@ -1,5 +1,3 @@
-"""Claims comunes para JWT de acceso (una fuente de verdad)."""
-
 from app.models.user import User
 
 

@@ -29,4 +29,3 @@ class NotificationsLog(Base):
             "<NotificationsLog(user_id="
             f"{self.user_id}, document_id={self.document_id}, target_date={self.target_date})>"
         )
-

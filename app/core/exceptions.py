@@ -1,8 +1,4 @@
-"""Excepciones de dominio/API. Una sola responsabilidad."""
-
-
 class DriveAuthRequiredException(Exception):
-    """Se requiere autorización de Google Drive."""
 
     def __init__(self, message: str, drive_auth_url: str = ""):
         self.message = message

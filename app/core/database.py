@@ -1,9 +1,7 @@
-"""Conexión y sesiones de PostgreSQL. Una sola responsabilidad."""
-import logging
+﻿import logging
 from typing import Generator
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,24 +13,21 @@ Base = declarative_base()
 
 
 def _seed_roles_if_empty(session: Session) -> None:
-    """Garantiza filas DOCTOR, USER, PATIENT si la tabla existe y está vacía."""
     from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT, ROLE_USER
-    from app.models.role import Role
+    from app.repositories.role_repository import RoleRepository
 
     try:
-        count = session.query(Role).count()
-        if count > 0:
+        repo = RoleRepository(session)
+        if repo.count_roles() > 0:
             return
-        for name in (ROLE_DOCTOR, ROLE_USER, ROLE_PATIENT):
-            session.add(Role(name=name))
+        repo.add_role_rows((ROLE_DOCTOR, ROLE_USER, ROLE_PATIENT))
         session.commit()
-        logger.info("Roles iniciales insertados (tabla roles estaba vacía)")
+        logger.info("Roles iniciales insertados (tabla roles estaba vacia)")
     except Exception as e:
         session.rollback()
-        logger.debug("No se pudo sembrar roles (¿migración SQL pendiente?): %s", e)
+        logger.debug("No se pudo sembrar roles: %s", e)
 
-# Límite por proceso: pool_size + max_overflow conexiones simultáneas a PostgreSQL.
-# Con N workers (uvicorn/gunicorn): total máximo = N * (pool_size + max_overflow).
+
 engine = create_engine(
     settings.database_url,
     echo=settings.echo_sql,
@@ -61,14 +56,40 @@ class DatabaseConfig:
         if cls._initialized:
             return
         try:
-            from app.models import (document, folder,  # noqa: F401
-                                    appointment,
-                                    notification, notifications_log,
-                                    oauth_credentials,
-                                    prescription, questionnaire, questionnaire_invitation, role,
-                                    subscription, user,
-                                    user_config, user_device_token)
+            from app.models import (
+                appointment,
+                document,
+                folder,
+                notification,
+                notifications_log,
+                oauth_credentials,
+                prescription,
+                questionnaire,
+                questionnaire_invitation,
+                role,
+                subscription,
+                user,
+                user_config,
+                user_device_token,
+            )
             from app.core.seed_questionnaire import seed_questionnaire
+
+            _ = (
+                appointment,
+                document,
+                folder,
+                notification,
+                notifications_log,
+                oauth_credentials,
+                prescription,
+                questionnaire,
+                questionnaire_invitation,
+                role,
+                subscription,
+                user,
+                user_config,
+                user_device_token,
+            )
             Base.metadata.create_all(bind=engine)
             with SessionLocal() as db:
                 _seed_roles_if_empty(db)
@@ -97,7 +118,7 @@ class DatabaseConfig:
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependencia FastAPI: sesión de BD."""
+    DatabaseConfig.initialize_database()
     db = SessionLocal()
     try:
         yield db

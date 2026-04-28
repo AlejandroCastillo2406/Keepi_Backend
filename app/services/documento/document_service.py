@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -8,7 +9,6 @@ from app.models.document import Document
 from app.models.document import DocumentCreate as ModelDocumentCreate
 from app.models.document import DocumentResponse as ModelDocumentResponse
 from app.models.document import DocumentUpdate as ModelDocumentUpdate
-from app.models.folder import Folder
 
 DocumentCreate = ModelDocumentCreate
 DocumentResponse = ModelDocumentResponse
@@ -18,116 +18,81 @@ from app.services.aws import AWSService, DocumentAnalysisService
 from app.services.usuarios import UserConfigService
 
 if TYPE_CHECKING:
-    from app.interfaces.repositories.document_repository import \
-        IDocumentRepository
+    from app.interfaces.document_interface import IDocumentRepository
+    from app.repositories.folder_repository import FolderRepository
 
 logger = logging.getLogger(__name__)
 
 
 def _response_from_orm(doc: Document):
-    """Usa el DTO de respuesta del modelo actual para compatibilidad."""
     return ModelDocumentResponse.from_orm(doc)
 
 
-def _get_or_create_folder(db: Session, user_id: str, category: str, drive_folder_id: str) -> Folder:
-    """Obtiene o crea un Folder por user_id, category y drive_folder_id."""
-    import uuid
-    folder = db.query(Folder).filter(
-        Folder.user_id == uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
-        Folder.drive_folder_id == drive_folder_id,
-    ).first()
-    if folder:
-        return folder
-    folder = Folder(
-        user_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
-        name=category,
-        category=category,
-        drive_folder_id=drive_folder_id,
-        drive_parent_id=None,
-    )
-    db.add(folder)
-    db.commit()
-    db.refresh(folder)
-    return folder
-
-
 class DocumentService:
-    """Servicio para gestión de documentos. Acepta repositorio inyectado para CRUD (testeable)."""
 
-    def __init__(self, db: Session, document_repository: "IDocumentRepository | None" = None):
+    def __init__(
+        self,
+        db: Session,
+        document_repository: "IDocumentRepository",
+        folder_repository: "FolderRepository",
+    ):
         self.db = db
         self._document_repository = document_repository
+        self._folder_repository = folder_repository
         self.aws_service = AWSService()
         self.user_config_service = UserConfigService(self.db)
         self.folder_service = FolderService(self.db)
         self.ai_analysis_service = DocumentAnalysisService()
 
+    def list_documents_by_drive_file_ids(
+        self, user_id: str, drive_file_ids: List[str]
+    ) -> List[Document]:
+        if not drive_file_ids:
+            return []
+        return self._document_repository.list_for_user_drive_file_ids(
+            uuid.UUID(str(user_id)), drive_file_ids
+        )
+
+    def get_document_by_id_any(self, document_id) -> Optional[Document]:
+        return self._document_repository.get_by_id_any_user(document_id)
+
+    def persist_document_entity(self, doc: Document) -> Document:
+        return self._document_repository.persist(doc)
+
     async def get_user_documents(self, user_id: str) -> List[ModelDocumentResponse]:
-        """Obtener todos los documentos de un usuario."""
         try:
-            if self._document_repository:
-                documents = self._document_repository.get_by_user_id(user_id)
-                return [_response_from_orm(doc) for doc in documents]
-            documents = self.db.query(Document).filter(Document.user_id == user_id).all()
+            documents = self._document_repository.get_by_user_id(user_id)
             return [_response_from_orm(doc) for doc in documents]
         except Exception:
             logger.exception("Error obteniendo documentos")
             return []
 
-    async def get_document_by_id(self, document_id: str, user_id: str) -> Optional[ModelDocumentResponse]:
-        """Obtener documento por ID."""
+    async def get_document_by_id(
+        self, document_id: str, user_id: str
+    ) -> Optional[ModelDocumentResponse]:
         try:
-            if self._document_repository:
-                document = self._document_repository.get_by_id(document_id, user_id)
-                return _response_from_orm(document) if document else None
-            document = self.db.query(Document).filter(
-                Document.id == document_id,
-                Document.user_id == user_id,
-            ).first()
+            document = self._document_repository.get_by_id(document_id, user_id)
             return _response_from_orm(document) if document else None
         except Exception:
             logger.exception("Error obteniendo documento")
             return None
 
-    async def create_document(self, user_id: str, document_data: ModelDocumentCreate) -> ModelDocumentResponse:
-        """Crear nuevo documento."""
+    async def create_document(
+        self, user_id: str, document_data: ModelDocumentCreate
+    ) -> ModelDocumentResponse:
         try:
             folder_id = None
             drive_folder_id = getattr(document_data, "drive_folder_id", None)
             if drive_folder_id and document_data.category:
-                folder = _get_or_create_folder(
-                    self.db, user_id, document_data.category, drive_folder_id
+                folder = self._folder_repository.get_or_create_for_category_drive(
+                    user_id, document_data.category, drive_folder_id
                 )
                 folder_id = folder.id
-            if self._document_repository:
-                data_to_pass = document_data.model_copy(
-                    update={"folder_id": str(folder_id) if folder_id else None}
-                )
-                doc = self._document_repository.create(user_id, data_to_pass)
-                return _response_from_orm(doc)
-            document = Document(
-                user_id=user_id,
-                name=document_data.name,
-                category=document_data.category,
-                description=document_data.description,
-                file_url=document_data.file_url,
-                file_name=document_data.file_name,
-                file_size=document_data.file_size,
-                file_type=document_data.file_type,
-                expiry_date=document_data.expiry_date,
-                document_metadata=document_data.document_metadata or {},
-                tags=document_data.tags or [],
-                drive_file_id=document_data.drive_file_id,
-                cloud_provider=document_data.cloud_provider,
-                s3_key=document_data.s3_key,
-                extracted_text=document_data.extracted_text,
-                ai_analysis=document_data.ai_analysis or {},
-                folder_id=folder_id,
+            data_to_pass = document_data.model_copy(
+                update={"folder_id": str(folder_id) if folder_id else None}
             )
-            self.db.add(document)
-            self.db.commit()
-            self.db.refresh(document)
-            return _response_from_orm(document)
+            doc = self._document_repository.create(user_id, data_to_pass)
+            return _response_from_orm(doc)
         except Exception:
             logger.exception("Error creando documento")
             self.db.rollback()
@@ -136,114 +101,89 @@ class DocumentService:
     async def update_document(
         self, document_id: str, user_id: str, document_data: ModelDocumentUpdate
     ) -> Optional[ModelDocumentResponse]:
-        """Actualizar documento."""
         try:
-            if self._document_repository:
-                doc = self._document_repository.update(document_id, user_id, document_data)
-                return _response_from_orm(doc) if doc else None
-            document = self.db.query(Document).filter(
-                Document.id == document_id,
-                Document.user_id == user_id,
-            ).first()
-            if not document:
-                return None
-            update_data = document_data.dict(exclude_unset=True)
-            for field, value in update_data.items():
-                setattr(document, field, value)
-            self.db.commit()
-            self.db.refresh(document)
-            return _response_from_orm(document)
+            doc = self._document_repository.update(document_id, user_id, document_data)
+            return _response_from_orm(doc) if doc else None
         except Exception:
             logger.exception("Error actualizando documento")
             self.db.rollback()
             return None
 
     async def delete_document(self, document_id: str, user_id: str) -> bool:
-        """Eliminar documento."""
         try:
-            if self._document_repository:
-                return self._document_repository.delete(document_id, user_id)
-            document = self.db.query(Document).filter(
-                Document.id == document_id,
-                Document.user_id == user_id,
-            ).first()
-            if not document:
-                return False
-            self.db.delete(document)
-            self.db.commit()
-            return True
+            return self._document_repository.delete(document_id, user_id)
         except Exception:
             logger.exception("Error eliminando documento")
             self.db.rollback()
             return False
-    
+
     async def get_document_categories(self, user_id: str) -> List[str]:
-        """Obtener categorías de documentos del usuario"""
         try:
-            documents = self.db.query(Document.category).filter(Document.user_id == user_id).distinct().all()
-            return [category[0] for category in documents]
+            return self._document_repository.list_distinct_categories(user_id)
         except Exception as e:
             print(f"Error obteniendo categorías: {e}")
             return []
-    
-    async def get_expiring_documents(self, user_id: str, days: int = 30) -> List[DocumentResponse]:
-        """Obtener documentos que vencen pronto"""
+
+    async def get_expiring_documents(
+        self, user_id: str, days: int = 30
+    ) -> List[DocumentResponse]:
         try:
             cutoff_date = datetime.now() + timedelta(days=days)
-            documents = self.db.query(Document).filter(
-                Document.user_id == user_id,
-                Document.expiry_date.isnot(None),
-                Document.expiry_date <= cutoff_date
-            ).all()
-            
+            documents = self._document_repository.list_expiring_before(
+                user_id, cutoff_date
+            )
             return [DocumentResponse.from_orm(doc) for doc in documents]
         except Exception as e:
             print(f"Error obteniendo documentos por vencer: {e}")
             return []
-    
-    async def search_documents(self, user_id: str, query: str) -> List[DocumentResponse]:
-        """Buscar documentos por texto"""
+
+    async def search_documents(
+        self, user_id: str, query: str
+    ) -> List[DocumentResponse]:
         try:
-            query_lower = f"%{query.lower()}%"
-            documents = self.db.query(Document).filter(
-                Document.user_id == user_id,
-                (Document.name.ilike(query_lower) |
-                 Document.description.ilike(query_lower) |
-                 Document.category.ilike(query_lower))
-            ).all()
-            
+            documents = self._document_repository.search_by_user_text(user_id, query)
             return [DocumentResponse.from_orm(doc) for doc in documents]
         except Exception as e:
             print(f"Error buscando documentos: {e}")
             return []
-    
-    async def process_document_with_bedrock(self, user_id: str, file_data: bytes, file_name: str, file_type: str) -> DocumentResponse:
-        """Procesar documento con Bedrock y crear carpetas automáticamente"""
+
+    async def process_document_with_bedrock(
+        self, user_id: str, file_data: bytes, file_name: str, file_type: str
+    ) -> DocumentResponse:
         try:
-            # Obtener configuración del usuario
+
             user_config = await self.user_config_service.get_user_config(user_id)
-            storage_preference = user_config.cloud_provider.value if user_config and user_config.cloud_provider else "keepi_cloud"
-            
-            # PASO 1: Análisis con Bedrock (verificando límites de suscripción)
-            ai_analysis = await self.ai_analysis_service.analyze_document(file_data, file_type, file_name, user_id, self.db)
-            
-            # Verificar si requiere suscripción
-            if ai_analysis.get('suggested_category') == "SUBSCRIPTION_REQUIRED":
-                # Devolver error de suscripción requerida
+            storage_preference = (
+                user_config.cloud_provider.value
+                if user_config and user_config.cloud_provider
+                else "keepi_cloud"
+            )
+
+            ai_analysis = await self.ai_analysis_service.analyze_document(
+                file_data, file_type, file_name, user_id, self.db
+            )
+
+            if ai_analysis.get("suggested_category") == "SUBSCRIPTION_REQUIRED":
+
                 from fastapi import HTTPException
+
                 raise HTTPException(
-                    status_code=402,  # Payment Required
+                    status_code=402,
                     detail={
                         "error": "subscription_required",
-                        "message": ai_analysis.get('subscription_required_message', 'Suscripción requerida'),
-                        "subscription_info": ai_analysis.get('subscription_info', {}),
-                        "code": "SUBSCRIPTION_REQUIRED"
-                    }
+                        "message": ai_analysis.get(
+                            "subscription_required_message", "Suscripción requerida"
+                        ),
+                        "subscription_info": ai_analysis.get("subscription_info", {}),
+                        "code": "SUBSCRIPTION_REQUIRED",
+                    },
                 )
-            
-            # Verificar si requiere clasificación manual
-            if ai_analysis.get('suggested_category') == "MANUAL_CLASSIFICATION_REQUIRED":
-                # Crear documento con categoría pendiente
+
+            if (
+                ai_analysis.get("suggested_category")
+                == "MANUAL_CLASSIFICATION_REQUIRED"
+            ):
+
                 document_data = DocumentCreate(
                     name=file_name,
                     category="Pendiente de clasificación",
@@ -253,108 +193,115 @@ class DocumentService:
                     file_url=None,
                     cloud_provider=storage_preference,
                     s3_key=None,
-                    extracted_text=ai_analysis.get('extracted_text', ''),
+                    extracted_text=ai_analysis.get("extracted_text", ""),
                     ai_analysis=ai_analysis,
-                    expiry_date=ai_analysis.get('expiry_date'),
-                    document_number=ai_analysis.get('document_number'),
-                    organization=ai_analysis.get('organization')
+                    expiry_date=ai_analysis.get("expiry_date"),
+                    document_number=ai_analysis.get("document_number"),
+                    organization=ai_analysis.get("organization"),
                 )
-                
+
                 return await self.create_document(user_id, document_data)
-            
-            # PASO 2: Obtener categoría y fecha de vencimiento de Bedrock
-            category = ai_analysis.get('suggested_category', 'Documento')
-            expiry_date = ai_analysis.get('expiry_date')
-            confidence = ai_analysis.get('confidence_score', 0.5)
-            
-            # PASO 3: Crear carpeta de categoría automáticamente
+
+            category = ai_analysis.get("suggested_category", "Documento")
+            expiry_date = ai_analysis.get("expiry_date")
+            confidence = ai_analysis.get("confidence_score", 0.5)
+
             folder_result = await self.folder_service.ensure_category_folder_exists(
                 user_id, category, storage_preference
             )
-            
-            if not folder_result.get('success'):
-                # Si requiere autorización de Drive, lanzar excepción especial
-                if folder_result.get('requires_drive_auth'):
+
+            if not folder_result.get("success"):
+
+                if folder_result.get("requires_drive_auth"):
                     from app.exceptions import DriveAuthRequiredException
+
                     raise DriveAuthRequiredException(
-                        message=folder_result.get('error', 'Se requiere autorización de Google Drive'),
-                        drive_auth_url=folder_result.get('drive_auth_url', '')
+                        message=folder_result.get(
+                            "error", "Se requiere autorización de Google Drive"
+                        ),
+                        drive_auth_url=folder_result.get("drive_auth_url", ""),
                     )
                 else:
-                    logger.warning("Error creando carpeta de categoría: %s", folder_result.get('error'))
-                    # Continuar sin carpeta específica
-            
-            # PASO 4: Subir archivo a la carpeta de categoría
+                    logger.warning(
+                        "Error creando carpeta de categoría: %s",
+                        folder_result.get("error"),
+                    )
+
             file_url = None
             s3_key = None
             drive_file_id = None
             drive_folder_id = None
-            
-            if storage_preference == 'keepi_cloud':
-                # Subir a S3 en la carpeta de categoría
-                folder_name = folder_result.get('folder_name', category)
+
+            if storage_preference == "keepi_cloud":
+
+                folder_name = folder_result.get("folder_name", category)
                 folder_path = f"users/{user_id}/{folder_name}/"
-                
-                # Subir archivo directamente a la carpeta de categoría
+
                 file_url = await self.aws_service.upload_to_s3_with_folder(
                     file_data, file_name, user_id, folder_name
                 )
                 s3_key = f"{folder_path}{file_name}"
-                
-            elif storage_preference == 'google_drive':
-                # Subir a Google Drive en la carpeta de categoría
+
+            elif storage_preference == "google_drive":
+
                 from app.services.almacenamiento import GoogleDriveService
                 from app.services.autenticacion import GoogleOAuthService
 
-                # Obtener credenciales del usuario
                 oauth_service = GoogleOAuthService(self.db)
                 user_credentials = await oauth_service.refresh_user_tokens(user_id)
-                
+
                 if not user_credentials:
                     from fastapi import HTTPException
+
                     raise HTTPException(
                         status_code=401,
-                        detail="Usuario no ha autorizado acceso a Google Drive. Use /api/v1/auth/google/authorize primero."
+                        detail="Usuario no ha autorizado acceso a Google Drive. Use /api/v1/auth/google/authorize primero.",
                     )
-                
-                # Crear servicio de Drive con las credenciales del usuario
+
                 drive_service = GoogleDriveService(user_credentials)
-                drive_folder_id = folder_result.get('folder_id')
-                
-                # Verificar que tenemos un folder_id válido
+                drive_folder_id = folder_result.get("folder_id")
+
                 if not drive_folder_id:
-                    # Si no hay folder_id en el resultado, intentar crear la carpeta de nuevo
-                    logger.warning("No se obtuvo folder_id para categoría '%s', creando carpeta", category)
+
+                    logger.warning(
+                        "No se obtuvo folder_id para categoría '%s', creando carpeta",
+                        category,
+                    )
                     folder_creation = await self.folder_service.create_category_folder(
                         user_id, category, storage_preference
                     )
-                    drive_folder_id = folder_creation.get('folder_id')
-                    
-                    # Si aún no hay folder_id, usar General como fallback
+                    drive_folder_id = folder_creation.get("folder_id")
+
                     if not drive_folder_id:
-                        logger.warning("No se pudo crear carpeta para '%s', usando General como fallback", category)
-                        drive_folder_id = await drive_service.get_or_create_folder("General")
-                        category = "General"  # Actualizar categoría para consistencia
-                
-                # Subir archivo directamente a la carpeta de categoría
-                logger.info("Subiendo archivo '%s' a carpeta '%s' (ID: %s)", file_name, category, drive_folder_id)
-                drive_file_id = await drive_service.upload_file(
-                    file_data, 
-                    file_name, 
-                    drive_folder_id, 
-                    file_type
+                        logger.warning(
+                            "No se pudo crear carpeta para '%s', usando General como fallback",
+                            category,
+                        )
+                        drive_folder_id = await drive_service.get_or_create_folder(
+                            "General"
+                        )
+                        category = "General"
+
+                logger.info(
+                    "Subiendo archivo '%s' a carpeta '%s' (ID: %s)",
+                    file_name,
+                    category,
+                    drive_folder_id,
                 )
-                logger.info("Archivo subido a Google Drive (File ID: %s)", drive_file_id)
-                
-                # Obtener URL del archivo
+                drive_file_id = await drive_service.upload_file(
+                    file_data, file_name, drive_folder_id, file_type
+                )
+                logger.info(
+                    "Archivo subido a Google Drive (File ID: %s)", drive_file_id
+                )
+
                 file_url = await drive_service.get_file_download_url(drive_file_id)
                 if not file_url:
-                    # Fallback: construir URL manualmente
+
                     file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
-                
+
                 s3_key = f"drive/{drive_folder_id}/{drive_file_id}"
-            
-            # PASO 5: Crear documento en base de datos
+
             document_data = DocumentCreate(
                 name=file_name,
                 category=category,
@@ -364,31 +311,33 @@ class DocumentService:
                 file_url=file_url,
                 cloud_provider=storage_preference,
                 s3_key=s3_key,
-                extracted_text=ai_analysis.get('extracted_text', ''),
+                extracted_text=ai_analysis.get("extracted_text", ""),
                 ai_analysis=ai_analysis,
                 expiry_date=expiry_date,
-                document_number=ai_analysis.get('document_number'),
-                organization=ai_analysis.get('organization'),
-                tags=ai_analysis.get('tags', []),
-                # Agregar IDs de Google Drive si se usó
+                document_number=ai_analysis.get("document_number"),
+                organization=ai_analysis.get("organization"),
+                tags=ai_analysis.get("tags", []),
                 drive_file_id=drive_file_id,
-                drive_folder_id=drive_folder_id
+                drive_folder_id=drive_folder_id,
             )
-            
+
             return await self.create_document(user_id, document_data)
-            
+
         except Exception as e:
             print(f"Error procesando documento con Bedrock: {e}")
             raise
 
     async def _get_existing_folder_names(self, user_id: str) -> List[str]:
-        """Obtiene los nombres de carpetas existentes del usuario (Drive) para pasarlos al prompt de análisis."""
         try:
             from app.models.user_config import CloudProvider
             from app.services.almacenamiento import GoogleDriveService
             from app.services.autenticacion import GoogleOAuthService
+
             user_config = await self.user_config_service.get_user_config(user_id)
-            if not user_config or user_config.cloud_provider != CloudProvider.GOOGLE_DRIVE:
+            if (
+                not user_config
+                or user_config.cloud_provider != CloudProvider.GOOGLE_DRIVE
+            ):
                 return []
             oauth = GoogleOAuthService(self.db)
             credentials = await oauth.refresh_user_tokens(user_id)
@@ -398,29 +347,45 @@ class DocumentService:
             folders = await drive.get_folder_structure()
             return [f["name"] for f in folders if f.get("name")]
         except Exception as e:
-            logger.warning("No se pudieron listar carpetas existentes para análisis: %s", e)
+            logger.warning(
+                "No se pudieron listar carpetas existentes para análisis: %s", e
+            )
             return []
 
     async def analyze_document_only(
         self, user_id: str, file_data: bytes, file_name: str, file_type: str
     ) -> Dict[str, Any]:
-        """Solo analizar documento con Bedrock. No guarda ni sube. Para flujo móvil en 2 pasos."""
         import re
-        logger.info("analyze_document_only: usuario=%s, archivo=%s, tamaño=%s bytes", user_id, file_name, len(file_data))
+
+        logger.info(
+            "analyze_document_only: usuario=%s, archivo=%s, tamaño=%s bytes",
+            user_id,
+            file_name,
+            len(file_data),
+        )
         existing_folders = await self._get_existing_folder_names(user_id)
         ai_analysis = await self.ai_analysis_service.analyze_document(
-            file_data, file_type, file_name, user_id, self.db, existing_category_names=existing_folders
+            file_data,
+            file_type,
+            file_name,
+            user_id,
+            self.db,
+            existing_category_names=existing_folders,
         )
         if ai_analysis.get("suggested_category") == "SUBSCRIPTION_REQUIRED":
             return {
                 "subscription_required": True,
-                "message": ai_analysis.get("subscription_required_message", "Suscripción requerida"),
+                "message": ai_analysis.get(
+                    "subscription_required_message", "Suscripción requerida"
+                ),
                 "subscription_info": ai_analysis.get("subscription_info", {}),
             }
         if ai_analysis.get("suggested_category") == "MANUAL_CLASSIFICATION_REQUIRED":
             return {
                 "manual_classification_required": True,
-                "message": ai_analysis.get("manual_classification_message", "Clasificación manual"),
+                "message": ai_analysis.get(
+                    "manual_classification_message", "Clasificación manual"
+                ),
                 "category": "Pendiente de clasificación",
                 "recommended_name": file_name,
                 "expiry_date": None,
@@ -433,7 +398,9 @@ class DocumentService:
             safe_cat = re.sub(r"[^\w\s\-]", "", category).strip().replace(" ", "_")[:40]
             base = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
             ext = file_name.rsplit(".", 1)[-1] if "." in file_name else ""
-            recommended_name = f"{safe_cat}_{base}.{ext}" if ext else f"{safe_cat}_{base}"
+            recommended_name = (
+                f"{safe_cat}_{base}.{ext}" if ext else f"{safe_cat}_{base}"
+            )
         else:
             recommended_name = recommended_name.strip()
         return {
@@ -460,11 +427,12 @@ class DocumentService:
         organization: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> ModelDocumentResponse:
-        """Guardar documento ya analizado: crear carpeta de categoría si no existe (categoría normalizada), subir archivo y crear registro."""
         category = category.strip().title() if category else category
         user_config = await self.user_config_service.get_user_config(user_id)
         storage_preference = (
-            user_config.cloud_provider.value if user_config and user_config.cloud_provider else "keepi_cloud"
+            user_config.cloud_provider.value
+            if user_config and user_config.cloud_provider
+            else "keepi_cloud"
         )
         folder_result = await self.folder_service.ensure_category_folder_exists(
             user_id, category, storage_preference
@@ -472,11 +440,16 @@ class DocumentService:
         if not folder_result.get("success"):
             if folder_result.get("requires_drive_auth"):
                 from app.exceptions import DriveAuthRequiredException
+
                 raise DriveAuthRequiredException(
-                    message=folder_result.get("error", "Se requiere autorización de Google Drive"),
+                    message=folder_result.get(
+                        "error", "Se requiere autorización de Google Drive"
+                    ),
                     drive_auth_url=folder_result.get("drive_auth_url", ""),
                 )
-            raise ValueError(folder_result.get("error", "No se pudo crear o acceder a la carpeta"))
+            raise ValueError(
+                folder_result.get("error", "No se pudo crear o acceder a la carpeta")
+            )
         file_url = None
         s3_key = None
         drive_file_id = None
@@ -490,6 +463,7 @@ class DocumentService:
         elif storage_preference == "google_drive":
             from app.services.almacenamiento import GoogleDriveService
             from app.services.autenticacion import GoogleOAuthService
+
             oauth_service = GoogleOAuthService(self.db)
             user_credentials = await oauth_service.refresh_user_tokens(user_id)
             if not user_credentials:
@@ -502,7 +476,9 @@ class DocumentService:
                 )
                 drive_folder_id = folder_creation.get("folder_id")
                 if not drive_folder_id:
-                    drive_folder_id = await drive_service.get_or_create_folder("General")
+                    drive_folder_id = await drive_service.get_or_create_folder(
+                        "General"
+                    )
             drive_file_id = await drive_service.upload_file(
                 file_data, save_as_name, drive_folder_id, file_type
             )
@@ -529,89 +505,92 @@ class DocumentService:
         )
         return await self.create_document(user_id, document_data)
 
-    async def process_document_with_aws(self, user_id: str, file_data: bytes, file_name: str, file_type: str) -> DocumentResponse:
-        """Procesar documento con AWS Textract y Comprehend - Flujo dinámico"""
+    async def process_document_with_aws(
+        self, user_id: str, file_data: bytes, file_name: str, file_type: str
+    ) -> DocumentResponse:
         try:
-            # Obtener configuración del usuario
+
             user_config = await self.user_config_service.get_user_config(user_id)
-            cloud_provider = user_config.cloud_provider if user_config else "google_drive"
-            
-            # PASO 1: Subir archivo a carpeta temporal
+            cloud_provider = (
+                user_config.cloud_provider if user_config else "google_drive"
+            )
+
             file_url = None
             s3_key = None
-            
+
             if cloud_provider == "keepi_cloud":
-                # Crear estructura de carpetas del usuario si no existe
+
                 await self.aws_service.create_user_folders(user_id)
-                
-                # Subir a carpeta temporal
-                file_url = await self.aws_service.upload_to_s3_temp(file_data, file_name, user_id)
+
+                file_url = await self.aws_service.upload_to_s3_temp(
+                    file_data, file_name, user_id
+                )
                 s3_key = f"users/{user_id}/temp/{file_name}"
-            
-            # PASO 2: Extraer texto de cualquier tipo de documento
-            extraction_result = await self.aws_service.extract_text_from_document(file_data, file_name, file_type)
-            extracted_text = extraction_result.get('text', '')
-            
-            # PASO 3: Categorizar con AWS Comprehend (completamente dinámico)
+
+            extraction_result = await self.aws_service.extract_text_from_document(
+                file_data, file_name, file_type
+            )
+            extracted_text = extraction_result.get("text", "")
+
             ai_analysis = None
-            category = 'General'
-            
+            category = "General"
+
             logger.debug("Texto extraído: %d caracteres", len(extracted_text))
-            if extracted_text and len(extracted_text.strip()) > 10:  # Solo si hay texto significativo
+            if extracted_text and len(extracted_text.strip()) > 10:
                 try:
-                    # Usar AWS Comprehend para análisis dinámico
-                    comprehend_result = await self.aws_service.categorize_document(extracted_text)
-                    logger.debug("Comprehend categoría: %s", comprehend_result.get('category', 'N/A'))
+
+                    comprehend_result = await self.aws_service.categorize_document(
+                        extracted_text
+                    )
+                    logger.debug(
+                        "Comprehend categoría: %s",
+                        comprehend_result.get("category", "N/A"),
+                    )
                     ai_analysis = {
-                        'extraction': extraction_result,
-                        'comprehend': comprehend_result
+                        "extraction": extraction_result,
+                        "comprehend": comprehend_result,
                     }
-                    
-                    # Usar categoría detectada dinámicamente por AWS Comprehend
-                    category = comprehend_result.get('category', 'General')
-                    
-                    # PASO 4: Mover archivo a carpeta de categoría correspondiente
+
+                    category = comprehend_result.get("category", "General")
+
                     if cloud_provider == "keepi_cloud":
-                        # Crear carpeta de categoría si no existe
-                        category_folder = await self.aws_service.create_category_folder(user_id, category)
-                        
-                        # Mover archivo de temp a categoría
-                        new_file_url = await self.aws_service.move_file_in_s3(
-                            user_id, 
-                            file_name, 
-                            "temp", 
-                            f"categorias/{self.aws_service._sanitize_folder_name(category)}"
+
+                        category_folder = await self.aws_service.create_category_folder(
+                            user_id, category
                         )
-                        
-                        # Actualizar URLs y rutas
+
+                        new_file_url = await self.aws_service.move_file_in_s3(
+                            user_id,
+                            file_name,
+                            "temp",
+                            f"categorias/{self.aws_service._sanitize_folder_name(category)}",
+                        )
+
                         file_url = new_file_url
                         s3_key = f"users/{user_id}/categorias/{self.aws_service._sanitize_folder_name(category)}/{file_name}"
-                    
+
                 except Exception as e:
                     logger.warning("Error en categorización: %s", e)
                     ai_analysis = {
-                        'extraction': extraction_result,
-                        'comprehend_error': str(e)
+                        "extraction": extraction_result,
+                        "comprehend_error": str(e),
                     }
             else:
                 ai_analysis = {
-                    'extraction': extraction_result,
-                    'no_text_to_analyze': True
+                    "extraction": extraction_result,
+                    "no_text_to_analyze": True,
                 }
-                
-                # Si no hay texto, mover a carpeta General
+
                 if cloud_provider == "keepi_cloud":
-                    category_folder = await self.aws_service.create_category_folder(user_id, "General")
+                    category_folder = await self.aws_service.create_category_folder(
+                        user_id, "General"
+                    )
                     new_file_url = await self.aws_service.move_file_in_s3(
-                        user_id, 
-                        file_name, 
-                        "temp", 
-                        "categorias/General"
+                        user_id, file_name, "temp", "categorias/General"
                     )
                     file_url = new_file_url
                     s3_key = f"users/{user_id}/categorias/General/{file_name}"
-            
-            # PASO 5: Crear documento en base de datos
+
             document_data = DocumentCreate(
                 name=file_name,
                 category=category,
@@ -622,11 +601,97 @@ class DocumentService:
                 cloud_provider=cloud_provider,
                 s3_key=s3_key,
                 extracted_text=extracted_text,
-                ai_analysis=ai_analysis
+                ai_analysis=ai_analysis,
             )
-            
+
             return await self.create_document(user_id, document_data)
-            
+
         except Exception:
             logger.exception("Error procesando documento con AWS")
+            raise
+
+    async def upload_patient_clinical_study(
+        self,
+        user_id: str,
+        *,
+        filename: str,
+        mime_type: str,
+        content: bytes,
+        category: str = "Análisis Clínicos",
+        description: str = "Subido desde la solicitud del doctor",
+    ) -> Document:
+        import io
+
+        from app.services.almacenamiento import GoogleDriveService, S3Service
+        from app.services.autenticacion import GoogleOAuthService
+
+        uid = str(user_id)
+        user_config = await self.user_config_service.get_or_create_user_config(uid)
+        cloud_provider = (
+            user_config.cloud_provider.value
+            if user_config and user_config.cloud_provider
+            else "google_drive"
+        )
+        folder_result = await self.folder_service.ensure_category_folder_exists(
+            uid, category, cloud_provider
+        )
+        if not folder_result.get("success"):
+            err = folder_result.get(
+                "error", "No se pudo preparar la carpeta de destino"
+            )
+            if folder_result.get("requires_drive_auth"):
+                raise ValueError(
+                    f"DRIVE_AUTH|{folder_result.get('drive_auth_url', '')}|{err}"
+                )
+            raise ValueError(err)
+
+        drive_file_id = None
+        s3_key = None
+        file_url = None
+
+        if cloud_provider == "google_drive":
+            oauth_service = GoogleOAuthService(self.db)
+            credentials = await oauth_service.refresh_user_tokens(uid)
+            if not credentials:
+                raise ValueError("GOOGLE_UNAUTHORIZED")
+            drive_folder_id = folder_result.get("folder_id")
+            if not drive_folder_id:
+                raise RuntimeError("No se obtuvo carpeta en Google Drive")
+            drive_service = GoogleDriveService(credentials)
+            drive_file_id = await drive_service.upload_file(
+                content, filename, drive_folder_id, mime_type
+            )
+            if drive_file_id:
+                file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
+        else:
+            s3_service = S3Service()
+            folder_name = folder_result.get("folder_name") or "other"
+            upload_res = await s3_service.upload_document(
+                uid,
+                io.BytesIO(content),
+                filename,
+                mime_type,
+                folder=folder_name,
+            )
+            s3_key = upload_res.get("file_path")
+            file_url = upload_res.get("signed_url")
+
+        document = Document(
+            id=uuid.uuid4(),
+            user_id=uuid.UUID(uid),
+            name=filename,
+            category=category,
+            description=description,
+            file_url=file_url,
+            file_name=filename,
+            file_size=len(content),
+            file_type=mime_type.split("/")[0],
+            cloud_provider=cloud_provider,
+            drive_file_id=drive_file_id,
+            s3_key=s3_key,
+        )
+        try:
+            return self.persist_document_entity(document)
+        except Exception:
+            self.db.rollback()
             raise

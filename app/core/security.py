@@ -1,16 +1,16 @@
-"""JWT, verificación de contraseñas y dependencia get_current_user. Una sola responsabilidad."""
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.roles import ROLE_PATIENT
+from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.models.user import User
+from app.repositories.user_repository import UserRepository
 
 security = HTTPBearer(auto_error=False)
 
@@ -23,24 +23,32 @@ MUST_CHANGE_PASSWORD_DETAIL = {
 def _get_password_hash(password: str) -> str:
     try:
         from passlib.context import CryptContext
+
         return CryptContext(schemes=["bcrypt"], deprecated="auto").hash(password)
     except Exception:
         import hashlib
         import secrets
+
         salt = secrets.token_hex(16)
-        h = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
+        h = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+        )
         return f"{salt}:{h.hex()}"
 
 
 def _verify_password(plain: str, hashed: str) -> bool:
     try:
         from passlib.context import CryptContext
+
         return CryptContext(schemes=["bcrypt"], deprecated="auto").verify(plain, hashed)
     except Exception:
         try:
             import hashlib
+
             salt, password_hash = hashed.split(":", 1)
-            new_hash = hashlib.pbkdf2_hmac("sha256", plain.encode("utf-8"), salt.encode("utf-8"), 100000)
+            new_hash = hashlib.pbkdf2_hmac(
+                "sha256", plain.encode("utf-8"), salt.encode("utf-8"), 100000
+            )
             return new_hash.hex() == password_hash
         except Exception:
             return False
@@ -56,26 +64,42 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
+    )
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)  # type: ignore
+    return jwt.encode(
+        to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
 
 
 def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
-    to_encode.update({"exp": datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days), "type": "refresh"})
-    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)  # type: ignore  # type: ignore
+    to_encode.update(
+        {
+            "exp": datetime.utcnow()
+            + timedelta(days=settings.refresh_token_expire_days),
+            "type": "refresh",
+        }
+    )
+    return jwt.encode(
+        to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
 
 
 def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
         return payload if payload.get("type") == "refresh" else None
     except JWTError:
         return None
 
 
-def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> dict:
+def verify_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -90,7 +114,9 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
         )
         user_id = payload.get("sub")
         if user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido"
+            )
         return {
             "uid": user_id,
             "email": payload.get("email"),
@@ -126,15 +152,14 @@ def get_current_user(
         )
         user_id = payload.get("sub")
         if user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
-        user = (
-            db.query(User)
-            .options(joinedload(User.role))  # type: ignore[arg-type]
-            .filter(User.id == user_id)
-            .first()
-        )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido"
+            )
+        user = UserRepository(db).get_by_id_with_role(user_id)
         if user is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado"
+            )
         return user
     except JWTError:
         raise HTTPException(
@@ -144,8 +169,9 @@ def get_current_user(
         )
 
 
-def require_no_temp_password_user(current_user: User = Depends(get_current_user)) -> User:
-    """Bloquea el resto de la API hasta que el usuario cambie la contraseña de un solo uso."""
+def require_no_temp_password_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
     if current_user.must_change_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -158,13 +184,16 @@ def require_no_temp_password_token(
     user_token: dict = Depends(verify_token),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Misma regla que require_no_temp_password_user para rutas basadas en verify_token."""
     uid = user_token.get("uid")
     if not uid:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
-    user = db.query(User).filter(User.id == uid).first()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido"
+        )
+    user = UserRepository(db).get_by_id_with_role(uid)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado"
+        )
     if user.must_change_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -173,8 +202,9 @@ def require_no_temp_password_token(
     return user_token
 
 
-def require_patient_user(current_user: User = Depends(require_no_temp_password_user)) -> User:
-    """Solo usuarios con rol PACIENTE (y sin contraseña temporal pendiente)."""
+def require_patient_user(
+    current_user: User = Depends(require_no_temp_password_user),
+) -> User:
     if current_user.role is None or current_user.role.name != ROLE_PATIENT:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -182,10 +212,12 @@ def require_patient_user(current_user: User = Depends(require_no_temp_password_u
         )
     return current_user
 
-def require_doctor_user(current_user: User = Depends(require_no_temp_password_user)) -> User:
-    """Solo usuarios con rol DOCTOR (y sin contraseña temporal pendiente)."""
-    # Verificamos si el rol no es nulo y si el nombre es "DOCTOR" (como está en tu BD)
-    if current_user.role is None or current_user.role.name != "DOCTOR":
+
+def require_doctor_user(
+    current_user: User = Depends(require_no_temp_password_user),
+) -> User:
+
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acceso denegado. Este recurso solo está disponible para doctores.",

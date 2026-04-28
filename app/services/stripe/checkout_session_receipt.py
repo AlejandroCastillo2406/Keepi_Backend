@@ -1,6 +1,3 @@
-"""
-Arma los datos del recibo para el correo de confirmación a partir de Checkout Session (Stripe).
-"""
 from __future__ import annotations
 
 import logging
@@ -17,7 +14,7 @@ from app.services.stripe.stripe_config import ensure_stripe_key
 
 logger = logging.getLogger(__name__)
 
-# https://stripe.com/docs/currencies#zero-decimal
+
 _ZERO_DECIMAL = frozenset(
     {
         "BIF",
@@ -147,16 +144,22 @@ def _payment_method_line(session: Any) -> str:
             return f"{brand} •••• {last4}"
         return brand
     except Exception as exc:
-        logger.debug("No se pudo obtener método de pago del invoice %s: %s", inv_id, exc)
+        logger.debug(
+            "No se pudo obtener método de pago del invoice %s: %s", inv_id, exc
+        )
         return "—"
 
 
-def _details_from_snapshot(session_id: str, snap: Dict[str, Any]) -> PaymentReceiptDetails:
+def _details_from_snapshot(
+    session_id: str, snap: Dict[str, Any]
+) -> PaymentReceiptDetails:
     amt = snap.get("amount_total")
     cur = snap.get("currency")
     created = snap.get("created")
     paid_on = format_unix_to_spanish_date(int(created)) if created else "—"
-    money = _format_stripe_money(int(amt) if amt is not None else None, str(cur) if cur else None)
+    money = _format_stripe_money(
+        int(amt) if amt is not None else None, str(cur) if cur else None
+    )
     return PaymentReceiptDetails(
         plan_line="Suscripción Keepi",
         amount_line=money,
@@ -171,10 +174,6 @@ def build_receipt_from_checkout_session(
     session_id: str,
     session_snapshot: Optional[Dict[str, Any]] = None,
 ) -> PaymentReceiptDetails:
-    """
-    Obtiene monto, moneda, línea de producto, fecha, recibo y tarjeta desde Stripe.
-    Si falla la API, usa solo lo que venga en session_snapshot (objeto del webhook).
-    """
     snap = session_snapshot or {}
     if not session_id:
         return _details_from_snapshot("—", snap)
@@ -200,7 +199,9 @@ def build_receipt_from_checkout_session(
     cur = s.get("currency") or snap.get("currency")
     created = s.get("created") or snap.get("created")
     paid_on = format_unix_to_spanish_date(int(created)) if created else "—"
-    money = _format_stripe_money(int(amt) if amt is not None else None, str(cur) if cur else None)
+    money = _format_stripe_money(
+        int(amt) if amt is not None else None, str(cur) if cur else None
+    )
 
     plan = _plan_from_line_items(sess)
     receipt_ref = _receipt_ref_from_session(sess)

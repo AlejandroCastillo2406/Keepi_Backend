@@ -1,18 +1,13 @@
-"""Rutas del módulo de cuestionarios de salud (solo doctor)."""
-
 from __future__ import annotations
 
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, List, Literal, Optional
+from typing import List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
-from app.core.database import get_db
 from app.core.security import require_doctor_user
 from app.models.questionnaire import (
     OverridesRequest,
@@ -27,6 +22,7 @@ from app.models.questionnaire import (
     TemplateUpdateRequest,
     ToggleRequest,
 )
+from app.dto.questionnaire_responses_dto import PatientQuestionnaireAnswerView
 from app.models.questionnaire_invitation import (
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
@@ -34,33 +30,16 @@ from app.models.questionnaire_invitation import (
     QuestionnaireInvitationSendResponse,
     QuestionnaireInvitationSummaryResponse,
     QuestionnaireSendInvitationRequest,
-    QuestionnaireInvitation,
-    QuestionnaireInvitationItem,
-    QuestionnaireInvitationAnswer,
 )
 from app.models.user import User
-from app.repositories.questionnaire_repository import QuestionnaireRepository
-from app.services.notificaciones.questionnaire_invite_email_service import (
-    build_public_questionnaire_link,
-    send_questionnaire_invite_email,
-)
-from app.services.notificaciones.user_notify import notify_user_push_and_db
+from app.factories.medical_factory import get_questionnaire_service
+from app.services.medical.questionnaire_service import QuestionnaireService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 StatusFilter = Literal["all", "active", "inactive"]
-
-
-class PatientResponseItemView(BaseModel):
-    question_text: str
-    answer_value: Any
-    answered_at: datetime
-
-
-def _get_repo(db: Session = Depends(get_db)) -> QuestionnaireRepository:
-    return QuestionnaireRepository(db)
 
 
 def _parse_uuid(value: str, field: str = "id") -> uuid.UUID:
@@ -70,15 +49,12 @@ def _parse_uuid(value: str, field: str = "id") -> uuid.UUID:
         raise HTTPException(status_code=400, detail=f"{field} inválido") from exc
 
 
-# ──────────────── Specialties ────────────────
-
-
 @router.get("/specialties", response_model=List[SpecialtySummary])
 def list_specialties(
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.list_specialties_with_counts(current_user.id)
+    return svc.list_specialties_with_counts(current_user.id)
 
 
 @router.get(
@@ -89,34 +65,28 @@ def list_specialty_questions(
     specialty_id: str,
     status: StatusFilter = Query("all"),
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
     spec_uuid = _parse_uuid(specialty_id, "specialty_id")
-    repo.get_specialty(spec_uuid)
-    return repo.list_questions(
+    svc.get_specialty(spec_uuid)
+    return svc.list_questions(
         current_user.id,
         specialty_id=spec_uuid,
         status_filter=status,
     )
 
 
-# ──────────────── Globals (specialty_id IS NULL) ────────────────
-
-
 @router.get("/questions/globals", response_model=List[QuestionResponse])
 def list_global_questions(
     status: StatusFilter = Query("all"),
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.list_questions(
+    return svc.list_questions(
         current_user.id,
         only_globals=True,
         status_filter=status,
     )
-
-
-# ──────────────── Question CRUD (custom) ────────────────
 
 
 @router.post(
@@ -127,18 +97,20 @@ def list_global_questions(
 def create_question(
     payload: QuestionCreateRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.create_custom_question(current_user.id, payload)
+    return svc.create_custom_question(current_user.id, payload)
 
 
 @router.get("/questions/{question_id}", response_model=QuestionResponse)
 def get_question(
     question_id: str,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.get_question_dto(current_user.id, _parse_uuid(question_id, "question_id"))
+    return svc.get_question_dto(
+        current_user.id, _parse_uuid(question_id, "question_id")
+    )
 
 
 @router.patch("/questions/{question_id}", response_model=QuestionResponse)
@@ -146,9 +118,9 @@ def update_question(
     question_id: str,
     payload: QuestionUpdateRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.update_custom_question(
+    return svc.update_custom_question(
         current_user.id, _parse_uuid(question_id, "question_id"), payload
     )
 
@@ -157,9 +129,9 @@ def update_question(
 def delete_question(
     question_id: str,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    repo.delete_custom_question(current_user.id, _parse_uuid(question_id, "question_id"))
+    svc.delete_custom_question(current_user.id, _parse_uuid(question_id, "question_id"))
     return None
 
 
@@ -168,9 +140,9 @@ def toggle_question(
     question_id: str,
     payload: ToggleRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.set_toggle(
+    return svc.set_toggle(
         current_user.id, _parse_uuid(question_id, "question_id"), payload.is_active
     )
 
@@ -180,9 +152,9 @@ def override_question(
     question_id: str,
     payload: OverridesRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.set_overrides(
+    return svc.set_overrides(
         current_user.id,
         _parse_uuid(question_id, "question_id"),
         is_required=payload.is_required,
@@ -190,15 +162,12 @@ def override_question(
     )
 
 
-# ──────────────── Templates ────────────────
-
-
 @router.get("/templates", response_model=List[TemplateResponse])
 def list_templates(
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.list_templates(current_user.id)
+    return svc.list_templates(current_user.id)
 
 
 @router.post(
@@ -209,18 +178,18 @@ def list_templates(
 def create_template(
     payload: TemplateCreateRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.create_template(current_user.id, payload)
+    return svc.create_template(current_user.id, payload)
 
 
 @router.get("/templates/{template_id}", response_model=TemplateDetailResponse)
 def get_template(
     template_id: str,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.get_template(current_user.id, _parse_uuid(template_id, "template_id"))
+    return svc.get_template(current_user.id, _parse_uuid(template_id, "template_id"))
 
 
 @router.patch("/templates/{template_id}", response_model=TemplateDetailResponse)
@@ -228,9 +197,9 @@ def update_template(
     template_id: str,
     payload: TemplateUpdateRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.update_template(
+    return svc.update_template(
         current_user.id, _parse_uuid(template_id, "template_id"), payload
     )
 
@@ -239,9 +208,9 @@ def update_template(
 def delete_template(
     template_id: str,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    repo.delete_template(current_user.id, _parse_uuid(template_id, "template_id"))
+    svc.delete_template(current_user.id, _parse_uuid(template_id, "template_id"))
     return None
 
 
@@ -253,14 +222,11 @@ def upsert_template_questions(
     template_id: str,
     payload: TemplateQuestionsUpsertRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.upsert_template_questions(
+    return svc.upsert_template_questions(
         current_user.id, _parse_uuid(template_id, "template_id"), payload
     )
-
-
-# ──────────────── Invitations (doctor + public token) ────────────────
 
 
 @router.post(
@@ -271,27 +237,9 @@ def upsert_template_questions(
 def create_invitation(
     payload: QuestionnaireSendInvitationRequest,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    summary, raw_token = repo.create_invitation_batch(current_user.id, payload)
-    public_link = build_public_questionnaire_link(raw_token)
-    email_res = send_questionnaire_invite_email(
-        to_email=summary.patient_email,
-        patient_name=summary.patient_name,
-        public_link=public_link,
-    )
-    if not email_res.success:
-        logger.warning(
-            "Invitación cuestionario creada pero el correo no se envió: %s → %s",
-            summary.patient_email,
-            email_res.error,
-        )
-    return QuestionnaireInvitationSendResponse(
-        invitation=summary,
-        public_link=public_link,
-        email_sent=bool(email_res.success),
-        email_error=email_res.error,
-    )
+    return svc.create_invitation_with_email(current_user.id, payload)
 
 
 @router.get(
@@ -301,9 +249,9 @@ def create_invitation(
 def get_invitation(
     invitation_id: str,
     current_user: User = Depends(require_doctor_user),
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.get_invitation_summary(
+    return svc.get_invitation_summary(
         current_user.id,
         _parse_uuid(invitation_id, "invitation_id"),
     )
@@ -315,9 +263,9 @@ def get_invitation(
 )
 def get_public_invitation(
     token: str,
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return repo.get_public_invitation_view(token)
+    return svc.get_public_invitation_view(token)
 
 
 @router.post(
@@ -327,63 +275,19 @@ def get_public_invitation(
 def submit_public_invitation(
     token: str,
     payload: PublicInvitationSubmitRequest,
-    repo: QuestionnaireRepository = Depends(_get_repo),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    response, invitation = repo.submit_public_invitation(token, payload)
-    notify_user_push_and_db(
-        repo._db,  # noqa: SLF001
-        invitation.doctor_id,
-        title="Cuestionario completado",
-        message=f"{invitation.patient_name_snapshot} completó su cuestionario de salud.",
-        notification_type="info",
-        payload={
-            "type": "questionnaire_completed",
-            "invitation_id": str(invitation.id),
-            "patient_id": str(invitation.patient_id),
-        },
-        push_data={
-            "type": "questionnaire_completed",
-            "invitation_id": str(invitation.id),
-            "patient_id": str(invitation.patient_id),
-        },
-    )
-    return response
+    return svc.submit_public_invitation_with_notify(token, payload)
 
-
-# ──────────────── Respuestas del Paciente ────────────────
 
 @router.get(
     "/patients/{patient_id}/responses",
-    response_model=List[PatientResponseItemView],
+    response_model=List[PatientQuestionnaireAnswerView],
 )
 def get_patient_questionnaire_responses(
     patient_id: str,
     current_user: User = Depends(require_doctor_user),
-    db: Session = Depends(get_db),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
     pat_uuid = _parse_uuid(patient_id, "patient_id")
-    
-    respuestas_db = (
-        db.query(
-            QuestionnaireInvitationItem.question_text_snapshot.label("question_text"),
-            QuestionnaireInvitationAnswer.answer_json.label("answer_value"),
-            QuestionnaireInvitationAnswer.answered_at
-        )
-        .select_from(QuestionnaireInvitation)
-        .join(QuestionnaireInvitationItem, QuestionnaireInvitationItem.invitation_id == QuestionnaireInvitation.id)
-        .join(QuestionnaireInvitationAnswer, QuestionnaireInvitationAnswer.invitation_item_id == QuestionnaireInvitationItem.id)
-        .filter(QuestionnaireInvitation.patient_id == pat_uuid)
-        .filter(QuestionnaireInvitation.doctor_id == current_user.id)
-        .filter(QuestionnaireInvitation.status == "completed")
-        .order_by(QuestionnaireInvitationAnswer.answered_at.desc())
-        .all()
-    )
-
-    return [
-        PatientResponseItemView(
-            question_text=r.question_text,
-            answer_value=r.answer_value,
-            answered_at=r.answered_at
-        )
-        for r in respuestas_db
-    ]
+    return svc.list_patient_questionnaire_answers(current_user.id, pat_uuid)

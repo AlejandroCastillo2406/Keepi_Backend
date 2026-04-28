@@ -5,13 +5,22 @@ from pydantic import BaseModel
 from typing import Any
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
-
 
 InvitationStatus = Literal["pending", "completed", "expired", "cancelled"]
 
@@ -27,8 +36,18 @@ class QuestionnaireInvitation(Base):
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    doctor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    patient_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    doctor_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    patient_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     token_hash = Column(String(128), nullable=False, index=True)
     status = Column(String(20), nullable=False, default="pending", index=True)
@@ -39,7 +58,9 @@ class QuestionnaireInvitation(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     used_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     items = relationship(
         "QuestionnaireInvitationItem",
@@ -48,10 +69,12 @@ class QuestionnaireInvitation(Base):
         order_by="QuestionnaireInvitationItem.sort_order.asc()",
     )
 
+
 class PatientResponseItemView(BaseModel):
     question_text: str
     answer_value: Any
     answered_at: datetime
+
 
 class QuestionnaireInvitationItem(Base):
     __tablename__ = "questionnaire_invitation_items"
@@ -79,7 +102,9 @@ class QuestionnaireInvitationItem(Base):
     template_name_snapshot = Column(String(120), nullable=True)
 
     sort_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     invitation = relationship("QuestionnaireInvitation", back_populates="items")
     answers = relationship(
@@ -92,7 +117,9 @@ class QuestionnaireInvitationItem(Base):
 class QuestionnaireInvitationAnswer(Base):
     __tablename__ = "questionnaire_invitation_answers"
     __table_args__ = (
-        UniqueConstraint("invitation_item_id", name="uq_questionnaire_invitation_answer_item"),
+        UniqueConstraint(
+            "invitation_item_id", name="uq_questionnaire_invitation_answer_item"
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -103,14 +130,13 @@ class QuestionnaireInvitationAnswer(Base):
         index=True,
     )
     answer_json = Column(JSONB, nullable=False)
-    answered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    answered_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
-    invitation_item = relationship("QuestionnaireInvitationItem", back_populates="answers")
-
-
-# ─────────────────────────────────────────────────────────────
-# Schemas de apoyo para API pública y doctor
-# ─────────────────────────────────────────────────────────────
+    invitation_item = relationship(
+        "QuestionnaireInvitationItem", back_populates="answers"
+    )
 
 
 class InvitationQuestionView(BaseModel):
@@ -143,7 +169,6 @@ class PublicInvitationSubmitRequest(BaseModel):
 
 
 class QuestionnaireSendInvitationRequest(BaseModel):
-    """Cuerpo para crear invitación. El link público siempre vence a las 24 h."""
 
     model_config = ConfigDict(extra="ignore")
 

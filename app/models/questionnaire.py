@@ -1,13 +1,3 @@
-"""Modelos del sistema de cuestionarios de salud.
-
-Entidades:
-- `Specialty`: catálogo de especialidades (seed del sistema).
-- `Question`: pregunta base (origin='system') o pregunta del doctor (origin='custom').
-- `DoctorQuestionOverride`: overrides de un doctor sobre una pregunta (toggle + defaults).
-- `Template`: plantilla personalizada de un doctor (agrupa preguntas).
-- `TemplateQuestion`: relación M2M ordenada entre `Template` y `Question`.
-"""
-
 import uuid
 from datetime import datetime
 from typing import List, Literal, Optional
@@ -29,11 +19,6 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
-
-
-# ─────────────────────────────────────────────────────────────
-#   ENUMS / LITERALS
-# ─────────────────────────────────────────────────────────────
 
 QuestionOrigin = Literal["system", "custom"]
 ResponseType = Literal[
@@ -57,11 +42,6 @@ RESPONSE_TYPES: tuple[str, ...] = (
 )
 
 
-# ─────────────────────────────────────────────────────────────
-#   ORM MODELS
-# ─────────────────────────────────────────────────────────────
-
-
 class Specialty(Base):
     __tablename__ = "questionnaire_specialties"
 
@@ -69,10 +49,12 @@ class Specialty(Base):
     slug = Column(String(64), unique=True, nullable=False, index=True)
     name = Column(String(120), nullable=False)
     description = Column(Text, nullable=True)
-    icon = Column(String(64), nullable=True)  # key de icono Material (outlined)
+    icon = Column(String(64), nullable=True)
     sort_order = Column(Integer, nullable=False, default=0, index=True)
     is_system = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     questions = relationship("Question", back_populates="specialty")
 
@@ -80,7 +62,9 @@ class Specialty(Base):
 class Question(Base):
     __tablename__ = "questionnaire_questions"
     __table_args__ = (
-        CheckConstraint("origin IN ('system','custom')", name="ck_questionnaire_question_origin"),
+        CheckConstraint(
+            "origin IN ('system','custom')", name="ck_questionnaire_question_origin"
+        ),
         CheckConstraint(
             "response_type IN ('single_choice','multi_choice','yes_no','numeric','short_text','long_text')",
             name="ck_questionnaire_question_response_type",
@@ -94,7 +78,7 @@ class Question(Base):
         nullable=True,
         index=True,
     )
-    # Owner nulo => pregunta del sistema (seed). Owner != null => custom del doctor.
+
     owner_user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -105,7 +89,7 @@ class Question(Base):
 
     text = Column(Text, nullable=False)
     response_type = Column(String(20), nullable=False)
-    # Opciones para single_choice / multi_choice: ["Sí", "No", ...]
+
     options = Column(JSONB, nullable=True)
     help_text = Column(Text, nullable=True)
 
@@ -114,7 +98,9 @@ class Question(Base):
     is_active_default = Column(Boolean, nullable=False, default=True)
 
     sort_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -128,7 +114,9 @@ class Question(Base):
 class DoctorQuestionOverride(Base):
     __tablename__ = "questionnaire_doctor_overrides"
     __table_args__ = (
-        UniqueConstraint("doctor_id", "question_id", name="uq_doctor_question_override"),
+        UniqueConstraint(
+            "doctor_id", "question_id", name="uq_doctor_question_override"
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -144,10 +132,12 @@ class DoctorQuestionOverride(Base):
         nullable=False,
         index=True,
     )
-    is_active = Column(Boolean, nullable=True)  # null = usar default
+    is_active = Column(Boolean, nullable=True)
     is_required = Column(Boolean, nullable=True)
     show_in_history = Column(Boolean, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -177,7 +167,9 @@ class Template(Base):
     )
     name = Column(String(120), nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -213,14 +205,11 @@ class TemplateQuestion(Base):
         index=True,
     )
     sort_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     template = relationship("Template", back_populates="items")
-
-
-# ─────────────────────────────────────────────────────────────
-#   SCHEMAS PYDANTIC
-# ─────────────────────────────────────────────────────────────
 
 
 class SpecialtyResponse(BaseModel):
@@ -263,7 +252,7 @@ class QuestionResponse(BaseModel):
 
 
 class QuestionCreateRequest(BaseModel):
-    specialty_id: Optional[str] = None  # null => global
+    specialty_id: Optional[str] = None
     text: str = Field(..., min_length=3, max_length=500)
     response_type: str = Field(...)
     options: Optional[List[str]] = None

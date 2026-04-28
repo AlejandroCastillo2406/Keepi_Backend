@@ -1,5 +1,3 @@
-"""Envío de credenciales temporales de paciente vía SES (misma configuración que otros correos)."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -72,6 +70,8 @@ def send_patient_invite_email(
                 "Body": {"Html": {"Data": html, "Charset": "UTF-8"}},
             },
         )
-        return PatientInviteEmailResult(success=True, ses_message_id=result.get("MessageId"))
+        return PatientInviteEmailResult(
+            success=True, ses_message_id=result.get("MessageId")
+        )
     except (BotoCoreError, ClientError) as exc:
         return PatientInviteEmailResult(success=False, error=str(exc))

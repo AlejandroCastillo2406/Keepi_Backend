@@ -1,87 +1,170 @@
-from datetime import timedelta
-from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
 from uuid import UUID
 
-from app.models.appointment import Appointment
-# Asegúrate de importar los DTOs que creamos en el paso anterior (ajusta la ruta si es necesario)
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
 from app.models.appointment import (
-    AppointmentPatientCreateRequest,
+    Appointment,
+    AppointmentCreateRequest,
     AppointmentDoctorProposeRequest,
-    AppointmentPatientRespondRequest
+    AppointmentPatientCreateRequest,
+    AppointmentPatientRespondRequest,
 )
+from app.repositories.appointment_repository import AppointmentRepository
+
 
 class AppointmentService:
-    
-    # PASO 1: El paciente envía la solicitud (Solo motivo)
+
     @staticmethod
-    def create_patient_request(db: Session, patient_id: str, request_data: AppointmentPatientCreateRequest) -> Appointment:
+    def _repo(db: Session) -> AppointmentRepository:
+        return AppointmentRepository(db)
+
+    @staticmethod
+    def create_patient_request(
+        db: Session, patient_id: str, request_data: AppointmentPatientCreateRequest
+    ) -> Appointment:
         new_appointment = Appointment(
             patient_id=patient_id,
             doctor_id=request_data.doctor_id,
             reason=request_data.reason,
-            status="pending_doctor_proposal" # Estado inicial
+            status="pending_doctor_proposal",
         )
-        db.add(new_appointment)
-        db.commit()
-        db.refresh(new_appointment)
-        
-        # Aquí a futuro podrías llamar a tu servicio de notificaciones para avisarle al doctor
-        return new_appointment
+        return AppointmentService._repo(db).add(new_appointment)
 
-    # PASO 2: El doctor propone un horario
     @staticmethod
-    def propose_doctor_time(db: Session, appointment_id: str, doctor_id: str, proposal_data: AppointmentDoctorProposeRequest) -> Appointment:
-        appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
-        
+    def propose_doctor_time(
+        db: Session,
+        appointment_id: str,
+        doctor_id: str,
+        proposal_data: AppointmentDoctorProposeRequest,
+    ) -> Appointment:
+        repo = AppointmentService._repo(db)
+        appointment = repo.get_by_id(appointment_id)
+
         if not appointment:
             raise HTTPException(status_code=404, detail="Cita no encontrada")
-            
-        # Validar que el doctor sea el dueño de esta cita y que esté en el estado correcto
+
         if str(appointment.doctor_id) != doctor_id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta cita")
-            
+            raise HTTPException(
+                status_code=403, detail="No tienes permiso para modificar esta cita"
+            )
+
         if appointment.status != "pending_doctor_proposal":
-            raise HTTPException(status_code=400, detail="Esta cita no está esperando propuesta")
+            raise HTTPException(
+                status_code=400, detail="Esta cita no está esperando propuesta"
+            )
 
-        # Asignamos las fechas y cambiamos el estado
         appointment.appointment_date = proposal_data.proposed_start_at
-        appointment.end_date = proposal_data.proposed_start_at + timedelta(minutes=proposal_data.duration_minutes)
-        appointment.status = "pending_patient_approval" # Cambia de estado
-        
-        # Si enviaste un campo de notas en el modelo, lo guardamos aquí
-        # appointment.notes = proposal_data.notes 
-        
-        db.commit()
-        db.refresh(appointment)
-        
-        # Aquí a futuro disparas la notificación push (campanita) para el paciente
-        return appointment
+        appointment.end_date = proposal_data.proposed_start_at + timedelta(
+            minutes=proposal_data.duration_minutes
+        )
+        appointment.status = "pending_patient_approval"
 
-    # PASO 3: El paciente acepta o rechaza
+        return repo.save(appointment)
+
     @staticmethod
-    def respond_to_proposal(db: Session, appointment_id: str, patient_id: str, response_data: AppointmentPatientRespondRequest) -> Appointment:
-        appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
-        
+    def respond_to_proposal(
+        db: Session,
+        appointment_id: str,
+        patient_id: str,
+        response_data: AppointmentPatientRespondRequest,
+    ) -> Appointment:
+        repo = AppointmentService._repo(db)
+        appointment = repo.get_by_id(appointment_id)
+
         if not appointment:
             raise HTTPException(status_code=404, detail="Cita no encontrada")
-            
-        if str(appointment.patient_id) != patient_id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta cita")
-            
-        if appointment.status != "pending_patient_approval":
-            raise HTTPException(status_code=400, detail="Esta cita no tiene una propuesta pendiente")
 
-        # Aplicamos la decisión del paciente
+        if str(appointment.patient_id) != patient_id:
+            raise HTTPException(
+                status_code=403, detail="No tienes permiso para modificar esta cita"
+            )
+
+        if appointment.status != "pending_patient_approval":
+            raise HTTPException(
+                status_code=400, detail="Esta cita no tiene una propuesta pendiente"
+            )
+
         if response_data.action == "accept":
             appointment.status = "scheduled"
         elif response_data.action == "reject":
             appointment.status = "canceled"
-            # Como mencionaste: si rechaza, se cancela y debe empezar de nuevo. 
-            # No borramos el registro para tener historial, solo lo cancelamos.
 
-        db.commit()
-        db.refresh(appointment)
-        
-        # Aquí notificas al doctor si fue aceptada o rechazada
-        return appointment
+        return repo.save(appointment)
+
+    @staticmethod
+    def get_appointments_by_patient(db: Session, patient_id: str):
+        return AppointmentService._repo(db).list_by_patient(UUID(str(patient_id)))
+
+    @staticmethod
+    def create_doctor_appointment(
+        db: Session,
+        doctor_id: UUID,
+        body: AppointmentCreateRequest,
+    ) -> Appointment:
+        start_at = body.appointment_date
+        end_at = start_at + timedelta(minutes=body.duration_minutes)
+        row = Appointment(
+            doctor_id=doctor_id,
+            patient_id=UUID(body.patient_id),
+            appointment_date=start_at,
+            end_date=end_at,
+            status="scheduled",
+            reason=body.reason.strip() or "Consulta médica",
+        )
+        return AppointmentService._repo(db).add(row)
+
+    @staticmethod
+    def list_doctor_calendar(
+        db: Session, doctor_id: UUID, start_at: datetime, end_at: datetime
+    ):
+        return AppointmentService._repo(db).list_doctor_calendar(
+            doctor_id, start_at, end_at
+        )
+
+    @staticmethod
+    def list_patient_appointments(db: Session, patient_id: UUID):
+        return AppointmentService._repo(db).list_by_patient(patient_id)
+
+    @staticmethod
+    def get_appointment_for_patient(
+        db: Session, appointment_id: UUID, patient_id: UUID
+    ) -> Appointment:
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None or row.patient_id != patient_id:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+        return row
+
+    @staticmethod
+    def doctor_propose_and_notify(
+        db: Session,
+        appointment_id: UUID,
+        doctor_id: UUID,
+        body: AppointmentDoctorProposeRequest,
+        doctor_name: str,
+    ) -> Appointment:
+        from app.services.notificaciones.notification_service import NotificationService
+
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None or row.doctor_id != doctor_id:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+
+        start_at = body.proposed_start_at
+        end_at = start_at + timedelta(minutes=body.duration_minutes)
+        row.appointment_date = start_at
+        row.end_date = end_at
+        row.status = "pending_patient_approval"
+        repo.save(row)
+
+        NotificationService(db).notify_user_push_in_app(
+            row.patient_id,
+            title="Propuesta de cita",
+            message=f"El Dr. {doctor_name} ha asignado una fecha para tu consulta.",
+            notification_type="appointment_proposed",
+            payload={"appointment_id": str(row.id), "action": "patient_decision"},
+            push_data={"type": "appointment_proposed", "appointment_id": str(row.id)},
+        )
+        return row

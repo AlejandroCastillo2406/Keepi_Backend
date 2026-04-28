@@ -1,5 +1,5 @@
-"""Constantes de negocio (límites, nombres, etc.). Una sola responsabilidad."""
-
-# Suscripciones
-ANALYSIS_LIMIT_FREE = 2
+﻿ANALYSIS_LIMIT_FREE = 2
 ANALYSIS_LIMIT_PREMIUM_UNLIMITED = 999999
+
+SCHEDULER_PILL_REMINDER_INTERVAL_HOURS = 1
+SCHEDULER_PILL_JOB_ID = "pill_reminders_hourly"

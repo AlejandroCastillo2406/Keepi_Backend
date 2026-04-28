@@ -1,7 +1,3 @@
-"""
-Creación y cancelación de suscripciones en Stripe (API Subscription).
-Responsabilidad única: crear suscripción con Payment Intent y cancelar en Stripe.
-"""
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -14,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class StripeSubscriptionService:
-    """Gestiona suscripciones en Stripe (Subscription.create, delete)."""
 
     def create_subscription(
         self,
@@ -23,10 +18,6 @@ class StripeSubscriptionService:
         user_id: str,
         plan_value: str,
     ) -> Dict[str, Any]:
-        """
-        Crea una suscripción en Stripe (modo incompleto para confirmar pago después).
-        Returns: dict con stripe_subscription (objeto), current_period_start/end, payment_intent (client_secret, status).
-        """
         ensure_stripe_key()
         sub = stripe.Subscription.create(
             customer=customer_id,
@@ -37,7 +28,11 @@ class StripeSubscriptionService:
             metadata={"user_id": str(user_id), "plan": plan_value},
         )
         logger.info("Suscripción Stripe creada: %s para user %s", sub.id, user_id)
-        pi = getattr(sub.latest_invoice, "payment_intent", None) if sub.latest_invoice else None
+        pi = (
+            getattr(sub.latest_invoice, "payment_intent", None)
+            if sub.latest_invoice
+            else None
+        )
         return {
             "stripe_subscription": sub,
             "stripe_subscription_id": sub.id,
@@ -49,13 +44,11 @@ class StripeSubscriptionService:
         }
 
     def cancel_subscription(self, stripe_subscription_id: str) -> None:
-        """Cancela la suscripción en Stripe."""
         ensure_stripe_key()
         stripe.Subscription.delete(stripe_subscription_id)
         logger.info("Suscripción Stripe cancelada: %s", stripe_subscription_id)
 
     def retrieve_subscription(self, stripe_subscription_id: str) -> Optional[Any]:
-        """Obtiene una suscripción de Stripe por id."""
         try:
             ensure_stripe_key()
             return stripe.Subscription.retrieve(stripe_subscription_id)

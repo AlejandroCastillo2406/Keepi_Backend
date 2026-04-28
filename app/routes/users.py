@@ -2,94 +2,79 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
 from app.core.security import get_current_user
+from app.factories.user_factory import get_user_service
 from app.models.user import User, UserResponse, UserUpdate
-from app.services.usuarios import UserService
+from app.services.autenticacion.jwt_inspection_service import JwtInspectionService
+from app.services.usuarios.user_service import UserService
 
 router = APIRouter()
 
-# IMPORTANTE: Las rutas específicas deben ir ANTES que las rutas dinámicas
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
-    """Obtener información del usuario autenticado (endpoint /me)"""
-    return UserResponse.from_orm(current_user)
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    u = await user_service.get_me_response(str(current_user.id))
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return u
+
 
 @router.get("/debug-token")
-async def debug_token(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False))):
-    """Debug del token JWT"""
-    if credentials is None:
-        return {"error": "No se proporcionó token"}
-    
-    try:
-        from jose import jwt
+async def debug_token(
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False)),
+):
+    return JwtInspectionService.decode_bearer_optional(credentials)
 
-        from app.core.config import settings
-        
-        token = credentials.credentials
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm], options={"verify_exp": False})
-        
-        return {
-            "token_payload": payload,
-            "user_id_from_token": payload.get("sub"),
-            "email_from_token": payload.get("email")
-        }
-    except Exception as e:
-        return {"error": f"Error decodificando token: {str(e)}"}
 
 @router.get("/profile", response_model=UserResponse)
-async def get_user_profile(current_user: User = Depends(get_current_user)):
-    """Obtener perfil del usuario autenticado"""
-    return UserResponse.from_orm(current_user)
+async def get_user_profile(
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    u = await user_service.get_me_response(str(current_user.id))
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return u
+
 
 @router.put("/profile", response_model=UserResponse)
 async def update_user_profile(
     user_data: UserUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    user_service: UserService = Depends(get_user_service),
 ):
-    """Actualizar perfil del usuario"""
     try:
-        user_service = UserService(db)
         updated_user = await user_service.update_user(str(current_user.id), user_data)
-        
         if updated_user:
             return updated_user
-        else:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-            
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Endpoints de desarrollo (solo para testing) - ANTES de rutas dinámicas
+
 @router.get("/all", response_model=List[UserResponse])
-async def get_all_users(db: Session = Depends(get_db)):
-    """Obtener todos los usuarios (SOLO PARA DESARROLLO)"""
+async def get_all_users(user_service: UserService = Depends(get_user_service)):
     try:
-        user_service = UserService(db)
-        users = await user_service.get_all_users()
-        return users
+        return await user_service.get_all_users()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# RUTA DINÁMICA - DEBE IR AL FINAL
+
 @router.get("/{user_uid}", response_model=UserResponse)
-async def get_user_by_uid(user_uid: str, db: Session = Depends(get_db)):
-    """Obtener usuario específico por UID (SOLO PARA DESARROLLO)"""
+async def get_user_by_uid(
+    user_uid: str, user_service: UserService = Depends(get_user_service)
+):
     try:
-        user_service = UserService(db)
         user = await user_service.get_user_by_uid(user_uid)
-        
         if user:
             return user
-        else:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-            
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
     except HTTPException:
         raise
     except Exception as e:

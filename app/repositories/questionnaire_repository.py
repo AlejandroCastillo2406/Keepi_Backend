@@ -1,9 +1,3 @@
-"""Repositorio de cuestionarios de salud.
-
-Responsable de todas las queries relacionadas a preguntas/especialidades/plantillas/overrides.
-Aplica overrides del doctor al materializar las preguntas.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -52,14 +46,18 @@ def _as_uuid(value: Optional[str]) -> Optional[uuid.UUID]:
     try:
         return uuid.UUID(str(value))
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID inválido") from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="ID inválido"
+        ) from exc
 
 
 def _coalesce(override_val: Optional[bool], default_val: bool) -> bool:
     return default_val if override_val is None else bool(override_val)
 
 
-def _effective_fields(q: Question, override: Optional[DoctorQuestionOverride]) -> dict[str, bool]:
+def _effective_fields(
+    q: Question, override: Optional[DoctorQuestionOverride]
+) -> dict[str, bool]:
     return {
         "is_active": _coalesce(
             override.is_active if override else None, bool(q.is_active_default)
@@ -68,7 +66,8 @@ def _effective_fields(q: Question, override: Optional[DoctorQuestionOverride]) -
             override.is_required if override else None, bool(q.is_required_default)
         ),
         "show_in_history": _coalesce(
-            override.show_in_history if override else None, bool(q.show_in_history_default)
+            override.show_in_history if override else None,
+            bool(q.show_in_history_default),
         ),
     }
 
@@ -117,7 +116,11 @@ class QuestionnaireRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    # ────── Specialties ──────
+    def has_any_specialty_row(self) -> bool:
+        return self._db.query(Specialty.id).first() is not None
+
+    def has_any_question_row(self) -> bool:
+        return self._db.query(Question.id).first() is not None
 
     def list_specialties(self) -> List[Specialty]:
         return (
@@ -126,7 +129,9 @@ class QuestionnaireRepository:
             .all()
         )
 
-    def list_specialties_with_counts(self, doctor_id: uuid.UUID) -> List[SpecialtySummary]:
+    def list_specialties_with_counts(
+        self, doctor_id: uuid.UUID
+    ) -> List[SpecialtySummary]:
         specialties = self.list_specialties()
         summaries: List[SpecialtySummary] = []
         for spec in specialties:
@@ -134,7 +139,9 @@ class QuestionnaireRepository:
                 doctor_id, specialty_id=spec.id, only_globals=False
             )
             total = len(questions)
-            active = sum(1 for q, ov in questions if _effective_fields(q, ov)["is_active"])
+            active = sum(
+                1 for q, ov in questions if _effective_fields(q, ov)["is_active"]
+            )
             summaries.append(
                 SpecialtySummary(
                     **_specialty_to_dto(spec).model_dump(),
@@ -150,8 +157,6 @@ class QuestionnaireRepository:
             raise HTTPException(status_code=404, detail="Especialidad no encontrada")
         return spec
 
-    # ────── Questions ──────
-
     def _fetch_visible_questions(
         self,
         doctor_id: uuid.UUID,
@@ -159,11 +164,6 @@ class QuestionnaireRepository:
         specialty_id: Optional[uuid.UUID] = None,
         only_globals: bool = False,
     ) -> List[tuple[Question, Optional[DoctorQuestionOverride]]]:
-        """Retorna preguntas visibles al doctor: system + propias.
-
-        - `specialty_id`: si se envía, filtra esa especialidad.
-        - `only_globals`: si es True, filtra `specialty_id IS NULL` y ignora `specialty_id`.
-        """
         ownership_filter = or_(
             Question.origin == "system",
             Question.owner_user_id == doctor_id,
@@ -175,7 +175,9 @@ class QuestionnaireRepository:
         elif specialty_id is not None:
             q = q.filter(Question.specialty_id == specialty_id)
 
-        questions = q.order_by(Question.sort_order.asc(), Question.created_at.asc()).all()
+        questions = q.order_by(
+            Question.sort_order.asc(), Question.created_at.asc()
+        ).all()
 
         if not questions:
             return []
@@ -202,7 +204,7 @@ class QuestionnaireRepository:
         rows = self._fetch_visible_questions(
             doctor_id, specialty_id=specialty_id, only_globals=only_globals
         )
-        # precargar specialties para pintar nombre
+
         spec_ids = {q.specialty_id for q, _ in rows if q.specialty_id}
         specialties_by_id: dict[uuid.UUID, Specialty] = {}
         if spec_ids:
@@ -226,11 +228,13 @@ class QuestionnaireRepository:
             )
         return out
 
-    def get_question_dto(self, doctor_id: uuid.UUID, question_id: uuid.UUID) -> QuestionResponse:
+    def get_question_dto(
+        self, doctor_id: uuid.UUID, question_id: uuid.UUID
+    ) -> QuestionResponse:
         q = self._db.query(Question).filter(Question.id == question_id).first()
         if not q:
             raise HTTPException(status_code=404, detail="Pregunta no encontrada")
-        # Visibilidad
+
         if q.origin == "custom" and q.owner_user_id != doctor_id:
             raise HTTPException(status_code=404, detail="Pregunta no encontrada")
         ov = (
@@ -261,7 +265,6 @@ class QuestionnaireRepository:
         if specialty_uuid is not None:
             self.get_specialty(specialty_uuid)
 
-        # siguiente sort_order dentro del ámbito del doctor
         next_order = (
             self._db.query(func.coalesce(func.max(Question.sort_order), 0))
             .filter(Question.owner_user_id == doctor_id)
@@ -306,7 +309,9 @@ class QuestionnaireRepository:
             q.text = data.text.strip()
         if data.response_type is not None:
             if data.response_type not in RESPONSE_TYPES:
-                raise HTTPException(status_code=400, detail="Tipo de respuesta inválido")
+                raise HTTPException(
+                    status_code=400, detail="Tipo de respuesta inválido"
+                )
             q.response_type = data.response_type
         if data.options is not None:
             q.options = data.options
@@ -322,7 +327,6 @@ class QuestionnaireRepository:
                 self.get_specialty(spec_uuid)
             q.specialty_id = spec_uuid
 
-        # validación de opciones según tipo
         if q.response_type in ("single_choice", "multi_choice"):
             if not q.options or len(q.options) < 2:
                 raise HTTPException(
@@ -334,7 +338,9 @@ class QuestionnaireRepository:
         self._db.refresh(q)
         return self.get_question_dto(doctor_id, q.id)
 
-    def delete_custom_question(self, doctor_id: uuid.UUID, question_id: uuid.UUID) -> None:
+    def delete_custom_question(
+        self, doctor_id: uuid.UUID, question_id: uuid.UUID
+    ) -> None:
         q = self._db.query(Question).filter(Question.id == question_id).first()
         if not q:
             raise HTTPException(status_code=404, detail="Pregunta no encontrada")
@@ -345,8 +351,6 @@ class QuestionnaireRepository:
             )
         self._db.delete(q)
         self._db.commit()
-
-    # ────── Overrides ──────
 
     def _load_override(
         self, doctor_id: uuid.UUID, question_id: uuid.UUID
@@ -375,7 +379,6 @@ class QuestionnaireRepository:
     ) -> QuestionResponse:
         q = self._ensure_togglable(doctor_id, question_id)
 
-        # Preguntas propias: el toggle se guarda en la pregunta misma (default).
         if q.origin == "custom":
             q.is_active_default = bool(is_active)
             self._db.commit()
@@ -428,8 +431,6 @@ class QuestionnaireRepository:
                 ov.show_in_history = show_in_history
         self._db.commit()
         return self.get_question_dto(doctor_id, q.id)
-
-    # ────── Templates ──────
 
     def list_templates(self, doctor_id: uuid.UUID) -> List[TemplateResponse]:
         rows = (
@@ -489,7 +490,9 @@ class QuestionnaireRepository:
         items = (
             self._db.query(TemplateQuestion)
             .filter(TemplateQuestion.template_id == t.id)
-            .order_by(TemplateQuestion.sort_order.asc(), TemplateQuestion.created_at.asc())
+            .order_by(
+                TemplateQuestion.sort_order.asc(), TemplateQuestion.created_at.asc()
+            )
             .all()
         )
         question_ids = [i.question_id for i in items]
@@ -513,7 +516,9 @@ class QuestionnaireRepository:
             spec_ids = {q.specialty_id for q in questions if q.specialty_id}
             spec_by_id: dict[uuid.UUID, Specialty] = {}
             if spec_ids:
-                for s in self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all():
+                for s in (
+                    self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all()
+                ):
                     spec_by_id[s.id] = s
 
             for item in items:
@@ -553,14 +558,16 @@ class QuestionnaireRepository:
         spec_uuid = _as_uuid(data.specialty_id) if data.specialty_id else None
         if spec_uuid is not None:
             self.get_specialty(spec_uuid)
-        # Unique por (doctor, name)
+
         exists = (
             self._db.query(Template)
             .filter(Template.doctor_id == doctor_id, Template.name == data.name.strip())
             .first()
         )
         if exists:
-            raise HTTPException(status_code=409, detail="Ya tienes una plantilla con ese nombre")
+            raise HTTPException(
+                status_code=409, detail="Ya tienes una plantilla con ese nombre"
+            )
 
         t = Template(
             doctor_id=doctor_id,
@@ -641,7 +648,6 @@ class QuestionnaireRepository:
         if not t:
             raise HTTPException(status_code=404, detail="Plantilla no encontrada")
 
-        # validar que cada pregunta sea visible al doctor (system o propia)
         question_uuids: List[uuid.UUID] = []
         for it in data.items:
             qid = _as_uuid(it.question_id)
@@ -669,7 +675,6 @@ class QuestionnaireRepository:
                     detail=f"Preguntas no disponibles: {', '.join(missing)}",
                 )
 
-        # reemplazo completo
         self._db.query(TemplateQuestion).filter(
             TemplateQuestion.template_id == t.id
         ).delete(synchronize_session=False)
@@ -690,18 +695,17 @@ class QuestionnaireRepository:
         self._db.commit()
         return self.get_template(doctor_id, t.id)
 
-    # ────── Invitations (public token flow) ──────
-
     @staticmethod
     def _hash_token(raw_token: str) -> str:
         return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _generate_invitation_secret_token() -> str:
-        """Token opaco (URL-safe) para el link público. En BD solo se guarda SHA-256."""
         return secrets.token_urlsafe(32)
 
-    def _get_invitation_for_public_token(self, raw_token: str) -> QuestionnaireInvitation:
+    def _get_invitation_for_public_token(
+        self, raw_token: str
+    ) -> QuestionnaireInvitation:
         stripped = (raw_token or "").strip()
         if not stripped:
             raise HTTPException(status_code=400, detail="Token inválido")
@@ -732,14 +736,18 @@ class QuestionnaireRepository:
             total_questions=total_questions,
         )
 
-    def _load_patient_owned_by_doctor(self, doctor_id: uuid.UUID, patient_id: uuid.UUID) -> User:
+    def _load_patient_owned_by_doctor(
+        self, doctor_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> User:
         patient = (
             self._db.query(User)
             .filter(User.id == patient_id, User.created_by_user_id == doctor_id)
             .first()
         )
         if not patient:
-            raise HTTPException(status_code=404, detail="Paciente no vinculado al doctor")
+            raise HTTPException(
+                status_code=404, detail="Paciente no vinculado al doctor"
+            )
         return patient
 
     def _build_snapshot_questions(
@@ -758,7 +766,9 @@ class QuestionnaireRepository:
                 .first()
             )
             if not template:
-                raise HTTPException(status_code=404, detail=f"Plantilla no encontrada: {t_id}")
+                raise HTTPException(
+                    status_code=404, detail=f"Plantilla no encontrada: {t_id}"
+                )
 
             items = (
                 self._db.query(TemplateQuestion)
@@ -770,12 +780,16 @@ class QuestionnaireRepository:
             if not question_ids:
                 continue
 
-            questions = self._db.query(Question).filter(Question.id.in_(question_ids)).all()
+            questions = (
+                self._db.query(Question).filter(Question.id.in_(question_ids)).all()
+            )
             question_by_id = {q.id: q for q in questions}
             specialties = {}
             spec_ids = {q.specialty_id for q in questions if q.specialty_id}
             if spec_ids:
-                for s in self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all():
+                for s in (
+                    self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all()
+                ):
                     specialties[s.id] = s.name
 
             for item in items:
@@ -791,7 +805,9 @@ class QuestionnaireRepository:
                         "options": list(q.options) if q.options else None,
                         "help_text": q.help_text,
                         "is_required": bool(q.is_required_default),
-                        "specialty_name": specialties.get(q.specialty_id) if q.specialty_id else None,
+                        "specialty_name": (
+                            specialties.get(q.specialty_id) if q.specialty_id else None
+                        ),
                         "template_name": template.name,
                     }
                 )
@@ -801,19 +817,26 @@ class QuestionnaireRepository:
                 self._db.query(Question)
                 .filter(
                     Question.id.in_(extra_question_ids),
-                    or_(Question.origin == "system", Question.owner_user_id == doctor_id),
+                    or_(
+                        Question.origin == "system", Question.owner_user_id == doctor_id
+                    ),
                 )
                 .all()
             )
             available = {q.id: q for q in questions}
             missing = [str(qid) for qid in extra_question_ids if qid not in available]
             if missing:
-                raise HTTPException(status_code=400, detail=f"Preguntas no disponibles: {', '.join(missing)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Preguntas no disponibles: {', '.join(missing)}",
+                )
 
             spec_ids = {q.specialty_id for q in questions if q.specialty_id}
             specialties = {}
             if spec_ids:
-                for s in self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all():
+                for s in (
+                    self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all()
+                ):
                     specialties[s.id] = s.name
 
             for qid in extra_question_ids:
@@ -829,13 +852,17 @@ class QuestionnaireRepository:
                         "options": list(q.options) if q.options else None,
                         "help_text": q.help_text,
                         "is_required": bool(q.is_required_default),
-                        "specialty_name": specialties.get(q.specialty_id) if q.specialty_id else None,
+                        "specialty_name": (
+                            specialties.get(q.specialty_id) if q.specialty_id else None
+                        ),
                         "template_name": None,
                     }
                 )
 
         if not rows:
-            raise HTTPException(status_code=400, detail="No hay preguntas para enviar en la invitación")
+            raise HTTPException(
+                status_code=400, detail="No hay preguntas para enviar en la invitación"
+            )
         return rows
 
     def create_invitation_batch(
@@ -850,18 +877,22 @@ class QuestionnaireRepository:
         for tid in data.template_ids:
             uid = _as_uuid(tid)
             if uid is None:
-                raise HTTPException(status_code=400, detail=f"template_id inválido: {tid}")
+                raise HTTPException(
+                    status_code=400, detail=f"template_id inválido: {tid}"
+                )
             template_ids.append(uid)
 
         question_ids = []
         for qid in data.question_ids:
             uid = _as_uuid(qid)
             if uid is None:
-                raise HTTPException(status_code=400, detail=f"question_id inválido: {qid}")
+                raise HTTPException(
+                    status_code=400, detail=f"question_id inválido: {qid}"
+                )
             question_ids.append(uid)
 
         snapshot = self._build_snapshot_questions(doctor_id, template_ids, question_ids)
-        # Vigencia fija del link: 24 h (no configurable por el doctor).
+
         hours = 24
         expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
 
@@ -899,10 +930,11 @@ class QuestionnaireRepository:
         self._db.refresh(invitation)
         return self._invitation_to_summary(invitation, len(snapshot)), raw_token
 
-    def _mark_expired_if_needed(self, invitation: QuestionnaireInvitation) -> QuestionnaireInvitation:
-        if (
-            invitation.status == "pending"
-            and invitation.expires_at < datetime.now(timezone.utc)
+    def _mark_expired_if_needed(
+        self, invitation: QuestionnaireInvitation
+    ) -> QuestionnaireInvitation:
+        if invitation.status == "pending" and invitation.expires_at < datetime.now(
+            timezone.utc
         ):
             invitation.status = "expired"
             self._db.commit()
@@ -931,7 +963,9 @@ class QuestionnaireRepository:
         )
         return self._invitation_to_summary(inv, int(total))
 
-    def get_public_invitation_view(self, raw_token: str) -> PublicInvitationViewResponse:
+    def get_public_invitation_view(
+        self, raw_token: str
+    ) -> PublicInvitationViewResponse:
         inv = self._get_invitation_for_public_token(raw_token)
         inv = self._mark_expired_if_needed(inv)
 
@@ -978,7 +1012,9 @@ class QuestionnaireRepository:
         inv = self._get_invitation_for_public_token(raw_token)
         inv = self._mark_expired_if_needed(inv)
         if inv.status == "completed":
-            raise HTTPException(status_code=409, detail="Este cuestionario ya fue completado")
+            raise HTTPException(
+                status_code=409, detail="Este cuestionario ya fue completado"
+            )
         if inv.status != "pending":
             raise HTTPException(status_code=400, detail="Invitación no disponible")
 
@@ -996,10 +1032,14 @@ class QuestionnaireRepository:
                 answer_by_item[answer.item_id] = answer.answer
 
         missing_required = [
-            iid for iid in required_item_ids if iid not in answer_by_item or answer_by_item[iid] in (None, "", [], {})
+            iid
+            for iid in required_item_ids
+            if iid not in answer_by_item or answer_by_item[iid] in (None, "", [], {})
         ]
         if missing_required:
-            raise HTTPException(status_code=400, detail="Faltan respuestas obligatorias")
+            raise HTTPException(
+                status_code=400, detail="Faltan respuestas obligatorias"
+            )
 
         for item_id, answer in answer_by_item.items():
             item_uuid = uuid.UUID(item_id)
@@ -1032,4 +1072,32 @@ class QuestionnaireRepository:
                 completed_at=inv.completed_at or now,
             ),
             inv,
+        )
+
+    def list_patient_completed_response_rows(
+        self, patient_id: uuid.UUID, doctor_id: uuid.UUID
+    ):
+        return (
+            self._db.query(
+                QuestionnaireInvitationItem.question_text_snapshot.label(
+                    "question_text"
+                ),
+                QuestionnaireInvitationAnswer.answer_json.label("answer_value"),
+                QuestionnaireInvitationAnswer.answered_at,
+            )
+            .select_from(QuestionnaireInvitation)
+            .join(
+                QuestionnaireInvitationItem,
+                QuestionnaireInvitationItem.invitation_id == QuestionnaireInvitation.id,
+            )
+            .join(
+                QuestionnaireInvitationAnswer,
+                QuestionnaireInvitationAnswer.invitation_item_id
+                == QuestionnaireInvitationItem.id,
+            )
+            .filter(QuestionnaireInvitation.patient_id == patient_id)
+            .filter(QuestionnaireInvitation.doctor_id == doctor_id)
+            .filter(QuestionnaireInvitation.status == "completed")
+            .order_by(QuestionnaireInvitationAnswer.answered_at.desc())
+            .all()
         )

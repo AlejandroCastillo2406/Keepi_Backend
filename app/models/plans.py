@@ -10,38 +10,40 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 
-# Modelo SQLAlchemy para la tabla de planes
 class Plan(Base):
     __tablename__ = "plans"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    # 'code' nos sirve para identificar el plan en el código sin depender del ID (ej. "free", "premium")
+
     code = Column(String(50), unique=True, index=True, nullable=False)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     price = Column(Integer, nullable=False, default=0)
     currency = Column(String(10), nullable=False, default="MXN")
-    interval = Column(String(50), nullable=False, default="month")  # month, year, lifetime
+    interval = Column(String(50), nullable=False, default="month")
     stripe_price_id = Column(String(255), nullable=True)
-    
-    # Límites
-    analysis_limit = Column(Integer, nullable=False, default=2)  # -1 para ilimitado
-    
-    # Metadatos para el Frontend
+
+    analysis_limit = Column(Integer, nullable=False, default=2)
+
     features = Column(JSON, nullable=True, default=list)
     is_active = Column(Boolean, default=True, nullable=False)
     recommended = Column(Boolean, default=False, nullable=False)
-    
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    
+
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
     def __repr__(self):
         return f"<Plan(id={self.id}, code={self.code}, name={self.name}, price={self.price})>"
 
 
-# Modelos Pydantic para la API
 class PlanBase(BaseModel):
-    """Modelo base para Plan"""
     code: str
     name: str
     description: Optional[str] = None
@@ -54,12 +56,12 @@ class PlanBase(BaseModel):
     is_active: bool = True
     recommended: bool = False
 
+
 class PlanCreate(PlanBase):
-    """Modelo para crear Plan"""
     pass
 
+
 class PlanUpdate(BaseModel):
-    """Modelo para actualizar Plan"""
     code: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
@@ -72,8 +74,8 @@ class PlanUpdate(BaseModel):
     is_active: Optional[bool] = None
     recommended: Optional[bool] = None
 
+
 class PlanResponse(PlanBase):
-    """Modelo de respuesta para Plan"""
     id: str
     created_at: datetime
     updated_at: datetime
@@ -83,7 +85,6 @@ class PlanResponse(PlanBase):
 
     @classmethod
     def from_orm(cls, obj: Any):
-        """Convertir desde ORM asegurando que los UUIDs sean strings"""
         data = {
             "id": str(obj.id),
             "code": obj.code,
@@ -98,6 +99,6 @@ class PlanResponse(PlanBase):
             "is_active": obj.is_active,
             "recommended": obj.recommended,
             "created_at": obj.created_at,
-            "updated_at": obj.updated_at
+            "updated_at": obj.updated_at,
         }
         return cls(**data)

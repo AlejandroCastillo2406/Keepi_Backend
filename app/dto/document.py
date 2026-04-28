@@ -1,7 +1,3 @@
-"""
-DTOs para Document: validación de entrada/salida.
-Responsabilidad única: definir contratos de datos para la API.
-"""
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -9,14 +5,12 @@ from pydantic import BaseModel
 
 
 class DocumentBase(BaseModel):
-    """Modelo base para documento."""
     name: str
     category: str
     description: Optional[str] = None
 
 
 class DocumentCreate(DocumentBase):
-    """Validación de entrada para crear documento."""
     file_url: Optional[str] = None
     file_name: Optional[str] = None
     file_size: Optional[int] = None
@@ -33,7 +27,6 @@ class DocumentCreate(DocumentBase):
 
 
 class DocumentUpdate(BaseModel):
-    """Validación de entrada para actualizar documento."""
     name: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
@@ -49,7 +42,6 @@ class DocumentUpdate(BaseModel):
 
 
 class DocumentResponse(DocumentBase):
-    """Validación de salida para documento."""
     id: str
     user_id: str
     file_url: Optional[str] = None
@@ -75,7 +67,6 @@ class DocumentResponse(DocumentBase):
 
     @classmethod
     def from_orm(cls, obj: Any) -> "DocumentResponse":
-        """Convertir desde ORM asegurando UUIDs como string."""
         return cls(
             id=str(obj.id),
             user_id=str(obj.user_id),
@@ -103,7 +94,6 @@ class DocumentResponse(DocumentBase):
 
 
 class DocumentMetadata(BaseModel):
-    """Metadatos extraídos de documento."""
     tipo: Optional[str] = None
     numero: Optional[str] = None
     aseguradora: Optional[str] = None

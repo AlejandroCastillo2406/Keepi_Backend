@@ -1,124 +1,114 @@
+import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from google.oauth2.credentials import Credentials
 from sqlalchemy.orm import Session
 
-from app.models.oauth_credentials import OAuthCredentials
+from app.config.settings import settings
+from app.repositories.oauth_credentials_repository import OAuthCredentialsRepository
+
+
+def _google_oauth_defaults_from_secrets() -> tuple[str, Optional[str], Optional[str]]:
+    path = Path(settings.google_client_secrets_path)
+    if not path.is_absolute():
+        backend_dir = Path(__file__).resolve().parent.parent.parent.parent
+        path = backend_dir / path
+    if not path.exists():
+        return "https://oauth2.googleapis.com/token", None, None
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+    web = data.get("web") or data.get("installed") or {}
+    return (
+        web.get("token_uri", "https://oauth2.googleapis.com/token"),
+        web.get("client_id"),
+        web.get("client_secret"),
+    )
 
 
 class OAuthCredentialsService:
-    """Servicio para gestionar credenciales OAuth. Requiere db inyectado (Depends(get_db))."""
 
-    def __init__(self, db: Session):
+    def __init__(
+        self, db: Session, repository: OAuthCredentialsRepository | None = None
+    ):
         self.db = db
+        self._repo = repository or OAuthCredentialsRepository(db)
 
     def _to_uuid(self, user_id: str | uuid.UUID) -> uuid.UUID:
         if isinstance(user_id, uuid.UUID):
             return user_id
         return uuid.UUID(str(user_id))
-    
-    async def get_user_credentials(self, user_id: str, provider: str = "google") -> Optional[Dict[str, Any]]:
-        """Obtener credenciales del usuario"""
+
+    async def get_user_credentials(
+        self, user_id: str, provider: str = "google"
+    ) -> Optional[Dict[str, Any]]:
         try:
-            uid = self._to_uuid(user_id)
-            credentials = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == uid,
-                OAuthCredentials.provider == provider
-            ).first()
-            
-            if credentials:
-                return {
-                    'access_token': credentials.access_token,
-                    'refresh_token': credentials.refresh_token,
-                    'token_uri': credentials.token_uri,
-                    'client_id': credentials.client_id,
-                    'client_secret': credentials.client_secret,
-                    'scopes': credentials.scopes or [],
-                    'expires_at': credentials.expires_at.isoformat() if credentials.expires_at else None
-                }
+            row = self._repo.get_by_user_provider(user_id, provider)
+            if row:
+                return self._repo.to_dict(row)
             return None
         except Exception as e:
             print(f"Error obteniendo credenciales: {e}")
             return None
-    
-    async def save_user_credentials(self, user_id: str, credentials: Credentials, provider: str = "google") -> bool:
-        """Guardar credenciales del usuario"""
+
+    async def save_user_credentials(
+        self, user_id: str, credentials: Credentials, provider: str = "google"
+    ) -> bool:
         try:
-            uid = self._to_uuid(user_id)
-            # Verificar si ya existen credenciales
-            existing = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == uid,
-                OAuthCredentials.provider == provider
-            ).first()
-            
-            if existing:
-                # Actualizar credenciales existentes
-                existing.access_token = credentials.token
-                existing.refresh_token = credentials.refresh_token
-                existing.expires_at = credentials.expiry
-                existing.updated_at = datetime.now()
-            else:
-                # Crear nuevas credenciales
-                new_credentials = OAuthCredentials(
-                    user_id=uid,
-                    provider=provider,
-                    access_token=credentials.token,
-                    refresh_token=credentials.refresh_token,
-                    token_uri=credentials.token_uri,
-                    client_id=credentials.client_id,
-                    client_secret=credentials.client_secret,
-                    scopes=credentials.scopes,
-                    expires_at=credentials.expiry
-                )
-                self.db.add(new_credentials)
-            
-            self.db.commit()
+            self._repo.upsert_from_google_credentials(user_id, credentials, provider)
             return True
         except Exception as e:
             print(f"Error guardando credenciales: {e}")
             self.db.rollback()
             return False
-    
-    async def update_user_credentials(self, user_id: str, credentials: Credentials, provider: str = "google") -> bool:
-        """Actualizar credenciales del usuario"""
+
+    async def update_user_credentials(
+        self, user_id: str, credentials: Credentials, provider: str = "google"
+    ) -> bool:
         try:
-            uid = self._to_uuid(user_id)
-            oauth_credentials = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == uid,
-                OAuthCredentials.provider == provider
-            ).first()
-            
-            if oauth_credentials:
-                oauth_credentials.access_token = credentials.token
-                oauth_credentials.refresh_token = credentials.refresh_token
-                oauth_credentials.expires_at = credentials.expiry
-                oauth_credentials.updated_at = datetime.now()
-                
-                self.db.commit()
-                return True
-            return False
+            return self._repo.update_tokens(user_id, credentials, provider)
         except Exception as e:
             print(f"Error actualizando credenciales: {e}")
             self.db.rollback()
             return False
-    
-    async def delete_user_credentials(self, user_id: str, provider: str = "google") -> bool:
-        """Eliminar credenciales del usuario"""
+
+    async def delete_user_credentials(
+        self, user_id: str, provider: str = "google"
+    ) -> bool:
         try:
-            uid = self._to_uuid(user_id)
-            oauth_credentials = self.db.query(OAuthCredentials).filter(
-                OAuthCredentials.user_id == uid,
-                OAuthCredentials.provider == provider
-            ).first()
-            
-            if oauth_credentials:
-                self.db.delete(oauth_credentials)
-                self.db.commit()
-                return True
-            return False
+            return self._repo.delete(user_id, provider)
         except Exception as e:
             print(f"Error eliminando credenciales: {e}")
+            self.db.rollback()
+            return False
+
+    async def upsert_user_credentials(
+        self,
+        user_id: str,
+        *,
+        provider: str = "google",
+        access_token: str,
+        refresh_token: Optional[str] = None,
+        scopes: Optional[List[str]] = None,
+        expires_at: Optional[datetime] = None,
+    ) -> bool:
+        try:
+            token_uri, client_id, client_secret = _google_oauth_defaults_from_secrets()
+            self._repo.upsert_from_tokens(
+                user_id,
+                provider=provider,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                token_uri=token_uri,
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=scopes or [],
+                expires_at=expires_at,
+            )
+            return True
+        except Exception as e:
+            print(f"Error en upsert_user_credentials: {e}")
             self.db.rollback()
             return False

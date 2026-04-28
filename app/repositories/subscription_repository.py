@@ -22,23 +22,31 @@ class SubscriptionRepository:
         if isinstance(user_id, uuid.UUID):
             return user_id
         try:
-             return uuid.UUID(str(user_id))
+            return uuid.UUID(str(user_id))
         except (ValueError, TypeError):
             raise ValueError("user_id inválido") from None
 
     def get_by_user_id(self, user_id: Union[str, uuid.UUID]) -> Optional[Subscription]:
         uid = self._to_uuid(user_id)
+        return self._db.query(Subscription).filter(Subscription.user_id == uid).first()
+
+    def get_by_stripe_customer_id(
+        self, stripe_customer_id: str
+    ) -> Optional[Subscription]:
         return (
             self._db.query(Subscription)
-            .filter(Subscription.user_id == uid)
+            .filter(Subscription.stripe_customer_id == stripe_customer_id)
             .first()
         )
 
-    def get_by_stripe_customer_id(self, stripe_customer_id: str) -> Optional[Subscription]:
-        return self._db.query(Subscription).filter(Subscription.stripe_customer_id == stripe_customer_id).first()
-
-    def get_by_stripe_subscription_id(self, stripe_subscription_id: str) -> Optional[Subscription]:
-        return self._db.query(Subscription).filter(Subscription.stripe_subscription_id == stripe_subscription_id).first()
+    def get_by_stripe_subscription_id(
+        self, stripe_subscription_id: str
+    ) -> Optional[Subscription]:
+        return (
+            self._db.query(Subscription)
+            .filter(Subscription.stripe_subscription_id == stripe_subscription_id)
+            .first()
+        )
 
     def create_free(self, user_id: Union[str, uuid.UUID]) -> Subscription:
         uid = self._to_uuid(user_id)
@@ -62,7 +70,9 @@ class SubscriptionRepository:
             return existing
         return self.create_free(user_id)
 
-    def set_stripe_customer_id(self, subscription: Subscription, customer_id: str) -> None:
+    def set_stripe_customer_id(
+        self, subscription: Subscription, customer_id: str
+    ) -> None:
         subscription.stripe_customer_id = customer_id
         self._db.commit()
         self._db.refresh(subscription)
@@ -88,7 +98,13 @@ class SubscriptionRepository:
         self._db.commit()
         self._db.refresh(subscription)
 
-    def set_status(self, subscription: Subscription, status: SubscriptionStatus, current_period_start: Optional[datetime] = None, current_period_end: Optional[datetime] = None) -> None:
+    def set_status(
+        self,
+        subscription: Subscription,
+        status: SubscriptionStatus,
+        current_period_start: Optional[datetime] = None,
+        current_period_end: Optional[datetime] = None,
+    ) -> None:
         subscription.status = status
         if current_period_start is not None:
             subscription.current_period_start = current_period_start
@@ -107,7 +123,15 @@ class SubscriptionRepository:
         self._db.commit()
         self._db.refresh(subscription)
 
-    def set_payment_intent_created(self, subscription: Subscription, stripe_subscription_id: str, stripe_price_id: str, plan_code: str, current_period_start: datetime, current_period_end: datetime) -> None:
+    def set_payment_intent_created(
+        self,
+        subscription: Subscription,
+        stripe_subscription_id: str,
+        stripe_price_id: str,
+        plan_code: str,
+        current_period_start: datetime,
+        current_period_end: datetime,
+    ) -> None:
         target_plan = self.get_plan_by_code(plan_code)
 
         subscription.stripe_subscription_id = stripe_subscription_id

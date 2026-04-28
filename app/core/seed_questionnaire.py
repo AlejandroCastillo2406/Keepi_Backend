@@ -1,8 +1,3 @@
-"""Seed inicial de especialidades y preguntas base del sistema.
-
-Idempotente: solo inserta si las tablas correspondientes están vacías.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -12,6 +7,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.models.questionnaire import Question, Specialty
+from app.repositories.questionnaire_repository import QuestionnaireRepository
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +31,6 @@ class _SeedSpecialty:
     questions: List[_SeedQuestion]
 
 
-# Preguntas globales (transversales a cualquier especialidad)
 _GLOBAL_QUESTIONS: List[_SeedQuestion] = [
     _SeedQuestion(
         text="¿Fumas actualmente?",
@@ -259,12 +254,12 @@ _SPECIALTIES: List[_SeedSpecialty] = [
 
 
 def seed_questionnaire(db: Session) -> None:
-    """Siembra especialidades + preguntas del sistema si está vacío."""
 
+    qrepo = QuestionnaireRepository(db)
     try:
-        has_specialties = db.query(Specialty.id).first() is not None
-        has_questions = db.query(Question.id).first() is not None
-    except Exception as exc:  # tabla puede no existir aún
+        has_specialties = qrepo.has_any_specialty_row()
+        has_questions = qrepo.has_any_question_row()
+    except Exception as exc:
         logger.debug("Seed cuestionarios: tablas no disponibles aún (%s)", exc)
         return
 
@@ -287,7 +282,7 @@ def seed_questionnaire(db: Session) -> None:
                 specialty_by_slug[spec.slug] = row
             db.flush()
         else:
-            for row in db.query(Specialty).all():
+            for row in qrepo.list_specialties():
                 specialty_by_slug[row.slug] = row
 
         if not has_questions:

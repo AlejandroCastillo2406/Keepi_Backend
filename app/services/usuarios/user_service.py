@@ -7,46 +7,34 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth.jwt_payloads import access_token_claims_for_user
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT, ROLE_USER
 from app.models.role import Role
-from app.models.user import (User, UserCreate, UserLogin, UserResponse,
-                             UserUpdate)
-from app.utils.auth import (create_access_token, create_refresh_token,
-                            get_password_hash, verify_password)
+from app.models.user import User, UserCreate, UserLogin, UserResponse, UserUpdate
+from app.repositories.user_repository import UserRepository
+from app.utils.auth import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+)
 
 
 class UserService:
-    """Servicio para gestión de usuarios."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, user_repository: UserRepository | None = None):
         self.db = db
+        self._users = user_repository or UserRepository(db)
 
     def role_id_by_name(self, name: str) -> int:
-        row = self.db.query(Role).filter(Role.name == name).first()
-        if row is None:
+        rid = self._users.role_id_by_name(name)
+        if rid is None:
             raise ValueError(f"Rol no encontrado en BD: {name}")
-        return row.id
+        return rid
 
     def get_user_orm_by_uid(self, uid: str) -> Optional[User]:
-        """Obtener usuario ORM por UID (para verificar refresh_token, etc.)."""
-        try:
-            return (
-                self.db.query(User)
-                .options(joinedload(User.role))
-                .filter(User.id == uid)
-                .first()
-            )
-        except Exception as e:
-            print(f"Error obteniendo usuario: {e}")
-            return None
+        return self._users.get_by_id_with_role(uid)
 
     async def get_user_by_uid(self, uid: str) -> Optional[UserResponse]:
-        """Obtener usuario por UID"""
         try:
-            user = (
-                self.db.query(User)
-                .options(joinedload(User.role))
-                .filter(User.id == uid)
-                .first()
-            )
+            user = self._users.get_by_id_with_role(uid)
             if user:
                 return UserResponse.from_orm(user)
             return None
@@ -55,10 +43,8 @@ class UserService:
             return None
 
     async def create_user(self, user_data: UserCreate) -> User:
-        """Crear nuevo usuario (autoregistro como USER o DOCTOR)."""
         try:
-            existing_user = self.db.query(User).filter(User.email == user_data.email).first()
-            if existing_user:
+            if self._users.email_exists(user_data.email):
                 raise ValueError("El usuario con este email ya existe")
 
             role_key = user_data.role_name
@@ -68,23 +54,25 @@ class UserService:
             user = User(
                 email=user_data.email,
                 name=user_data.name,
-                hashed_password=get_password_hash(user_data.password) if user_data.password else None,
+                hashed_password=(
+                    get_password_hash(user_data.password)
+                    if user_data.password
+                    else None
+                ),
                 role_id=rid,
                 must_change_password=False,
             )
 
-            self.db.add(user)
-            self.db.commit()
-            self.db.refresh(user)
-            return (
-                self.db.query(User)
-                .options(joinedload(User.role))
-                .filter(User.id == user.id)
-                .first()
-            )
+            self._users.add(user)
+            self._users.commit()
+            self._users.refresh(user)
+            loaded = self._users.reload_with_role(user.id)
+            if loaded is None:
+                raise RuntimeError("No se pudo recargar el usuario creado")
+            return loaded
         except Exception as e:
             print(f"Error creando usuario: {e}")
-            self.db.rollback()
+            self._users.rollback()
             raise
 
     async def create_patient_by_doctor(
@@ -93,14 +81,12 @@ class UserService:
         email: str,
         name: str,
     ) -> Tuple[User, str]:
-        """
-        Crea paciente con contraseña temporal y must_change_password=True.
-        """
         if doctor.role is None or doctor.role.name != ROLE_DOCTOR:
-            raise PermissionError("Solo un usuario con rol DOCTOR puede crear pacientes")
+            raise PermissionError(
+                "Solo un usuario con rol DOCTOR puede crear pacientes"
+            )
 
-        existing = self.db.query(User).filter(User.email == email).first()
-        if existing:
+        if self._users.email_exists(email):
             raise ValueError("Ya existe un usuario con este email")
 
         plain = secrets.token_urlsafe(16)
@@ -113,18 +99,12 @@ class UserService:
             must_change_password=True,
             created_by_user_id=doctor.id,
         )
-        self.db.add(user)
-        self.db.flush()
+        self._users.add(user)
+        self._users.flush()
+        self._users.commit()
+        self._users.refresh(user)
 
-        self.db.commit()
-        self.db.refresh(user)
-
-        loaded = (
-            self.db.query(User)
-            .options(joinedload(User.role))
-            .filter(User.id == user.id)
-            .first()
-        )
+        loaded = self._users.reload_with_role(user.id)
         if loaded is None:
             raise RuntimeError("No se pudo recargar el paciente creado")
         return loaded, plain
@@ -135,12 +115,7 @@ class UserService:
         current_password: str,
         new_password: str,
     ) -> None:
-        user = (
-            self.db.query(User)
-            .options(joinedload(User.role))
-            .filter(User.id == user_id)
-            .first()
-        )
+        user = self._users.get_by_id_with_role(user_id)
         if user is None:
             raise ValueError("Usuario no encontrado")
         if not user.hashed_password:
@@ -150,17 +125,12 @@ class UserService:
 
         user.hashed_password = get_password_hash(new_password)
         user.must_change_password = False
-        self.db.commit()
-        self.db.refresh(user)
+        self._users.commit()
+        self._users.refresh(user)
 
     async def authenticate_user(self, email: str, password: str) -> Optional[User]:
         try:
-            user = (
-                self.db.query(User)
-                .options(joinedload(User.role))
-                .filter(User.email == email)
-                .first()
-            )
+            user = self._users.get_by_email_with_role(email)
             if not user:
                 return None
             if not user.hashed_password:
@@ -173,7 +143,6 @@ class UserService:
             return None
 
     async def login_user(self, login_data: UserLogin) -> Optional[Dict[str, Any]]:
-        """Login de usuario y retornar token"""
         try:
             user = await self.authenticate_user(login_data.email, login_data.password)
             if not user:
@@ -189,7 +158,7 @@ class UserService:
             refresh_token = create_refresh_token(claims)
 
             user.refresh_token = refresh_token
-            self.db.commit()
+            self._users.commit()
 
             return {
                 "access_token": access_token,
@@ -205,15 +174,11 @@ class UserService:
             print(f"Error en login: {e}")
             return None
 
-    async def update_user(self, uid: str, user_data: UserUpdate) -> Optional[UserResponse]:
-        """Actualizar usuario"""
+    async def update_user(
+        self, uid: str, user_data: UserUpdate
+    ) -> Optional[UserResponse]:
         try:
-            user = (
-                self.db.query(User)
-                .options(joinedload(User.role))
-                .filter(User.id == uid)
-                .first()
-            )
+            user = self._users.get_by_id_with_role(uid)
             if not user:
                 return None
 
@@ -221,19 +186,18 @@ class UserService:
             for field, value in update_data.items():
                 setattr(user, field, value)
 
-            self.db.commit()
-            self.db.refresh(user)
+            self._users.commit()
+            self._users.refresh(user)
 
             return UserResponse.from_orm(user)
         except Exception as e:
             print(f"Error actualizando usuario: {e}")
-            self.db.rollback()
+            self._users.rollback()
             return None
 
     async def update_user_fields(self, uid: str, fields: dict) -> bool:
-        """Actualizar campos específicos del usuario"""
         try:
-            user = self.db.query(User).filter(User.id == uid).first()
+            user = self._users.get_by_id_plain(uid)
             if not user:
                 return False
 
@@ -241,36 +205,65 @@ class UserService:
                 if hasattr(user, field):
                     setattr(user, field, value)
 
-            self.db.commit()
+            self._users.commit()
             return True
         except Exception as e:
             print(f"Error actualizando campos del usuario: {e}")
-            self.db.rollback()
+            self._users.rollback()
             return False
 
     async def get_all_users(self) -> List[UserResponse]:
-        """Obtener todos los usuarios (solo para desarrollo)"""
         try:
-            users = (
-                self.db.query(User)
-                .options(joinedload(User.role))
-                .all()
-            )
+            users = self._users.list_all_with_role()
             return [UserResponse.from_orm(user) for user in users]
         except Exception as e:
             print(f"Error obteniendo usuarios: {e}")
             return []
 
     async def delete_user(self, uid: str) -> bool:
-        """Eliminar usuario"""
         try:
-            user = self.db.query(User).filter(User.id == uid).first()
+            user = self._users.get_by_id_plain(uid)
             if user:
-                self.db.delete(user)
-                self.db.commit()
+                self._users.delete(user)
                 return True
             return False
         except Exception as e:
             print(f"Error eliminando usuario: {e}")
-            self.db.rollback()
+            self._users.rollback()
             return False
+
+    def set_refresh_token(self, user_id: str, refresh_token: str) -> Optional[User]:
+        user = self._users.get_by_id_with_role(user_id)
+        if not user:
+            return None
+        user.refresh_token = refresh_token
+        self._users.commit()
+        self._users.refresh(user)
+        return user
+
+    def list_patients_created_by_doctor(
+        self, doctor_id, patient_role_id: int
+    ) -> List[User]:
+        return self._users.list_created_by_with_role(doctor_id, patient_role_id)
+
+    def get_patient_if_owned_by_doctor(self, patient_id, doctor_id) -> Optional[User]:
+        return self._users.get_patient_owned_by_doctor(patient_id, doctor_id)
+
+    async def get_me_response(self, user_id: str) -> Optional[UserResponse]:
+        user = self._users.get_by_id_with_role(user_id)
+        if not user:
+            return None
+        return UserResponse.from_orm(user)
+
+    def verify_registered_user_from_token(self, user_token: dict) -> dict:
+        uid = user_token.get("uid") or user_token.get("sub")
+        if not uid:
+            raise ValueError("Token sin identificador de usuario")
+        user = self._users.get_by_id_with_role(uid)
+        if not user:
+            raise ValueError("Usuario no encontrado")
+        return {
+            "authenticated": True,
+            "user_id": str(user.id),
+            "email": user.email,
+        }

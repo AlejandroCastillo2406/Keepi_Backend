@@ -11,12 +11,13 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 
-# Modelo SQLAlchemy para la tabla de notificaciones
 class Notification(Base):
     __tablename__ = "notifications"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
     document_id = Column(
         UUID(as_uuid=True),
         ForeignKey("documents.id", ondelete="SET NULL"),
@@ -30,17 +31,19 @@ class Notification(Base):
     payload = Column(JSON, nullable=False, default=dict)
     read = Column(Boolean, nullable=False, default=False)
     read_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
-    # Relación con usuario
-    user = relationship("User", back_populates="notifications")
-    
-    def __repr__(self):
-        return f"<Notification(id={self.id}, user_id={self.user_id}, title={self.title})>"
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
-# Modelos Pydantic para la API
+    user = relationship("User", back_populates="notifications")
+
+    def __repr__(self):
+        return (
+            f"<Notification(id={self.id}, user_id={self.user_id}, title={self.title})>"
+        )
+
+
 class NotificationBase(BaseModel):
-    """Modelo base para notificación"""
     title: str
     message: str = ""
     type: str = "info"
@@ -50,12 +53,12 @@ class NotificationBase(BaseModel):
     read: Optional[bool] = False
     read_at: Optional[datetime] = None
 
+
 class NotificationCreate(NotificationBase):
-    """Modelo para crear notificación"""
     pass
 
+
 class NotificationResponse(NotificationBase):
-    """Modelo de respuesta para notificación"""
     id: str
     user_id: str
     document_id: Optional[str] = None
@@ -64,15 +67,15 @@ class NotificationResponse(NotificationBase):
     read: bool = False
     read_at: Optional[datetime] = None
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
+
 
 from typing import ClassVar
 
 
 class NotificationType(BaseModel):
-    """Tipos de notificación disponibles"""
     INFO: ClassVar[str] = "info"
     WARNING: ClassVar[str] = "warning"
     ERROR: ClassVar[str] = "error"

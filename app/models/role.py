@@ -1,5 +1,3 @@
-"""Rol de usuario: solo id y nombre en BD."""
-
 from sqlalchemy import Column, Integer, String
 
 from app.core.database import Base

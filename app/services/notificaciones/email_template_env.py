@@ -1,12 +1,7 @@
-"""
-Validación y lectura de variables de entorno para plantillas de correo (imágenes CDN + enlaces).
-Todas deben definirse en .env; no hay URLs fijas en código.
-"""
 from __future__ import annotations
 
 from app.core.config import settings
 
-# (nombre variable .env, atributo en Settings)
 REQUIRED_EMAIL_TEMPLATE_KEYS: list[tuple[str, str]] = [
     ("EMAIL_URL_ICON_CHECK", "email_url_icon_check"),
     ("EMAIL_URL_ICON_CARD", "email_url_icon_card"),
@@ -24,7 +19,6 @@ REQUIRED_EMAIL_TEMPLATE_KEYS: list[tuple[str, str]] = [
 
 
 def missing_email_template_config() -> list[str]:
-    """Lista de variables .env obligatorias que están vacías."""
     missing: list[str] = []
     for env_name, attr in REQUIRED_EMAIL_TEMPLATE_KEYS:
         raw = getattr(settings, attr, None)
@@ -34,11 +28,9 @@ def missing_email_template_config() -> list[str]:
 
 
 def require_email_template_config() -> None:
-    """Lanza ValueError si falta alguna variable necesaria para armar/enviar correos HTML."""
     m = missing_email_template_config()
     if m:
         raise ValueError(
             "Faltan variables en .env para correos HTML (Cloudinary + enlaces + SES). "
-            "Revisa backend/.env.example — faltan: "
-            + ", ".join(m)
+            "Revisa backend/.env.example — faltan: " + ", ".join(m)
         )
