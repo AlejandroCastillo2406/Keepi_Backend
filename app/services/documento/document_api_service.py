@@ -52,9 +52,20 @@ async def _get_drive_service_or_raise(uid: str, db: Session) -> GoogleDriveServi
     oauth_service = GoogleOAuthService(db)
     credentials = await oauth_service.refresh_user_tokens(uid)
     if not credentials:
+        authorization_url = None
+        try:
+            auth_data = await oauth_service.get_authorization_url(uid)
+            authorization_url = auth_data.get("authorization_url")
+        except Exception:
+            logger.exception("No se pudo generar authorization_url para relink Drive")
         raise HTTPException(
             status_code=401,
-            detail="Usuario no ha autorizado acceso a Google Drive.",
+            detail={
+                "message": "Google Drive requiere autorizacion",
+                "requires_drive_auth": True,
+                "requires_action": "authorize",
+                "authorization_url": authorization_url,
+            },
         )
     return GoogleDriveService(credentials)
 
@@ -231,6 +242,9 @@ class DocumentApiService:
                     continue
         folders = []
         root_files = []
+        requires_drive_auth = False
+        requires_action = None
+        authorization_url = None
         if storage_preference == "keepi_cloud":
             s3_service = S3Service()
             try:
@@ -260,10 +274,15 @@ class DocumentApiService:
                     str(user.id)
                 )
                 if not credentials:
+                    oauth_service = GoogleOAuthService(self._db)
+                    auth_data = await oauth_service.get_authorization_url(str(user.id))
                     logger.warning(
                         "Usuario sin credenciales de Google Drive configuradas"
                     )
                     folders = []
+                    requires_drive_auth = True
+                    requires_action = "authorize"
+                    authorization_url = auth_data.get("authorization_url")
                 else:
                     drive_service = GoogleDriveService(credentials)
                     drive_folders = await drive_service.list_folders()
@@ -288,6 +307,10 @@ class DocumentApiService:
         }
         if storage_preference == "keepi_cloud":
             out["root_files"] = root_files
+        if requires_drive_auth:
+            out["requires_drive_auth"] = True
+            out["requires_action"] = requires_action
+            out["authorization_url"] = authorization_url
         return out
 
     async def download_mobile_document(

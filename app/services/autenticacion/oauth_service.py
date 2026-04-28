@@ -130,6 +130,13 @@ class GoogleOAuthService:
                         user_id,
                         refresh_error,
                     )
+                    err_msg = str(refresh_error).lower()
+                    if "invalid_grant" in err_msg:
+                        await self._delete_user_credentials(user_id)
+                        logger.warning(
+                            "OAuth: Credenciales eliminadas por invalid_grant para user_id=%s",
+                            user_id,
+                        )
                     return None
             else:
                 logger.warning("OAuth: Sin refresh_token para user_id=%s", user_id)
@@ -228,6 +235,13 @@ class GoogleOAuthService:
                     "OAuth: Error refrescando token al verificar acceso: %s",
                     refresh_error,
                 )
+                err_msg = str(refresh_error).lower()
+                if "invalid_grant" in err_msg:
+                    await self._delete_user_credentials(user_id)
+                    logger.warning(
+                        "OAuth: Credenciales eliminadas por invalid_grant en check para user_id=%s",
+                        user_id,
+                    )
                 return {
                     "has_access": False,
                     "status": "invalid_credentials",
