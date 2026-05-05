@@ -72,7 +72,17 @@ class GoogleOAuthService:
                 self.client_secrets_file, scopes=self.scopes, redirect_uri=uri
             )
 
-            flow.fetch_token(code=authorization_code)
+            try:
+                flow.fetch_token(code=authorization_code)
+            except Warning as scope_warning:
+                msg = str(scope_warning)
+                if "Scope has changed" not in msg:
+                    raise
+                logger.warning(
+                    "OAuth: Scope ajustado por Google para user_id=%s: %s",
+                    user_id,
+                    msg,
+                )
 
             credentials = flow.credentials
 

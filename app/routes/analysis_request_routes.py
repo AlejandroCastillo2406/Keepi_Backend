@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any, Dict, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
@@ -10,6 +10,23 @@ from app.models.user import User
 from app.services.documento.analysis_request_service import AnalysisRequestService
 
 router = APIRouter()
+
+
+@router.get("/public/{token}")
+def get_public_upload_view(
+    token: str,
+    svc: AnalysisRequestService = Depends(get_analysis_request_service),
+) -> Dict[str, Any]:
+    return svc.get_public_upload_view(token)
+
+
+@router.post("/public/{token}/upload")
+async def upload_via_public_token(
+    token: str,
+    file: UploadFile = File(...),
+    svc: AnalysisRequestService = Depends(get_analysis_request_service),
+) -> Dict[str, Any]:
+    return await svc.upload_via_public_token(token=token, file=file)
 
 
 @router.post(

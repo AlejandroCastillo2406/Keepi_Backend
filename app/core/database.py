@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from typing import Generator
 
 from sqlalchemy import create_engine, text
@@ -57,6 +57,8 @@ class DatabaseConfig:
             return
         try:
             from app.models import (
+                analysis_request,
+                analysis_request_invitation,
                 appointment,
                 document,
                 folder,
@@ -75,6 +77,8 @@ class DatabaseConfig:
             from app.core.seed_questionnaire import seed_questionnaire
 
             _ = (
+                analysis_request,
+                analysis_request_invitation,
                 appointment,
                 document,
                 folder,

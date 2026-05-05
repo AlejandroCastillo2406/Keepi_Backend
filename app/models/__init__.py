@@ -1,3 +1,5 @@
+from .analysis_request import AnalysisRequest
+from .analysis_request_invitation import AnalysisRequestUploadInvitation
 from .plans import Plan
 from .appointment import Appointment
 from .document import Document
@@ -35,4 +37,6 @@ __all__ = [
     "UserDeviceToken",
     "Plan",
     "Appointment",
+    "AnalysisRequest",
+    "AnalysisRequestUploadInvitation",
 ]
