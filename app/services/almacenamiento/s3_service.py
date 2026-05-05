@@ -370,6 +370,16 @@ class S3Service:
             logger.error(f"Error generando URL firmada: {str(e)}")
             raise
 
+    async def get_file_url(self, file_path: str, expiration: int = 3600) -> str:
+        try:
+            if not file_path:
+                raise ValueError("Ruta de archivo inválida")
+            self.s3_client.head_object(Bucket=self.bucket_name, Key=file_path)
+            return self._generate_signed_url(file_path, expiration=expiration)
+        except Exception as e:
+            logger.error(f"Error obteniendo URL de archivo S3: {str(e)}")
+            raise
+
     async def _ensure_category_folder_exists(
         self, user_id: str, folder_name: str
     ) -> None:
