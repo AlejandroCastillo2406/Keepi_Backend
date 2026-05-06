@@ -579,67 +579,16 @@ class AnalysisRequestService:
             )
             mime_type = file.content_type or "application/octet-stream"
 
-            config_service = UserConfigService(self._db)
-            user_config = await config_service.get_or_create_user_config(patient_uid)
-
-            cloud_provider = (
-                user_config.cloud_provider.value
-                if user_config and user_config.cloud_provider
-                else "google_drive"
+            s3_service = S3Service()
+            upload_res = await s3_service.upload_document(
+                patient_uid,
+                io.BytesIO(content),
+                filename,
+                mime_type,
+                folder=_ANALYSIS_DOCUMENT_CATEGORY,
             )
-            drive_file_id = None
-            s3_key = None
-            file_url = None
-
-            folder_service = FolderService(self._db)
-            folder_result = await folder_service.ensure_category_folder_exists(
-                patient_uid, _ANALYSIS_DOCUMENT_CATEGORY, cloud_provider
-            )
-            if not folder_result.get("success"):
-                if folder_result.get("requires_drive_auth"):
-                    raise HTTPException(
-                        status_code=401,
-                        detail=folder_result.get(
-                            "error", "Google Drive no autorizado"
-                        ),
-                    )
-                raise HTTPException(
-                    status_code=400,
-                    detail=folder_result.get(
-                        "error", "No se pudo preparar la carpeta de destino"
-                    ),
-                )
-
-            if cloud_provider == "google_drive":
-                oauth_service = GoogleOAuthService(self._db)
-                credentials = await oauth_service.refresh_user_tokens(patient_uid)
-                if not credentials:
-                    raise HTTPException(
-                        status_code=401, detail="Google Drive no autorizado"
-                    )
-                drive_folder_id = folder_result.get("folder_id")
-                if not drive_folder_id:
-                    raise HTTPException(
-                        status_code=500, detail="No se obtuvo carpeta en Google Drive"
-                    )
-                drive_service = GoogleDriveService(credentials)
-                drive_file_id = await drive_service.upload_file(
-                    content, filename, drive_folder_id, mime_type
-                )
-                if drive_file_id:
-                    file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
-            else:
-                s3_service = S3Service()
-                folder_name = folder_result.get("folder_name") or "other"
-                upload_res = await s3_service.upload_document(
-                    patient_uid,
-                    io.BytesIO(content),
-                    filename,
-                    mime_type,
-                    folder=folder_name,
-                )
-                s3_key = upload_res.get("file_path")
-                file_url = upload_res.get("signed_url")
+            s3_key = upload_res.get("file_path")
+            file_url = upload_res.get("signed_url")
 
             document = Document(
                 user_id=UUID(patient_uid),
@@ -653,8 +602,8 @@ class AnalysisRequestService:
                 file_name=filename,
                 file_size=len(content),
                 file_type=mime_type.split("/")[0],
-                cloud_provider=cloud_provider,
-                drive_file_id=drive_file_id,
+                cloud_provider="s3",
+                drive_file_id=None,
                 s3_key=s3_key,
                 tags=[f"analysis_request:{request_id}", "uploaded_by_doctor"],
             )
