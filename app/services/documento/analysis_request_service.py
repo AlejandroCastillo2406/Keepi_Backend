@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import logging
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -67,6 +68,7 @@ class AnalysisRequestService:
         analysis_request_id: UUID,
         description: str,
         public_link: Optional[str],
+        expires_at: Optional[datetime] = None,
     ) -> None:
         doctor = self._users.get_by_id_plain(doctor_id)
         doctor_name = (doctor.name if doctor else None) or "Tu médico"
@@ -103,7 +105,7 @@ class AnalysisRequestService:
                 doctor_name=doctor_name,
                 description=description,
                 public_link=public_link,
-                expires_in_days=_INVITATION_TTL_DAYS,
+                expires_at=expires_at,
             )
             email_subject = "Tu doctor te pidió subir un análisis"
             try:
@@ -232,6 +234,7 @@ class AnalysisRequestService:
                 patient_email=(patient.email if patient else None),
                 patient_name=(patient.name if patient else None),
                 ttl_days=_INVITATION_TTL_DAYS,
+                expires_at=data.expires_at,
             )
             public_link = build_public_analysis_upload_link(raw_token)
         except Exception:
@@ -247,6 +250,7 @@ class AnalysisRequestService:
             analysis_request_id=created.id,
             description=data.description,
             public_link=public_link,
+            expires_at=data.expires_at,
         )
         return created
 

@@ -7,6 +7,7 @@ from typing import Optional
 class AnalysisRequestCreate(BaseModel):
     patient_id: UUID
     description: str
+    expires_at: Optional[datetime] = None
 
 
 class AnalysisRequestResponse(BaseModel):
