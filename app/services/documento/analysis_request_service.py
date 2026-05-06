@@ -36,6 +36,7 @@ from app.services.usuarios import UserConfigService
 logger = logging.getLogger(__name__)
 _MSG_ERROR_INTERNO = "Error interno del servidor"
 _ANALYSIS_DOCUMENT_CATEGORY = "Análisis Clínicos"
+_ANALYSIS_DOCUMENT_S3_FOLDER = "Analisis_Clinicos"
 _INVITATION_TTL_DAYS = 30
 
 
@@ -373,7 +374,7 @@ class AnalysisRequestService:
                 io.BytesIO(content),
                 filename,
                 mime_type,
-                folder=_ANALYSIS_DOCUMENT_CATEGORY,
+                folder=_ANALYSIS_DOCUMENT_S3_FOLDER,
             )
             s3_key = upload_res.get("file_path")
             file_url = upload_res.get("signed_url")
