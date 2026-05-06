@@ -82,3 +82,15 @@ async def upload_analysis_and_complete(
     return await svc.upload_and_complete(
         patient_uid=str(current_user.id), request_id=request_id, file=file
     )
+
+
+@router.post("/{request_id}/doctor-upload")
+async def doctor_upload_analysis_and_complete(
+    request_id: UUID,
+    current_user: User = Depends(require_doctor_user),
+    file: UploadFile = File(...),
+    svc: AnalysisRequestService = Depends(get_analysis_request_service),
+):
+    return await svc.upload_and_complete_by_doctor(
+        doctor_id=current_user.id, request_id=request_id, file=file
+    )
