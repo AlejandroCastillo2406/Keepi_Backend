@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import uuid
 from datetime import datetime
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi import status as http_status
 from pydantic import BaseModel
 from app.core.security import require_doctor_user
@@ -34,10 +36,11 @@ from app.models.questionnaire_invitation import (
 from app.models.user import User
 from app.factories.medical_factory import get_questionnaire_service
 from app.services.medical.questionnaire_service import QuestionnaireService
+from app.services.ocr.ocr_service import OCRService
+from app.services.aws.bedrock_service import BedrockService  # <-- Importamos tu servicio de IA
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
 
 StatusFilter = Literal["all", "active", "inactive"]
 
@@ -160,6 +163,63 @@ def override_question(
         is_required=payload.is_required,
         show_in_history=payload.show_in_history,
     )
+
+
+# ==========================================
+# ENDPOINT DE EXTRACCIÓN OCR CON IA
+# ==========================================
+@router.post("/extract-ocr", status_code=http_status.HTTP_200_OK)
+async def extract_ocr_questions(
+    imagenes: List[UploadFile] = File(...),
+    current_user: User = Depends(require_doctor_user)
+):
+    """
+    Recibe imágenes, usa Textract para sacar el texto sucio, 
+    y luego usa Claude para limpiar y estructurar las preguntas.
+    """
+    ocr_service = OCRService()
+    bedrock_service = BedrockService()  # Instanciamos tu servicio
+    preguntas_extraidas = []
+
+    if not imagenes:
+        raise HTTPException(status_code=400, detail="No se enviaron imágenes.")
+
+    for imagen in imagenes:
+        # Validar extensión
+        extension = imagen.filename.split(".")[-1].lower()
+        if extension not in ["jpg", "jpeg", "png", "pdf"]:
+            raise HTTPException(status_code=400, detail=f"Formato no soportado: {extension}")
+
+        tmp_path = ""
+        try:
+            # Crear archivo temporal
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as tmp:
+                contenido = await imagen.read()
+                tmp.write(contenido)
+                tmp_path = tmp.name
+
+            # 1. Llamada al servicio OCR (Textract)
+            resultado_ocr = await ocr_service.extract_text_from_document(tmp_path, extension)
+            texto_crudo = resultado_ocr.get("full_text", "")
+
+            # 2. Llamada a Claude para limpiar (Magia de IA)
+            if texto_crudo.strip():
+                preguntas_limpias = await bedrock_service.clean_medical_questions(texto_crudo)
+                preguntas_extraidas.extend(preguntas_limpias)
+
+        except Exception as e:
+            logger.error(f"Error procesando imagen para OCR/IA: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error procesando imagen: {str(e)}")
+        
+        finally:
+            # Limpieza del archivo temporal
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    return {
+        "success": True,
+        "preguntas": preguntas_extraidas
+    }
 
 
 @router.get("/templates", response_model=List[TemplateResponse])

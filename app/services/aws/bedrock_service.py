@@ -344,3 +344,52 @@ TEXTO DEL DOCUMENTO:
                 return True
 
         return False
+
+    async def clean_medical_questions(self, raw_text: str) -> List[str]:
+        """
+        Recibe el texto bruto extraído por OCR, le pide a Claude que corrija la 
+        ortografía y estructure las preguntas en un JSON.
+        """
+        if not self.bedrock_client:
+            logger.warning("Bedrock no disponible para limpiar preguntas.")
+            return [line for line in raw_text.split('\n') if len(line.strip()) > 8]
+
+        prompt = f"""
+        Eres un asistente médico experto en digitación. A continuación te proporciono un texto extraído 
+        por OCR de un cuestionario médico escrito a mano o escaneado. El texto tiene errores ortográficos 
+        y caracteres mal interpretados (ej. letras aleatorias o falta de signos de interrogación).
+        
+        Tu tarea es:
+        1. Corregir la ortografía y gramática basándote en el contexto médico.
+        2. Asegurar que TODAS las preguntas inicien con '¿' y terminen con '?'.
+        3. Ignorar manchas, ruido o texto que claramente no tenga sentido como pregunta médica.
+        
+        Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto adicional ni markdown:
+        {{
+            "preguntas": ["¿Pregunta corregida 1?", "¿Pregunta corregida 2?"]
+        }}
+        
+        Texto extraído por OCR:
+        {raw_text[:2000]}
+        """
+
+        try:
+            response_text = await self._call_claude(prompt)
+            
+            response_text = response_text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+
+            result = json.loads(response_text)
+            preguntas = result.get("preguntas", [])
+            
+            return [p for p in preguntas if p]
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Error decodificando JSON de Claude al limpiar preguntas: {e}")
+            return [line for line in raw_text.split('\n') if len(line.strip()) > 8]
+        except Exception as e:
+            logger.error(f"Error inesperado llamando a Claude para limpiar preguntas: {e}")
+            return [line for line in raw_text.split('\n') if len(line.strip()) > 8]
