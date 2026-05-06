@@ -128,3 +128,16 @@ async def run_pill_reminders(
     except Exception as e:
         logger.error("Error processing pill reminders: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/run-analysis-request-reminders")
+def run_analysis_request_reminders(
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+    notification_service: NotificationService = Depends(get_notification_service),
+):
+    expected = os.getenv("EXPIRY_EMAIL_CRON_TOKEN")
+    if not expected or x_internal_token != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    payload = notification_service.run_analysis_request_deadline_reminders_job()
+    logger.info("run-analysis-request-reminders OK")
+    return payload

@@ -180,3 +180,179 @@ class NotificationService:
         )
 
         return await run_pill_reminders_process(self.db)
+
+    def run_analysis_request_deadline_reminders_job(self) -> dict[str, Any]:
+        from datetime import datetime, timezone
+        from uuid import UUID
+
+        from app.models.analysis_request import AnalysisRequest
+        from app.models.analysis_request_invitation import AnalysisRequestUploadInvitation
+        from app.repositories.notifications_log_repository import NotificationsLogRepository
+        from app.repositories.user_repository import UserRepository
+        from app.services.notificaciones.user_notify import (
+            notify_user_push_and_db,
+            notify_user_push_db_and_email,
+        )
+
+        now = datetime.now(timezone.utc)
+        inv_rows = (
+            self.db.query(AnalysisRequestUploadInvitation)
+            .join(
+                AnalysisRequest,
+                AnalysisRequest.id == AnalysisRequestUploadInvitation.analysis_request_id,
+            )
+            .filter(
+                AnalysisRequestUploadInvitation.status == "pending",
+                AnalysisRequest.status == "pending",
+            )
+            .all()
+        )
+        candidates_found = len(inv_rows)
+        if candidates_found == 0:
+            return {
+                "candidates_found": 0,
+                "already_notified": 0,
+                "sent": 0,
+                "errors": 0,
+                "error_details": [],
+            }
+
+        log_repo = NotificationsLogRepository(self.db)
+        user_repo = UserRepository(self.db)
+
+        already_notified = 0
+        sent = 0
+        errors = 0
+        error_details: list[str] = []
+
+        for inv in inv_rows:
+            try:
+                expires_at = getattr(inv, "expires_at", None)
+                if expires_at is None:
+                    continue
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+                expiry_date = expires_at.date()
+                if expiry_date < now.date():
+                    continue
+
+                analysis_req = (
+                    self.db.query(AnalysisRequest)
+                    .filter(AnalysisRequest.id == inv.analysis_request_id)
+                    .first()
+                )
+                if not analysis_req:
+                    continue
+
+                created_at = getattr(analysis_req, "created_at", None) or getattr(
+                    inv, "created_at", None
+                )
+                if created_at is None:
+                    continue
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+
+                total = (expires_at - created_at).total_seconds()
+                if total <= 0:
+                    continue
+
+                if now.date() == expiry_date:
+                    milestone = 100
+                else:
+                    progress = (now - created_at).total_seconds() / total
+                    if progress >= 0.9:
+                        milestone = 90
+                    elif progress >= 0.8:
+                        milestone = 80
+                    else:
+                        continue
+
+                patient = user_repo.get_by_id_with_role(inv.patient_id)
+                if patient is None:
+                    continue
+                email_to = (getattr(patient, "email", None) or "").strip()
+                if not email_to:
+                    email_to = (getattr(inv, "patient_email_snapshot", None) or "").strip()
+
+                inserted = log_repo.try_insert_analysis_request_deadline_row(
+                    user_id=UUID(str(inv.patient_id)),
+                    analysis_request_id=UUID(str(inv.analysis_request_id)),
+                    expiry_date=expiry_date,
+                    milestone=milestone,
+                    email_to=email_to,
+                )
+                if not inserted:
+                    already_notified += 1
+                    continue
+
+                pct_left = 100 - milestone
+                title = "Recordatorio: subir análisis"
+                if pct_left == 0:
+                    message = "Hoy vence tu solicitud para subir el análisis."
+                else:
+                    message = (
+                        f"Tu solicitud para subir el análisis está por vencer "
+                        f"(queda {pct_left}% del tiempo)."
+                    )
+
+                payload = {
+                    "type": "analysis_request_deadline_reminder",
+                    "analysis_request_id": str(inv.analysis_request_id),
+                    "milestone": str(milestone),
+                    "expires_at": expires_at.isoformat(),
+                }
+                push_data = {
+                    "type": "analysis_request_deadline_reminder",
+                    "analysis_request_id": str(inv.analysis_request_id),
+                    "milestone": str(milestone),
+                    "title": title,
+                    "body": message,
+                }
+
+                if email_to:
+                    res = notify_user_push_db_and_email(
+                        self.db,
+                        inv.patient_id,
+                        title=title,
+                        message=message,
+                        to_email=email_to,
+                        notification_type="info",
+                        payload=payload,
+                        push_data=push_data,
+                        email_subject=title,
+                    )
+                    log_repo.update_analysis_request_deadline_ses_message_id(
+                        user_id=UUID(str(inv.patient_id)),
+                        analysis_request_id=UUID(str(inv.analysis_request_id)),
+                        expiry_date=expiry_date,
+                        milestone=milestone,
+                        ses_message_id=(
+                            res.email.ses_message_id if res.email else None
+                        ),
+                    )
+                else:
+                    notify_user_push_and_db(
+                        self.db,
+                        inv.patient_id,
+                        title=title,
+                        message=message,
+                        notification_type="info",
+                        payload=payload,
+                        push_data=push_data,
+                    )
+
+                sent += 1
+            except Exception as e:
+                errors += 1
+                error_details.append(
+                    f"analysis_request_id={getattr(inv, 'analysis_request_id', '')} error={e}"
+                )
+
+        return {
+            "candidates_found": candidates_found,
+            "already_notified": already_notified,
+            "sent": sent,
+            "errors": errors,
+            "error_details": error_details,
+        }
