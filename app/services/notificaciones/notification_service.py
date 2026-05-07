@@ -190,7 +190,6 @@ class NotificationService:
 
         from app.models.analysis_request import AnalysisRequest
         from app.models.analysis_request_invitation import AnalysisRequestUploadInvitation
-        from app.repositories.notifications_log_repository import NotificationsLogRepository
         from app.repositories.user_repository import UserRepository
         from app.services.notificaciones.user_notify import (
             notify_user_push_and_db,
@@ -228,7 +227,6 @@ class NotificationService:
                 "error_details": [],
             }
 
-        log_repo = NotificationsLogRepository(self.db)
         user_repo = UserRepository(self.db)
 
         already_notified = 0
@@ -267,14 +265,26 @@ class NotificationService:
                 if not email_to:
                     email_to = (getattr(inv, "patient_email_snapshot", None) or "").strip()
 
-                inserted = log_repo.try_insert_analysis_request_deadline_row(
-                    user_id=UUID(str(inv.patient_id)),
-                    analysis_request_id=UUID(str(inv.analysis_request_id)),
-                    expiry_date=expiry_date,
-                    milestone=milestone,
-                    email_to=email_to,
+                # Dedupe:
+                # En la BD, `notifications_logs.document_id` tiene FK a `documents.id`, por lo que
+                # NO podemos usar esa tabla para guardar logs basados en `analysis_request_id`.
+                # En su lugar, evitamos duplicados consultando la tabla `notifications`.
+                pid = UUID(str(inv.patient_id))
+                existing = (
+                    self.db.query(Notification)
+                    .filter(
+                        Notification.user_id == pid,
+                        Notification.type == "analysis_request_deadline",
+                        Notification.target_date == effective_send_date,
+                    )
+                    .all()
                 )
-                if not inserted:
+                already_sent = any(
+                    (n.payload or {}).get("analysis_request_id") == str(inv.analysis_request_id)
+                    and str((n.payload or {}).get("milestone")) == str(milestone)
+                    for n in existing
+                )
+                if already_sent:
                     already_notified += 1
                     continue
 
@@ -302,19 +312,10 @@ class NotificationService:
                         title=title,
                         message=message,
                         to_email=email_to,
-                        notification_type="info",
+                        notification_type="analysis_request_deadline",
                         payload=payload,
                         push_data=push_data,
                         email_subject=title,
-                    )
-                    log_repo.update_analysis_request_deadline_ses_message_id(
-                        user_id=UUID(str(inv.patient_id)),
-                        analysis_request_id=UUID(str(inv.analysis_request_id)),
-                        expiry_date=expiry_date,
-                        milestone=milestone,
-                        ses_message_id=(
-                            res.email.ses_message_id if res.email else None
-                        ),
                     )
                 else:
                     notify_user_push_and_db(
@@ -322,7 +323,7 @@ class NotificationService:
                         inv.patient_id,
                         title=title,
                         message=message,
-                        notification_type="info",
+                        notification_type="analysis_request_deadline",
                         payload=payload,
                         push_data=push_data,
                     )
