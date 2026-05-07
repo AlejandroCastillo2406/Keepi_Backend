@@ -132,12 +132,16 @@ async def run_pill_reminders(
 
 @router.post("/run-analysis-request-reminders")
 def run_analysis_request_reminders(
+    send_date: date | None = None,
     x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
     notification_service: NotificationService = Depends(get_notification_service),
 ):
     expected = os.getenv("EXPIRY_EMAIL_CRON_TOKEN")
     if not expected or x_internal_token != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    payload = notification_service.run_analysis_request_deadline_reminders_job()
+    effective_send_date = send_date or datetime.now(timezone.utc).date()
+    payload = notification_service.run_analysis_request_deadline_reminders_job(
+        send_date=effective_send_date
+    )
     logger.info("run-analysis-request-reminders OK")
     return payload

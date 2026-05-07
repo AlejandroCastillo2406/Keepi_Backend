@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.notification import (
@@ -181,8 +183,9 @@ class NotificationService:
 
         return await run_pill_reminders_process(self.db)
 
-    def run_analysis_request_deadline_reminders_job(self) -> dict[str, Any]:
-        from datetime import datetime, timezone
+    def run_analysis_request_deadline_reminders_job(
+        self, *, send_date: date | None = None
+    ) -> dict[str, Any]:
         from uuid import UUID
 
         from app.models.analysis_request import AnalysisRequest
@@ -194,7 +197,7 @@ class NotificationService:
             notify_user_push_db_and_email,
         )
 
-        now = datetime.now(timezone.utc)
+        effective_send_date = send_date or datetime.now(timezone.utc).date()
         inv_rows = (
             self.db.query(AnalysisRequestUploadInvitation)
             .join(
@@ -202,14 +205,22 @@ class NotificationService:
                 AnalysisRequest.id == AnalysisRequestUploadInvitation.analysis_request_id,
             )
             .filter(
-                AnalysisRequestUploadInvitation.status == "pending",
+                AnalysisRequestUploadInvitation.status.in_(["pending", "expired"]),
                 AnalysisRequest.status == "pending",
+                func.date(
+                    func.timezone(
+                        "UTC",
+                        AnalysisRequestUploadInvitation.expires_at,
+                    )
+                )
+                == effective_send_date,
             )
             .all()
         )
         candidates_found = len(inv_rows)
         if candidates_found == 0:
             return {
+                "send_date": effective_send_date.isoformat(),
                 "candidates_found": 0,
                 "already_notified": 0,
                 "sent": 0,
@@ -232,9 +243,11 @@ class NotificationService:
                     continue
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
+                else:
+                    expires_at = expires_at.astimezone(timezone.utc)
 
                 expiry_date = expires_at.date()
-                if expiry_date < now.date():
+                if expiry_date != effective_send_date:
                     continue
 
                 analysis_req = (
@@ -245,28 +258,7 @@ class NotificationService:
                 if not analysis_req:
                     continue
 
-                created_at = getattr(analysis_req, "created_at", None) or getattr(
-                    inv, "created_at", None
-                )
-                if created_at is None:
-                    continue
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
-
-                total = (expires_at - created_at).total_seconds()
-                if total <= 0:
-                    continue
-
-                if now.date() == expiry_date:
-                    milestone = 100
-                else:
-                    progress = (now - created_at).total_seconds() / total
-                    if progress >= 0.9:
-                        milestone = 90
-                    elif progress >= 0.8:
-                        milestone = 80
-                    else:
-                        continue
+                milestone = 100
 
                 patient = user_repo.get_by_id_with_role(inv.patient_id)
                 if patient is None:
@@ -286,15 +278,8 @@ class NotificationService:
                     already_notified += 1
                     continue
 
-                pct_left = 100 - milestone
                 title = "Recordatorio: subir análisis"
-                if pct_left == 0:
-                    message = "Hoy vence tu solicitud para subir el análisis."
-                else:
-                    message = (
-                        f"Tu solicitud para subir el análisis está por vencer "
-                        f"(queda {pct_left}% del tiempo)."
-                    )
+                message = "Hoy vence tu solicitud para subir el análisis."
 
                 payload = {
                     "type": "analysis_request_deadline_reminder",
@@ -350,6 +335,7 @@ class NotificationService:
                 )
 
         return {
+            "send_date": effective_send_date.isoformat(),
             "candidates_found": candidates_found,
             "already_notified": already_notified,
             "sent": sent,
