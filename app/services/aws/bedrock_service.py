@@ -345,28 +345,45 @@ TEXTO DEL DOCUMENTO:
 
         return False
 
-    async def clean_medical_questions(self, raw_text: str) -> List[str]:
+    async def clean_medical_questions(self, raw_text: str) -> List[Dict[str, Any]]:
         """
-        Recibe el texto bruto extraído por OCR, le pide a Claude que corrija la 
-        ortografía y estructure las preguntas en un JSON.
+        Recibe el texto bruto extraído por OCR y le pide a Claude que corrija la 
+        ortografía, estructure las preguntas y ASIGNE EL TIPO DE RESPUESTA.
         """
         if not self.bedrock_client:
             logger.warning("Bedrock no disponible para limpiar preguntas.")
-            return [line for line in raw_text.split('\n') if len(line.strip()) > 8]
+            return [{"texto": line, "tipo": "short_text", "opciones": None} for line in raw_text.split('\n') if len(line.strip()) > 8]
 
         prompt = f"""
         Eres un asistente médico experto en digitación. A continuación te proporciono un texto extraído 
-        por OCR de un cuestionario médico escrito a mano o escaneado. El texto tiene errores ortográficos 
-        y caracteres mal interpretados (ej. letras aleatorias o falta de signos de interrogación).
+        por OCR de un cuestionario médico.
         
         Tu tarea es:
-        1. Corregir la ortografía y gramática basándote en el contexto médico.
+        1. Corregir la ortografía y gramática.
         2. Asegurar que TODAS las preguntas inicien con '¿' y terminen con '?'.
-        3. Ignorar manchas, ruido o texto que claramente no tenga sentido como pregunta médica.
+        3. Identificar el TIPO de respuesta esperada para cada pregunta. Tus ÚNICAS opciones son:
+           - "single_choice": Si tiene opciones explícitas y solo se elige una.
+           - "multi_choice": Si tiene opciones explícitas y se pueden elegir varias (ej. síntomas).
+           - "yes_no": Si es una pregunta de Sí o No.
+           - "numeric": Si pregunta peso, estatura, edad, cantidad, etc.
+           - "short_text": Respuestas cortas o nombres.
+           - "long_text": Explicaciones detalladas o motivos de consulta.
+        4. Extraer las OPCIONES si el tipo es single_choice o multi_choice (sino, pon null).
         
-        Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto adicional ni markdown:
+        Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto extra:
         {{
-            "preguntas": ["¿Pregunta corregida 1?", "¿Pregunta corregida 2?"]
+            "preguntas": [
+                {{
+                    "texto": "¿Toma algún medicamento actualmente?",
+                    "tipo": "yes_no",
+                    "opciones": null
+                }},
+                {{
+                    "texto": "¿Qué síntomas presenta?",
+                    "tipo": "multi_choice",
+                    "opciones": ["Fiebre", "Tos", "Dolor de cabeza"]
+                }}
+            ]
         }}
         
         Texto extraído por OCR:
@@ -383,13 +400,8 @@ TEXTO DEL DOCUMENTO:
                 response_text = response_text[:-3]
 
             result = json.loads(response_text)
-            preguntas = result.get("preguntas", [])
+            return result.get("preguntas", [])
             
-            return [p for p in preguntas if p]
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decodificando JSON de Claude al limpiar preguntas: {e}")
-            return [line for line in raw_text.split('\n') if len(line.strip()) > 8]
         except Exception as e:
-            logger.error(f"Error inesperado llamando a Claude para limpiar preguntas: {e}")
-            return [line for line in raw_text.split('\n') if len(line.strip()) > 8]
+            logger.error(f"Error en IA al limpiar preguntas: {e}")
+            return [{"texto": line, "tipo": "short_text", "opciones": None} for line in raw_text.split('\n') if len(line.strip()) > 8]
