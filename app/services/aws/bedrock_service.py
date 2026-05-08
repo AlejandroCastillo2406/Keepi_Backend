@@ -347,41 +347,41 @@ TEXTO DEL DOCUMENTO:
 
     async def clean_medical_questions(self, raw_text: str) -> List[Dict[str, Any]]:
         """
-        Recibe el texto bruto extraído por OCR y le pide a Claude que corrija la 
-        ortografía, estructure las preguntas y ASIGNE EL TIPO DE RESPUESTA.
+        Recibe el texto bruto extraído por OCR y le pide a Claude que estructure las preguntas 
+        respetando FIELMENTE el texto original, sin inventar, y asignando el tipo de respuesta.
         """
         if not self.bedrock_client:
             logger.warning("Bedrock no disponible para limpiar preguntas.")
             return [{"texto": line, "tipo": "short_text", "opciones": None} for line in raw_text.split('\n') if len(line.strip()) > 8]
 
         prompt = f"""
-        Eres un asistente médico experto en digitación. A continuación te proporciono un texto extraído 
-        por OCR de un cuestionario médico.
+        Eres un transcriptor estricto de documentos. A continuación recibes un texto extraído por OCR de una hoja escrita a mano por un doctor.
         
-        Tu tarea es:
-        1. Corregir la ortografía y gramática.
-        2. Asegurar que TODAS las preguntas inicien con '¿' y terminen con '?'.
-        3. Identificar el TIPO de respuesta esperada para cada pregunta. Tus ÚNICAS opciones son:
-           - "single_choice": Si tiene opciones explícitas y solo se elige una.
-           - "multi_choice": Si tiene opciones explícitas y se pueden elegir varias (ej. síntomas).
-           - "yes_no": Si es una pregunta de Sí o No.
-           - "numeric": Si pregunta peso, estatura, edad, cantidad, etc.
+        REGLAS ESTRICTAS QUE DEBES OBEDECER SIN EXCEPCIÓN:
+        1. FIDELIDAD ABSOLUTA: Mantén las palabras EXACTAS que escribió el doctor. NO reescribas la pregunta para que suene "más profesional", NO agregues palabras. Solo corrige errores de dedo ortográficos obvios (ej. si dice "ciruyia" pon "cirugía", si dice "haz" pon "has") y asegúrate de abrir y cerrar con signos de interrogación ('¿' y '?').
+        2. CERO ALUCINACIONES: Si hay texto basura, garabatos, manchas o letras sueltas al final (ej. "O M", "w6", números aleatorios), IGNÓRALOS por completo. NO inventes preguntas que no estén claramente escritas en el texto.
+        3. DIVIDIR PREGUNTAS MÚLTIPLES: Si una misma oración pide DOS datos numéricos o medidas distintas (por ejemplo: "¿Cuál es su peso y estatura?"), DIVÍDELA obligatoriamente en dos preguntas separadas (ej. "¿Cuál es su peso?" y "¿Cuál es su estatura?").
+        4. CLASIFICAR EL TIPO DE RESPUESTA. Tus únicas opciones son:
+           - "single_choice": Tiene opciones explícitas y se elige una.
+           - "multi_choice": Tiene opciones explícitas y se eligen varias.
+           - "yes_no": Pregunta de Sí o No.
+           - "numeric": Pregunta de peso, estatura, edad, cantidad, etc.
            - "short_text": Respuestas cortas o nombres.
-           - "long_text": Explicaciones detalladas o motivos de consulta.
-        4. Extraer las OPCIONES si el tipo es single_choice o multi_choice (sino, pon null).
+           - "long_text": Explicaciones detalladas.
+        5. Extraer las OPCIONES si el tipo es single_choice o multi_choice (sino, pon null).
         
-        Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto extra:
+        Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto extra ni markdown:
         {{
             "preguntas": [
                 {{
-                    "texto": "¿Toma algún medicamento actualmente?",
+                    "texto": "¿Conoces algún medicamento?",
                     "tipo": "yes_no",
                     "opciones": null
                 }},
                 {{
-                    "texto": "¿Qué síntomas presenta?",
-                    "tipo": "multi_choice",
-                    "opciones": ["Fiebre", "Tos", "Dolor de cabeza"]
+                    "texto": "¿Te has hecho una cirugía?",
+                    "tipo": "yes_no",
+                    "opciones": null
                 }}
             ]
         }}
