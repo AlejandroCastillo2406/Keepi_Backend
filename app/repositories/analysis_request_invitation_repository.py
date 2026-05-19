@@ -33,17 +33,10 @@ class AnalysisRequestInvitationRepository:
         patient_email: Optional[str],
         patient_name: Optional[str],
         ttl_days: int = INVITATION_TTL_DAYS,
-        expires_at: Optional[datetime] = None,
     ) -> Tuple[AnalysisRequestUploadInvitation, str]:
         raw_token = self._generate_token()
         token_hash = self._hash_token(raw_token)
-        
-        if expires_at is not None:
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            final_expires_at = expires_at
-        else:
-            final_expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
 
         invitation = AnalysisRequestUploadInvitation(
             analysis_request_id=analysis_request.id,
@@ -53,7 +46,7 @@ class AnalysisRequestInvitationRepository:
             status="pending",
             patient_email_snapshot=(patient_email or "").strip() or None,
             patient_name_snapshot=(patient_name or "").strip() or None,
-            expires_at=final_expires_at,
+            expires_at=expires_at,
         )
         self._db.add(invitation)
         self._db.commit()
