@@ -30,7 +30,6 @@ from app.routes import (
     prescriptions,
     push_tokens,
     questionnaire,
-    questionnaire_ocr_routes, # <--- IMPORTACIÓN DEL OCR AGREGADA AQUÍ
     subscriptions,
     user_config,
 )
@@ -147,10 +146,6 @@ app.include_router(
     archivo_router,
     prefix="/api/v1/archivos",
     tags=["Archivos Temporales"],
-)
-# <--- RUTA DEL OCR AGREGADA AQUÍ --->
-app.include_router(
-    questionnaire_ocr_routes.router
 )
 
 
