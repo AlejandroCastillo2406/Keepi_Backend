@@ -93,11 +93,13 @@ class DocumentUpdate(BaseModel):
     description: Optional[str] = None
     file_url: Optional[str] = None
     file_name: Optional[str] = None
+    s3_key: Optional[str] = None
     file_size: Optional[int] = None
     file_type: Optional[str] = None
     expiry_date: Optional[datetime] = None
     document_metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
 

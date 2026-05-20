@@ -1,7 +1,9 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, TypedDict
+
+from pydantic import BaseModel, Field
 
 from fastapi import (
     APIRouter,
@@ -39,6 +41,18 @@ class TokenPayload(TypedDict, total=False):
     uid: str
     email: Optional[str]
     name: Optional[str]
+
+
+class MobileDocumentMetadataUpdate(BaseModel):
+    name: Optional[str] = None
+    file_name: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    expiry_date: Optional[datetime] = Field(
+        None, description="Fecha de vencimiento ISO-8601"
+    )
+    document_number: Optional[str] = None
+    organization: Optional[str] = None
 
 
 @router.get("/s3/folders/contents")
@@ -201,6 +215,9 @@ async def mobile_save_analyzed_document(
     expiry_date: Optional[str] = Form(None),
     document_number: Optional[str] = Form(None),
     organization: Optional[str] = Form(None),
+    replaces_document_id: Optional[str] = Form(
+        None, description="UUID del documento vencido/por vencer que se reemplaza"
+    ),
     user_token: TokenPayload = Depends(require_no_temp_password_token),
     document_service: DocumentService = Depends(get_document_service),
 ):
@@ -227,12 +244,19 @@ async def mobile_save_analyzed_document(
             document_number=document_number or None,
             organization=organization or None,
             tags=None,
+            replaces_document_id=replaces_document_id,
+        )
+        msg = (
+            "Documento reemplazado. El anterior quedó marcado como reemplazado."
+            if replaces_document_id
+            else "Documento guardado correctamente"
         )
         return {
-            "message": "Documento guardado correctamente",
+            "message": msg,
             "document_id": str(document.id),
             "category": document.category,
             "file_name": document.file_name,
+            "replaced_document_id": replaces_document_id,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -284,6 +308,52 @@ async def upload_patient_document_direct(
         raise HTTPException(status_code=400, detail=msg)
     except Exception:
         logger.exception("Error en subida directa del paciente")
+        raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
+
+
+@router.get("/mobile/{document_id}/metadata")
+async def get_mobile_document_metadata(
+    document_id: uuid.UUID,
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    api: DocumentApiService = Depends(get_document_api_service),
+):
+    try:
+        return await api.get_mobile_document_metadata(
+            user_token["uid"], document_id
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error obteniendo metadatos del documento")
+        raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
+
+
+@router.patch("/mobile/{document_id}/metadata")
+async def update_mobile_document_metadata(
+    document_id: uuid.UUID,
+    body: MobileDocumentMetadataUpdate,
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    api: DocumentApiService = Depends(get_document_api_service),
+):
+    try:
+        parsed_expiry = body.expiry_date
+        if parsed_expiry is not None and parsed_expiry.tzinfo is None:
+            parsed_expiry = parsed_expiry.replace(tzinfo=timezone.utc)
+        return await api.update_mobile_document_metadata(
+            user_token["uid"],
+            document_id,
+            name=body.name,
+            file_name=body.file_name,
+            category=body.category,
+            description=body.description,
+            expiry_date=parsed_expiry,
+            document_number=body.document_number,
+            organization=body.organization,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error actualizando metadatos del documento")
         raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
 
 

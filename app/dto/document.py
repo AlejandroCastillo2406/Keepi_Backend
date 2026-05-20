@@ -37,6 +37,7 @@ class DocumentUpdate(BaseModel):
     expiry_date: Optional[datetime] = None
     document_metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
 
