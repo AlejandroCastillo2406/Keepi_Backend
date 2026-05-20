@@ -452,6 +452,56 @@ class DocumentService:
                 description=description,
             ),
         )
+        new_doc = self._document_repository.get_by_id(new_document_id, user_id)
+        if new_doc:
+            self._notify_document_replaced(user_id, old, new_doc)
+
+    def _notify_document_replaced(
+        self, user_id: str, old_doc: Document, new_doc: Document
+    ) -> None:
+        from app.services.notificaciones import notify_user_push_and_db
+
+        old_name = (
+            getattr(old_doc, "name", None)
+            or getattr(old_doc, "file_name", None)
+            or "Documento"
+        )
+        new_name = (
+            getattr(new_doc, "name", None)
+            or getattr(new_doc, "file_name", None)
+            or "Documento"
+        )
+        old_cat = getattr(old_doc, "category", None) or ""
+        new_cat = getattr(new_doc, "category", None) or ""
+        message = f"«{old_name}» fue reemplazado por «{new_name}»."
+        payload = {
+            "type": "document_replaced",
+            "old_document_id": str(old_doc.id),
+            "new_document_id": str(new_doc.id),
+            "old_document_name": old_name,
+            "new_document_name": new_name,
+            "old_category": old_cat,
+            "new_category": new_cat,
+        }
+        push_data = {k: str(v) for k, v in payload.items()}
+        try:
+            notify_user_push_and_db(
+                self.db,
+                user_id,
+                title="Documento reemplazado",
+                message=message,
+                notification_type="document_replaced",
+                payload=payload,
+                document_id=str(new_doc.id),
+                push_data=push_data,
+            )
+        except Exception:
+            logger.exception(
+                "No se pudo enviar notificación de reemplazo user=%s old=%s new=%s",
+                user_id,
+                old_doc.id,
+                new_doc.id,
+            )
 
     async def save_analyzed_document(
         self,
