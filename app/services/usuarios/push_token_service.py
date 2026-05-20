@@ -37,6 +37,9 @@ class PushTokenService:
             row.user_id = user_id
             row.platform = body.platform
             row.is_active = True
+        self._tokens.deactivate_other_tokens_for_user(
+            user_id, keep_token=body.token
+        )
         self._tokens.save(row)
         return RegisterDeviceTokenResponse(
             token=row.token,
