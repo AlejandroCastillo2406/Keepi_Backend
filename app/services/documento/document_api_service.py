@@ -109,14 +109,52 @@ def _s3_doc_to_file_item(doc: dict) -> dict:
     }
 
 
-def _doc_to_keepi_file_fields(doc: Any) -> dict[str, Any]:
+def _replacement_fields_for_doc(
+    doc: Any, docs_by_id: dict[str, Any]
+) -> dict[str, Any]:
+    ai = (
+        doc.ai_analysis
+        if isinstance(getattr(doc, "ai_analysis", None), dict)
+        else {}
+    )
+    out: dict[str, Any] = {}
+    if _is_document_replaced(doc):
+        out["is_replaced"] = True
+        out["replaced_at"] = ai.get("replaced_at")
+        replaced_by_id = ai.get("replaced_by_document_id")
+        if replaced_by_id:
+            out["replaced_by_document_id"] = str(replaced_by_id)
+            replacement = docs_by_id.get(str(replaced_by_id))
+            if replacement is not None:
+                out["replaced_by_name"] = (
+                    getattr(replacement, "name", None)
+                    or getattr(replacement, "file_name", None)
+                )
+                out["replaced_by_category"] = getattr(replacement, "category", None)
+        return out
+    replaces_id = ai.get("replaces_document_id")
+    if replaces_id:
+        out["is_replacement"] = True
+        out["replaces_document_id"] = str(replaces_id)
+        old = docs_by_id.get(str(replaces_id))
+        if old is not None:
+            out["replaces_document_name"] = (
+                getattr(old, "name", None) or getattr(old, "file_name", None)
+            )
+            out["replaces_document_category"] = getattr(old, "category", None)
+    return out
+
+
+def _doc_to_keepi_file_fields(
+    doc: Any, docs_by_id: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     ai = (
         doc.ai_analysis
         if isinstance(getattr(doc, "ai_analysis", None), dict)
         else {}
     )
     expiry = getattr(doc, "expiry_date", None)
-    return {
+    fields: dict[str, Any] = {
         "keepi_document_id": str(doc.id),
         "category": getattr(doc, "category", None),
         "description": getattr(doc, "description", None),
@@ -125,6 +163,9 @@ def _doc_to_keepi_file_fields(doc: Any) -> dict[str, Any]:
         "organization": ai.get("organization"),
         "can_edit_metadata": True,
     }
+    if docs_by_id is not None:
+        fields.update(_replacement_fields_for_doc(doc, docs_by_id))
+    return fields
 
 
 def _doc_cloud_provider(doc: Any) -> str:
@@ -157,16 +198,25 @@ def _ensure_file_extension(new_name: str, reference_name: str) -> str:
     return new_name.strip()
 
 
-def _enrich_files_with_keepi_docs(files: list[dict], docs: list[Any], *, id_attr: str) -> None:
+def _enrich_files_with_keepi_docs(
+    files: list[dict],
+    docs: list[Any],
+    *,
+    id_attr: str,
+    docs_by_id: Optional[dict[str, Any]] = None,
+) -> None:
     by_external_id: dict[str, Any] = {}
     for doc in docs:
         external_id = getattr(doc, id_attr, None)
         if external_id:
             by_external_id[str(external_id)] = doc
+    lookup = dict(docs_by_id) if docs_by_id else {}
+    for doc in docs:
+        lookup.setdefault(str(doc.id), doc)
     for file_item in files:
         doc = by_external_id.get(str(file_item.get("id", "")))
         if doc is not None:
-            file_item.update(_doc_to_keepi_file_fields(doc))
+            file_item.update(_doc_to_keepi_file_fields(doc, lookup or None))
         else:
             file_item.setdefault("can_edit_metadata", False)
 
@@ -215,6 +265,10 @@ class DocumentApiService:
         self._db = db
         self._documents = document_service
 
+    def _user_docs_by_id(self, uid: str) -> dict[str, Any]:
+        docs = self._documents._document_repository.get_by_user_id(uid)
+        return {str(d.id): d for d in docs}
+
     async def get_s3_folder_contents(self, uid: str, path: str) -> dict:
         if not path or (
             not path.startswith(f"users/{uid}/") and path != f"users/{uid}"
@@ -232,7 +286,12 @@ class DocumentApiService:
         s3_keys = [f["id"] for f in files if f.get("id")]
         if s3_keys:
             keepi_docs = self._documents.list_documents_by_s3_keys(uid, s3_keys)
-            _enrich_files_with_keepi_docs(files, keepi_docs, id_attr="s3_key")
+            _enrich_files_with_keepi_docs(
+                files,
+                keepi_docs,
+                id_attr="s3_key",
+                docs_by_id=self._user_docs_by_id(uid),
+            )
         folders_for_response = [
             {
                 "id": f.get("path", f.get("name", "")).rstrip("/"),
@@ -271,7 +330,12 @@ class DocumentApiService:
         s3_keys = [f["id"] for f in root_files if f.get("id")]
         if s3_keys:
             keepi_docs = self._documents.list_documents_by_s3_keys(uid, s3_keys)
-            _enrich_files_with_keepi_docs(root_files, keepi_docs, id_attr="s3_key")
+            _enrich_files_with_keepi_docs(
+                root_files,
+                keepi_docs,
+                id_attr="s3_key",
+                docs_by_id=self._user_docs_by_id(uid),
+            )
         return {"folders": folders, "root_files": root_files}
 
     async def get_drive_folder_contents(self, uid: str, folder_id: str) -> dict:
@@ -297,7 +361,12 @@ class DocumentApiService:
             for f in files:
                 f["keepi_verified"] = f["id"] in verified
                 f.setdefault("can_edit_metadata", False)
-            _enrich_files_with_keepi_docs(files, docs, id_attr="drive_file_id")
+            _enrich_files_with_keepi_docs(
+                files,
+                docs,
+                id_attr="drive_file_id",
+                docs_by_id=self._user_docs_by_id(uid),
+            )
         else:
             for f in files:
                 f["keepi_verified"] = False
@@ -380,7 +449,8 @@ class DocumentApiService:
             if user_config and user_config.cloud_provider
             else "google_drive"
         )
-        all_documents = await self._documents.get_user_documents(uid)
+        docs_by_id = self._user_docs_by_id(uid)
+        all_documents = list(docs_by_id.values())
         total_keepi = sum(
             1 for doc in all_documents if _doc_matches_storage(doc, storage_preference)
         )
@@ -435,6 +505,15 @@ class DocumentApiService:
                     _s3_doc_to_file_item(doc)
                     for doc in root_result.get("documents", [])
                 ]
+                s3_keys = [f["id"] for f in root_files if f.get("id")]
+                if s3_keys:
+                    keepi_docs = self._documents.list_documents_by_s3_keys(uid, s3_keys)
+                    _enrich_files_with_keepi_docs(
+                        root_files,
+                        keepi_docs,
+                        id_attr="s3_key",
+                        docs_by_id=docs_by_id,
+                    )
             except Exception:
                 logger.exception("Error leyendo S3 en dashboard")
                 folders = []
@@ -489,7 +568,9 @@ class DocumentApiService:
             out["authorization_url"] = authorization_url
         return out
 
-    def _document_to_metadata_payload(self, doc: Any) -> dict[str, Any]:
+    def _document_to_metadata_payload(
+        self, doc: Any, docs_by_id: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         ai = (
             doc.ai_analysis
             if isinstance(getattr(doc, "ai_analysis", None), dict)
@@ -498,7 +579,8 @@ class DocumentApiService:
         expiry = getattr(doc, "expiry_date", None)
         cloud = _doc_cloud_provider(doc)
         storage_file_name = _storage_name_from_doc(doc)
-        return {
+        lookup = docs_by_id if docs_by_id is not None else {str(doc.id): doc}
+        payload: dict[str, Any] = {
             "id": str(doc.id),
             "name": getattr(doc, "name", None) or "",
             "file_name": getattr(doc, "file_name", None),
@@ -512,6 +594,8 @@ class DocumentApiService:
             "s3_key": getattr(doc, "s3_key", None),
             "cloud_provider": cloud,
         }
+        payload.update(_replacement_fields_for_doc(doc, lookup))
+        return payload
 
     async def _resolve_storage_file_name(self, uid: str, doc: Any) -> Optional[str]:
         drive_id = getattr(doc, "drive_file_id", None)
@@ -537,7 +621,8 @@ class DocumentApiService:
         doc = self._documents._document_repository.get_by_id(str(document_id), uid)
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
-        payload = self._document_to_metadata_payload(doc)
+        docs_by_id = self._user_docs_by_id(uid)
+        payload = self._document_to_metadata_payload(doc, docs_by_id)
         storage_name = await self._resolve_storage_file_name(uid, doc)
         if storage_name:
             payload["storage_file_name"] = storage_name
@@ -611,7 +696,8 @@ class DocumentApiService:
         if not updated:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
         raw = self._documents._document_repository.get_by_id(str(document_id), uid)
-        payload = self._document_to_metadata_payload(raw)
+        docs_by_id = self._user_docs_by_id(uid)
+        payload = self._document_to_metadata_payload(raw, docs_by_id)
         storage_name = await self._resolve_storage_file_name(uid, raw)
         if storage_name:
             payload["storage_file_name"] = storage_name
