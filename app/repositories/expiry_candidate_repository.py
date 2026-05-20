@@ -3,11 +3,21 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, List, NamedTuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
 from app.models.user import User
+
+
+def _not_replaced_filter():
+    """Excluye documentos ya marcados como reemplazados en ai_analysis."""
+    replaced = Document.ai_analysis.op("->>")("replaced")
+    return or_(
+        Document.ai_analysis.is_(None),
+        replaced.is_(None),
+        replaced != "true",
+    )
 
 
 class ExpiryCandidateRow(NamedTuple):
@@ -38,6 +48,7 @@ class ExpiryCandidateRepository:
             .join(User, User.id == Document.user_id)
             .filter(Document.is_archived.is_(False))
             .filter(Document.expiry_date.isnot(None))
+            .filter(_not_replaced_filter())
             .filter(User.is_active.is_(True))
             .filter(
                 func.date(func.timezone("UTC", Document.expiry_date)) == expiry_date

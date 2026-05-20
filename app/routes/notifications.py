@@ -95,6 +95,31 @@ async def send_payment_email(
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.post("/run-expiry-reminders")
+def run_expiry_reminders(
+    send_date: date | None = None,
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+    notification_service: NotificationService = Depends(get_notification_service),
+):
+    """
+    Job diario: documentos que vencen en 30, 15 y 3 días (solo día, sin hora).
+    Push + notificación in-app por cada hito.
+    """
+    expected = os.getenv("EXPIRY_EMAIL_CRON_TOKEN")
+    if not expected or x_internal_token != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    effective_send_date = send_date or datetime.now(timezone.utc).date()
+    payload = notification_service.run_expiry_reminders_job(
+        send_date=effective_send_date
+    )
+    logger.info(
+        "run-expiry-reminders OK sent=%s milestones=%s",
+        payload.get("sent"),
+        list((payload.get("milestones") or {}).keys()),
+    )
+    return payload
+
+
 @router.post("/run-expiry-emails")
 def run_expiry_emails(
     days_before: int = 3,
@@ -102,6 +127,7 @@ def run_expiry_emails(
     x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
     notification_service: NotificationService = Depends(get_notification_service),
 ):
+    """Compat: un solo hito. El job diario usa /run-expiry-reminders (30, 15 y 3)."""
     expected = os.getenv("EXPIRY_EMAIL_CRON_TOKEN")
     if not expected or x_internal_token != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
