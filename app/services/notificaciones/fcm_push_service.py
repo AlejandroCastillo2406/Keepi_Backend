@@ -68,7 +68,6 @@ def send_push_to_user(
         from firebase_admin import messaging
 
         payload_data = {k: str(v) for k, v in (data or {}).items()}
-        repo = UserDeviceTokenRepository(db)
         ok = 0
         for t in tokens:
             msg = messaging.Message(
@@ -79,28 +78,8 @@ def send_push_to_user(
             try:
                 messaging.send(msg)
                 ok += 1
-            except messaging.UnregisteredError:
-                logger.info(
-                    "FCM: token inválido o expirado (id=%s); se desactiva en BD.",
-                    t.id,
-                )
-                repo.deactivate_by_id(t.id)
-            except messaging.SenderIdMismatchError:
-                logger.warning(
-                    "FCM: token de otro proyecto Firebase (id=%s); se desactiva.",
-                    t.id,
-                )
-                repo.deactivate_by_id(t.id)
             except Exception as exc:
-                err = str(exc).lower()
-                if "not found" in err or "requested entity was not found" in err:
-                    logger.info(
-                        "FCM: token no encontrado en Firebase (id=%s); se desactiva en BD.",
-                        t.id,
-                    )
-                    repo.deactivate_by_id(t.id)
-                else:
-                    logger.warning("Error enviando push a token=%s: %s", t.id, exc)
+                logger.warning("Error enviando push a token=%s: %s", t.id, exc)
         return ok
     except Exception as exc:
         logger.warning("Error general FCM: %s", exc)

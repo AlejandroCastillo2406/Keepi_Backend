@@ -453,42 +453,41 @@ class DocumentService:
             ),
         )
         new_doc = self._document_repository.get_by_id(new_document_id, user_id)
-        if new_doc:
+        if new_doc is not None:
             self._notify_document_replaced(user_id, old, new_doc)
 
     def _notify_document_replaced(
         self, user_id: str, old_doc: Document, new_doc: Document
     ) -> None:
-        from app.services.notificaciones import notify_user_push_and_db
+        from app.services.notificaciones.user_notify import notify_user_push_and_db
 
-        old_name = (
-            getattr(old_doc, "name", None)
-            or getattr(old_doc, "file_name", None)
-            or "Documento"
-        )
-        new_name = (
-            getattr(new_doc, "name", None)
-            or getattr(new_doc, "file_name", None)
-            or "Documento"
-        )
-        old_cat = getattr(old_doc, "category", None) or ""
-        new_cat = getattr(new_doc, "category", None) or ""
-        message = f"«{old_name}» fue reemplazado por «{new_name}»."
+        old_name = (getattr(old_doc, "name", None) or getattr(old_doc, "file_name", None) or "Documento").strip()
+        new_name = (getattr(new_doc, "name", None) or getattr(new_doc, "file_name", None) or "Documento").strip()
+        old_cat = (getattr(old_doc, "category", None) or "").strip()
+        new_cat = (getattr(new_doc, "category", None) or "").strip()
+        title = "Documento reemplazado"
+        if old_cat and new_cat:
+            message = (
+                f'"{old_name}" ({old_cat}) fue reemplazado por '
+                f'"{new_name}" ({new_cat}).'
+            )
+        else:
+            message = f'"{old_name}" fue reemplazado por "{new_name}".'
         payload = {
             "type": "document_replaced",
             "old_document_id": str(old_doc.id),
             "new_document_id": str(new_doc.id),
-            "old_document_name": old_name,
-            "new_document_name": new_name,
-            "old_category": old_cat,
-            "new_category": new_cat,
+            "old_name": old_name,
+            "new_name": new_name,
+            "old_category": old_cat or None,
+            "new_category": new_cat or None,
         }
-        push_data = {k: str(v) for k, v in payload.items()}
+        push_data = {k: str(v) for k, v in payload.items() if v is not None}
         try:
             notify_user_push_and_db(
                 self.db,
                 user_id,
-                title="Documento reemplazado",
+                title=title,
                 message=message,
                 notification_type="document_replaced",
                 payload=payload,
@@ -497,7 +496,7 @@ class DocumentService:
             )
         except Exception:
             logger.exception(
-                "No se pudo enviar notificación de reemplazo user=%s old=%s new=%s",
+                "No se pudo enviar notificación de reemplazo user_id=%s old=%s new=%s",
                 user_id,
                 old_doc.id,
                 new_doc.id,
