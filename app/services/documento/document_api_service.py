@@ -110,6 +110,36 @@ def _doc_to_keepi_file_fields(doc: Any) -> dict[str, Any]:
     }
 
 
+def _doc_cloud_provider(doc: Any) -> str:
+    cloud = (getattr(doc, "cloud_provider", None) or "").strip()
+    if cloud:
+        return cloud
+    if getattr(doc, "drive_file_id", None):
+        return "google_drive"
+    if getattr(doc, "s3_key", None):
+        return "keepi_cloud"
+    return ""
+
+
+def _storage_name_from_doc(doc: Any) -> Optional[str]:
+    s3_key = getattr(doc, "s3_key", None)
+    if s3_key:
+        key = str(s3_key)
+        return key.split("/")[-1] if "/" in key else key
+    return getattr(doc, "file_name", None)
+
+
+def _ensure_file_extension(new_name: str, reference_name: str) -> str:
+    if "." in new_name.strip():
+        return new_name.strip()
+    ref = (reference_name or "").strip()
+    if "." in ref:
+        ext = ref.rsplit(".", 1)[-1]
+        if ext:
+            return f"{new_name.strip()}.{ext}"
+    return new_name.strip()
+
+
 def _enrich_files_with_keepi_docs(files: list[dict], docs: list[Any], *, id_attr: str) -> None:
     by_external_id: dict[str, Any] = {}
     for doc in docs:
@@ -119,7 +149,13 @@ def _enrich_files_with_keepi_docs(files: list[dict], docs: list[Any], *, id_attr
     for file_item in files:
         doc = by_external_id.get(str(file_item.get("id", "")))
         if doc is not None:
+            storage_name = file_item.get("name")
             file_item.update(_doc_to_keepi_file_fields(doc))
+            if storage_name:
+                file_item["storage_file_name"] = storage_name
+            keepi_name = getattr(doc, "name", None)
+            if keepi_name:
+                file_item["name"] = keepi_name
         else:
             file_item.setdefault("can_edit_metadata", False)
 
@@ -447,10 +483,13 @@ class DocumentApiService:
             else {}
         )
         expiry = getattr(doc, "expiry_date", None)
+        cloud = _doc_cloud_provider(doc)
+        storage_file_name = _storage_name_from_doc(doc)
         return {
             "id": str(doc.id),
             "name": getattr(doc, "name", None) or "",
             "file_name": getattr(doc, "file_name", None),
+            "storage_file_name": storage_file_name,
             "category": getattr(doc, "category", None) or "",
             "description": getattr(doc, "description", None),
             "expiry_date": expiry.isoformat() if expiry is not None else None,
@@ -458,8 +497,26 @@ class DocumentApiService:
             "organization": ai.get("organization"),
             "drive_file_id": getattr(doc, "drive_file_id", None),
             "s3_key": getattr(doc, "s3_key", None),
-            "cloud_provider": getattr(doc, "cloud_provider", None) or "",
+            "cloud_provider": cloud,
         }
+
+    async def _resolve_storage_file_name(self, uid: str, doc: Any) -> Optional[str]:
+        drive_id = getattr(doc, "drive_file_id", None)
+        if drive_id:
+            try:
+                drive_service = await _get_drive_service_or_raise(uid, self._db)
+                meta = (
+                    drive_service.service.files()
+                    .get(fileId=str(drive_id), fields="name")
+                    .execute()
+                )
+                return meta.get("name") or getattr(doc, "file_name", None)
+            except HTTPException:
+                raise
+            except Exception:
+                logger.exception("No se pudo leer nombre en Drive para doc %s", doc.id)
+                return getattr(doc, "file_name", None) or _storage_name_from_doc(doc)
+        return _storage_name_from_doc(doc)
 
     async def get_mobile_document_metadata(
         self, uid: str, document_id: uuid.UUID
@@ -467,7 +524,11 @@ class DocumentApiService:
         doc = self._documents._document_repository.get_by_id(str(document_id), uid)
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
-        return self._document_to_metadata_payload(doc)
+        payload = self._document_to_metadata_payload(doc)
+        storage_name = await self._resolve_storage_file_name(uid, doc)
+        if storage_name:
+            payload["storage_file_name"] = storage_name
+        return payload
 
     async def update_mobile_document_metadata(
         self,
@@ -497,8 +558,30 @@ class DocumentApiService:
         update_fields: dict[str, Any] = {"ai_analysis": ai}
         if name is not None:
             update_fields["name"] = name.strip() or doc.name
+
         if file_name is not None:
-            update_fields["file_name"] = file_name.strip() or doc.file_name
+            new_storage_name = file_name.strip()
+            if new_storage_name:
+                cloud = _doc_cloud_provider(doc)
+                current_storage = await self._resolve_storage_file_name(uid, doc)
+                reference = current_storage or getattr(doc, "file_name", None) or ""
+                final_name = _ensure_file_extension(new_storage_name, reference)
+                if final_name != (current_storage or "").strip():
+                    if cloud == "google_drive" and getattr(doc, "drive_file_id", None):
+                        drive_service = await _get_drive_service_or_raise(
+                            uid, self._db
+                        )
+                        await drive_service.rename_file(
+                            str(doc.drive_file_id), final_name
+                        )
+                    elif cloud == "keepi_cloud" and getattr(doc, "s3_key", None):
+                        s3_service = S3Service()
+                        new_key = await s3_service.rename_object(
+                            uid, str(doc.s3_key), final_name
+                        )
+                        update_fields["s3_key"] = new_key
+                update_fields["file_name"] = final_name
+
         if category is not None:
             update_fields["category"] = category.strip() or doc.category
         if description is not None:
@@ -514,7 +597,11 @@ class DocumentApiService:
         if not updated:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
         raw = self._documents._document_repository.get_by_id(str(document_id), uid)
-        return self._document_to_metadata_payload(raw)
+        payload = self._document_to_metadata_payload(raw)
+        storage_name = await self._resolve_storage_file_name(uid, raw)
+        if storage_name:
+            payload["storage_file_name"] = storage_name
+        return payload
 
     async def download_mobile_document(
         self, document_id: uuid.UUID

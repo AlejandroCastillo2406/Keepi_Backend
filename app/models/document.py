@@ -93,6 +93,7 @@ class DocumentUpdate(BaseModel):
     description: Optional[str] = None
     file_url: Optional[str] = None
     file_name: Optional[str] = None
+    s3_key: Optional[str] = None
     file_size: Optional[int] = None
     file_type: Optional[str] = None
     expiry_date: Optional[datetime] = None
