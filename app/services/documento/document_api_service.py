@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import mimetypes
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -183,6 +184,27 @@ class DocumentApiService:
             "folder": {"id": folder_id, "name": folder_name},
             "folders": subfolders,
             "files": files,
+        }
+
+    async def get_s3_file_view_url(self, uid: str, path: str) -> dict:
+        if not path or not path.startswith(f"users/{uid}/"):
+            raise HTTPException(status_code=403, detail="Ruta no permitida")
+        s3_service = S3Service()
+        try:
+            url = await s3_service.get_file_url(path)
+        except Exception as exc:
+            logger.exception("Error generando URL S3 para %s", path)
+            raise HTTPException(
+                status_code=404,
+                detail="No se pudo obtener la vista previa de este archivo.",
+            ) from exc
+        mime_type, _ = mimetypes.guess_type(path)
+        file_name = path.split("/")[-1] if "/" in path else path
+        return {
+            "view_url": url,
+            "download_url": url,
+            "name": file_name,
+            "mime_type": mime_type or "application/octet-stream",
         }
 
     async def get_drive_file_view_url(self, uid: str, file_id: str) -> dict:

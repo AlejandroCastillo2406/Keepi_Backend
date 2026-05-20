@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import logging
 import uuid
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -36,7 +35,6 @@ from app.services.usuarios import UserConfigService
 logger = logging.getLogger(__name__)
 _MSG_ERROR_INTERNO = "Error interno del servidor"
 _ANALYSIS_DOCUMENT_CATEGORY = "Análisis Clínicos"
-_ANALYSIS_DOCUMENT_S3_FOLDER = "Analisis_Clinicos"
 _INVITATION_TTL_DAYS = 30
 
 
@@ -69,7 +67,6 @@ class AnalysisRequestService:
         analysis_request_id: UUID,
         description: str,
         public_link: Optional[str],
-        expires_at: Optional[datetime] = None,
     ) -> None:
         doctor = self._users.get_by_id_plain(doctor_id)
         doctor_name = (doctor.name if doctor else None) or "Tu médico"
@@ -106,7 +103,7 @@ class AnalysisRequestService:
                 doctor_name=doctor_name,
                 description=description,
                 public_link=public_link,
-                expires_at=expires_at,
+                expires_in_days=_INVITATION_TTL_DAYS,
             )
             email_subject = "Tu doctor te pidió subir un análisis"
             try:
@@ -235,7 +232,6 @@ class AnalysisRequestService:
                 patient_email=(patient.email if patient else None),
                 patient_name=(patient.name if patient else None),
                 ttl_days=_INVITATION_TTL_DAYS,
-                expires_at=data.expires_at,
             )
             public_link = build_public_analysis_upload_link(raw_token)
         except Exception:
@@ -251,7 +247,6 @@ class AnalysisRequestService:
             analysis_request_id=created.id,
             description=data.description,
             public_link=public_link,
-            expires_at=data.expires_at,
         )
         return created
 
@@ -374,7 +369,7 @@ class AnalysisRequestService:
                 io.BytesIO(content),
                 filename,
                 mime_type,
-                folder=_ANALYSIS_DOCUMENT_S3_FOLDER,
+                folder=_ANALYSIS_DOCUMENT_CATEGORY,
             )
             s3_key = upload_res.get("file_path")
             file_url = upload_res.get("signed_url")
@@ -423,6 +418,28 @@ class AnalysisRequestService:
             self._db.rollback()
             logger.exception("Error en upload_via_public_token")
             raise HTTPException(status_code=500, detail=_MSG_ERROR_INTERNO) from None
+
+    async def doctor_upload_and_complete(
+        self,
+        *,
+        doctor_id: UUID,
+        request_id: UUID,
+        file: UploadFile,
+    ) -> Dict[str, Any]:
+        analysis_req = self._repo.get_by_id(request_id)
+        if (
+            not analysis_req
+            or str(analysis_req.doctor_id) != str(doctor_id)
+            or analysis_req.status != "pending"
+        ):
+            raise HTTPException(
+                status_code=404, detail="Solicitud no válida o ya completada."
+            )
+        return await self.upload_and_complete(
+            patient_uid=str(analysis_req.patient_id),
+            request_id=request_id,
+            file=file,
+        )
 
     async def upload_and_complete(
         self,
@@ -545,87 +562,4 @@ class AnalysisRequestService:
         except Exception:
             self._db.rollback()
             logger.exception("Error en upload_and_complete")
-            raise HTTPException(status_code=500, detail=_MSG_ERROR_INTERNO) from None
-
-    async def upload_and_complete_by_doctor(
-        self,
-        *,
-        doctor_id: UUID,
-        request_id: UUID,
-        file: UploadFile,
-    ) -> Dict[str, Any]:
-        repo = self._repo
-        analysis_req = repo.get_by_id(request_id)
-        if (
-            not analysis_req
-            or analysis_req.doctor_id != doctor_id
-            or analysis_req.status != "pending"
-        ):
-            raise HTTPException(
-                status_code=404, detail="Solicitud no válida o ya completada."
-            )
-
-        patient_uid = str(analysis_req.patient_id)
-        try:
-            content = await file.read()
-            if not content:
-                raise HTTPException(status_code=400, detail="El archivo está vacío")
-
-            ext_from_mime = ""
-            if file.content_type and "/" in file.content_type:
-                ext_from_mime = file.content_type.split("/")[-1]
-            filename = (
-                file.filename
-                or f"estudio_{request_id.hex}.{ext_from_mime or 'bin'}"
-            )
-            mime_type = file.content_type or "application/octet-stream"
-
-            s3_service = S3Service()
-            upload_res = await s3_service.upload_document(
-                patient_uid,
-                io.BytesIO(content),
-                filename,
-                mime_type,
-                folder=_ANALYSIS_DOCUMENT_CATEGORY,
-            )
-            s3_key = upload_res.get("file_path")
-            file_url = upload_res.get("signed_url")
-
-            document = Document(
-                user_id=UUID(patient_uid),
-                name=filename,
-                category=_ANALYSIS_DOCUMENT_CATEGORY,
-                description=(
-                    "Reporte físico subido por el doctor para solicitud: "
-                    + (analysis_req.description or "")
-                ),
-                file_url=file_url,
-                file_name=filename,
-                file_size=len(content),
-                file_type=mime_type.split("/")[0],
-                cloud_provider="s3",
-                drive_file_id=None,
-                s3_key=s3_key,
-                tags=[f"analysis_request:{request_id}", "uploaded_by_doctor"],
-            )
-            self._docs.persist(document)
-
-            updated_request = repo.mark_as_completed(request_id, document.id)
-            if not updated_request:
-                raise HTTPException(
-                    status_code=500, detail="No se pudo completar la solicitud."
-                )
-
-            self._invitations.cancel_pending_for_request(request_id)
-
-            return {
-                "message": "Archivo subido y solicitud completada.",
-                "request_id": str(updated_request.id),
-                "document_id": str(document.id),
-            }
-        except HTTPException:
-            raise
-        except Exception:
-            self._db.rollback()
-            logger.exception("Error en upload_and_complete_by_doctor")
             raise HTTPException(status_code=500, detail=_MSG_ERROR_INTERNO) from None

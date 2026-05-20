@@ -76,3 +76,53 @@ class NotificationsLogRepository:
             NotificationsLog.target_date == send_date,
         ).update({"ses_message_id": ses_message_id}, synchronize_session=False)
         self._db.commit()
+
+    def try_insert_analysis_request_deadline_row(
+        self,
+        *,
+        user_id: uuid.UUID,
+        analysis_request_id: uuid.UUID,
+        expiry_date: date,
+        milestone: int,
+        email_to: str,
+    ) -> bool:
+        stmt = pg_insert(NotificationsLog).values(
+            user_id=user_id,
+            document_id=analysis_request_id,
+            notification_type=f"analysis_request_deadline_{milestone}",
+            target_date=expiry_date,
+            days_before=milestone,
+            email_to=email_to,
+            ses_message_id=None,
+        )
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=[
+                "user_id",
+                "document_id",
+                "notification_type",
+                "target_date",
+            ]
+        )
+        result = self._db.execute(stmt)
+        inserted = int(getattr(result, "rowcount", 0) or 0) > 0
+        if inserted:
+            self._db.commit()
+        return inserted
+
+    def update_analysis_request_deadline_ses_message_id(
+        self,
+        *,
+        user_id: uuid.UUID,
+        analysis_request_id: uuid.UUID,
+        expiry_date: date,
+        milestone: int,
+        ses_message_id: Optional[str],
+    ) -> None:
+        self._db.query(NotificationsLog).filter(
+            NotificationsLog.user_id == user_id,
+            NotificationsLog.document_id == analysis_request_id,
+            NotificationsLog.notification_type
+            == f"analysis_request_deadline_{milestone}",
+            NotificationsLog.target_date == expiry_date,
+        ).update({"ses_message_id": ses_message_id}, synchronize_session=False)
+        self._db.commit()
