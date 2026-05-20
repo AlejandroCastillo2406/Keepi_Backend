@@ -53,6 +53,15 @@ class DocumentService:
             uuid.UUID(str(user_id)), drive_file_ids
         )
 
+    def list_documents_by_s3_keys(
+        self, user_id: str, s3_keys: List[str]
+    ) -> List[Document]:
+        if not s3_keys:
+            return []
+        return self._document_repository.list_for_user_s3_keys(
+            uuid.UUID(str(user_id)), s3_keys
+        )
+
     def get_document_by_id_any(self, document_id) -> Optional[Document]:
         return self._document_repository.get_by_id_any_user(document_id)
 
