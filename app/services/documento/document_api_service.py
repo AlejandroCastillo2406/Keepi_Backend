@@ -22,6 +22,46 @@ logger = logging.getLogger(__name__)
 MSG_ERROR_INTERNO = "Error interno del servidor"
 
 
+def _doc_on_storage(doc: Any, storage: str) -> bool:
+    """Documento almacenado en la nube activa del usuario (sin exigir keepi_classified)."""
+    doc_provider = getattr(doc, "cloud_provider", None) or ""
+    if doc_provider:
+        return doc_provider == storage
+    if storage == "google_drive":
+        return bool(getattr(doc, "drive_file_id", None))
+    if storage == "keepi_cloud":
+        return bool(getattr(doc, "s3_key", None)) and not getattr(
+            doc, "drive_file_id", None
+        )
+    return False
+
+
+def _parse_expiry_utc(raw: Any) -> Optional[datetime]:
+    if raw is None:
+        return None
+    try:
+        expiry = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            return expiry.replace(tzinfo=timezone.utc)
+        return expiry.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _doc_to_alert_item(doc: Any, alert_status: str) -> dict:
+    expiry = getattr(doc, "expiry_date", None)
+    expiry_iso = expiry.isoformat() if expiry is not None else None
+    return {
+        "id": str(doc.id),
+        "name": getattr(doc, "name", None) or getattr(doc, "file_name", None) or "Documento",
+        "file_name": getattr(doc, "file_name", None),
+        "category": getattr(doc, "category", None),
+        "expiry_date": expiry_iso,
+        "alert_status": alert_status,
+        "cloud_provider": getattr(doc, "cloud_provider", None) or "",
+    }
+
+
 def _doc_matches_storage(doc: Any, storage: str) -> bool:
     if not (
         isinstance(getattr(doc, "ai_analysis", None), dict)
@@ -251,17 +291,31 @@ class DocumentApiService:
         total_keepi = sum(
             1 for doc in all_documents if _doc_matches_storage(doc, storage_preference)
         )
-        expiring_soon = []
+        now = datetime.now(timezone.utc)
+        cutoff = now + timedelta(days=30)
+        alerts: list[dict] = []
         for doc in all_documents:
-            if doc.expiry_date:
-                try:
-                    expiry = datetime.fromisoformat(
-                        str(doc.expiry_date).replace("Z", "+00:00")
-                    )
-                    if expiry <= datetime.now(timezone.utc) + timedelta(days=30):
-                        expiring_soon.append(doc)
-                except Exception:
-                    continue
+            if not _doc_on_storage(doc, storage_preference):
+                continue
+            expiry = _parse_expiry_utc(getattr(doc, "expiry_date", None))
+            if expiry is None:
+                continue
+            if expiry < now:
+                alerts.append(_doc_to_alert_item(doc, "expired"))
+            elif expiry <= cutoff:
+                alerts.append(_doc_to_alert_item(doc, "expiring_soon"))
+        alerts.sort(
+            key=lambda item: (
+                0 if item.get("alert_status") == "expired" else 1,
+                item.get("expiry_date") or "",
+            )
+        )
+        alerts_expired_count = sum(
+            1 for item in alerts if item.get("alert_status") == "expired"
+        )
+        alerts_expiring_count = sum(
+            1 for item in alerts if item.get("alert_status") == "expiring_soon"
+        )
         folders = []
         root_files = []
         requires_drive_auth = False
@@ -323,8 +377,13 @@ class DocumentApiService:
         out: dict = {
             "folders": folders,
             "total_keepi": total_keepi,
-            "expiring_soon_count": len(expiring_soon),
-            "expiring_soon": expiring_soon[:20],
+            "alerts": alerts[:30],
+            "alerts_count": len(alerts),
+            "alerts_expired_count": alerts_expired_count,
+            "alerts_expiring_count": alerts_expiring_count,
+            "storage_preference": storage_preference,
+            "expiring_soon_count": len(alerts),
+            "expiring_soon": alerts[:20],
             "last_updated": datetime.now().isoformat(),
         }
         if storage_preference == "keepi_cloud":
