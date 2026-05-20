@@ -94,6 +94,20 @@ class DocumentRepository(IDocumentRepository):
             .all()
         )
 
+    def list_for_user_s3_keys(
+        self, user_id: uuid.UUID, s3_keys: List[str]
+    ) -> List[Document]:
+        if not s3_keys:
+            return []
+        return (
+            self._db.query(Document)
+            .filter(
+                Document.user_id == user_id,
+                Document.s3_key.in_(s3_keys),
+            )
+            .all()
+        )
+
     def list_distinct_categories(self, user_id: str) -> List[str]:
         uid = self._user_uuid(user_id)
         rows = (

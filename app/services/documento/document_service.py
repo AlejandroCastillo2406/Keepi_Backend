@@ -53,6 +53,15 @@ class DocumentService:
             uuid.UUID(str(user_id)), drive_file_ids
         )
 
+    def list_documents_by_s3_keys(
+        self, user_id: str, s3_keys: List[str]
+    ) -> List[Document]:
+        if not s3_keys:
+            return []
+        return self._document_repository.list_for_user_s3_keys(
+            uuid.UUID(str(user_id)), s3_keys
+        )
+
     def get_document_by_id_any(self, document_id) -> Optional[Document]:
         return self._document_repository.get_by_id_any_user(document_id)
 
@@ -414,6 +423,85 @@ class DocumentService:
             "subscription_info": ai_analysis.get("subscription_info"),
         }
 
+    async def mark_document_replaced(
+        self,
+        user_id: str,
+        old_document_id: str,
+        new_document_id: str,
+    ) -> None:
+        from datetime import timezone
+
+        old = self._document_repository.get_by_id(old_document_id, user_id)
+        if not old:
+            raise ValueError("Documento a reemplazar no encontrado")
+        ai = dict(old.ai_analysis) if isinstance(old.ai_analysis, dict) else {}
+        if ai.get("replaced") is True:
+            raise ValueError("Este documento ya fue marcado como reemplazado")
+        ai["replaced"] = True
+        ai["replaced_at"] = datetime.now(timezone.utc).isoformat()
+        ai["replaced_by_document_id"] = str(new_document_id)
+        note = "[Documento reemplazado]"
+        description = old.description or ""
+        if note not in description:
+            description = f"{description}\n{note}".strip() if description else note
+        await self.update_document(
+            old_document_id,
+            user_id,
+            ModelDocumentUpdate(
+                ai_analysis=ai,
+                description=description,
+            ),
+        )
+        new_doc = self._document_repository.get_by_id(new_document_id, user_id)
+        if new_doc is not None:
+            self._notify_document_replaced(user_id, old, new_doc)
+
+    def _notify_document_replaced(
+        self, user_id: str, old_doc: Document, new_doc: Document
+    ) -> None:
+        from app.services.notificaciones.user_notify import notify_user_push_and_db
+
+        old_name = (getattr(old_doc, "name", None) or getattr(old_doc, "file_name", None) or "Documento").strip()
+        new_name = (getattr(new_doc, "name", None) or getattr(new_doc, "file_name", None) or "Documento").strip()
+        old_cat = (getattr(old_doc, "category", None) or "").strip()
+        new_cat = (getattr(new_doc, "category", None) or "").strip()
+        title = "Documento reemplazado"
+        if old_cat and new_cat:
+            message = (
+                f'"{old_name}" ({old_cat}) fue reemplazado por '
+                f'"{new_name}" ({new_cat}).'
+            )
+        else:
+            message = f'"{old_name}" fue reemplazado por "{new_name}".'
+        payload = {
+            "type": "document_replaced",
+            "old_document_id": str(old_doc.id),
+            "new_document_id": str(new_doc.id),
+            "old_name": old_name,
+            "new_name": new_name,
+            "old_category": old_cat or None,
+            "new_category": new_cat or None,
+        }
+        push_data = {k: str(v) for k, v in payload.items() if v is not None}
+        try:
+            notify_user_push_and_db(
+                self.db,
+                user_id,
+                title=title,
+                message=message,
+                notification_type="document_replaced",
+                payload=payload,
+                document_id=str(new_doc.id),
+                push_data=push_data,
+            )
+        except Exception:
+            logger.exception(
+                "No se pudo enviar notificación de reemplazo user_id=%s old=%s new=%s",
+                user_id,
+                old_doc.id,
+                new_doc.id,
+            )
+
     async def save_analyzed_document(
         self,
         user_id: str,
@@ -426,6 +514,7 @@ class DocumentService:
         document_number: Optional[str] = None,
         organization: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        replaces_document_id: Optional[str] = None,
     ) -> ModelDocumentResponse:
         category = category.strip().title() if category else category
         user_config = await self.user_config_service.get_user_config(user_id)
@@ -484,9 +573,25 @@ class DocumentService:
             )
             file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
             s3_key = f"drive/{drive_folder_id}/{drive_file_id}"
-        ai_analysis = {
+        ai_analysis: dict = {
             "keepi_classified": True,
         }
+        if replaces_document_id:
+            old = self._document_repository.get_by_id(replaces_document_id, user_id)
+            if not old:
+                raise ValueError("Documento a reemplazar no encontrado")
+            old_ai = (
+                dict(old.ai_analysis) if isinstance(old.ai_analysis, dict) else {}
+            )
+            if old_ai.get("replaced") is True:
+                raise ValueError("Este documento ya fue marcado como reemplazado")
+            expiry = getattr(old, "expiry_date", None)
+            if expiry is None:
+                raise ValueError(
+                    "Solo se pueden reemplazar documentos con fecha de vencimiento"
+                )
+            ai_analysis["replaces_document_id"] = str(replaces_document_id)
+
         document_data = DocumentCreate(
             name=save_as_name,
             category=category,
@@ -503,7 +608,12 @@ class DocumentService:
             drive_file_id=drive_file_id,
             drive_folder_id=drive_folder_id,
         )
-        return await self.create_document(user_id, document_data)
+        created = await self.create_document(user_id, document_data)
+        if replaces_document_id:
+            await self.mark_document_replaced(
+                user_id, replaces_document_id, str(created.id)
+            )
+        return created
 
     async def process_document_with_aws(
         self, user_id: str, file_data: bytes, file_name: str, file_type: str

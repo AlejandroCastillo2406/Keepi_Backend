@@ -328,6 +328,39 @@ class S3Service:
             logger.error(f"Error creando carpeta: {str(e)}")
             raise
 
+    async def rename_object(
+        self, user_id: str, file_path: str, new_filename: str
+    ) -> str:
+        """Renombra el objeto S3 (misma carpeta, nuevo nombre de archivo)."""
+        try:
+            if not file_path.startswith(f"users/{user_id}/"):
+                raise ValueError("No tienes permisos para renombrar este archivo")
+            new_filename = (new_filename or "").strip()
+            if not new_filename:
+                raise ValueError("El nombre de archivo no puede estar vacío")
+            if "/" in new_filename:
+                raise ValueError("El nombre no puede contener barras")
+
+            if "/" not in file_path:
+                raise ValueError("Ruta de archivo inválida")
+
+            directory, current_name = file_path.rsplit("/", 1)
+            if new_filename == current_name:
+                return file_path
+
+            new_file_path = f"{directory}/{new_filename}"
+            copy_source = {"Bucket": self.bucket_name, "Key": file_path}
+            self.s3_client.copy_object(
+                CopySource=copy_source,
+                Bucket=self.bucket_name,
+                Key=new_file_path,
+            )
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=file_path)
+            return new_file_path
+        except Exception as e:
+            logger.error(f"Error renombrando objeto S3: {str(e)}")
+            raise
+
     async def move_document(
         self, user_id: str, file_path: str, new_folder: str
     ) -> Dict[str, Any]:

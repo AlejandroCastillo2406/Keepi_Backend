@@ -22,6 +22,65 @@ logger = logging.getLogger(__name__)
 MSG_ERROR_INTERNO = "Error interno del servidor"
 
 
+def _doc_on_storage(doc: Any, storage: str) -> bool:
+    """Documento almacenado en la nube activa del usuario (sin exigir keepi_classified)."""
+    doc_provider = getattr(doc, "cloud_provider", None) or ""
+    if doc_provider:
+        return doc_provider == storage
+    if storage == "google_drive":
+        return bool(getattr(doc, "drive_file_id", None))
+    if storage == "keepi_cloud":
+        return bool(getattr(doc, "s3_key", None)) and not getattr(
+            doc, "drive_file_id", None
+        )
+    return False
+
+
+def _parse_expiry_utc(raw: Any) -> Optional[datetime]:
+    if raw is None:
+        return None
+    try:
+        expiry = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            return expiry.replace(tzinfo=timezone.utc)
+        return expiry.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _doc_to_alert_item(doc: Any, alert_status: str) -> dict:
+    expiry = getattr(doc, "expiry_date", None)
+    expiry_iso = expiry.isoformat() if expiry is not None else None
+    return {
+        "id": str(doc.id),
+        "name": getattr(doc, "name", None) or getattr(doc, "file_name", None) or "Documento",
+        "file_name": getattr(doc, "file_name", None),
+        "category": getattr(doc, "category", None),
+        "expiry_date": expiry_iso,
+        "alert_status": alert_status,
+        "cloud_provider": getattr(doc, "cloud_provider", None) or "",
+        "keepi_document_id": str(doc.id),
+        "can_edit_metadata": True,
+        "can_replace": _doc_eligible_for_replace(doc),
+    }
+
+
+def _is_document_replaced(doc: Any) -> bool:
+    ai = getattr(doc, "ai_analysis", None)
+    return isinstance(ai, dict) and ai.get("replaced") is True
+
+
+def _doc_eligible_for_replace(doc: Any) -> bool:
+    if _is_document_replaced(doc):
+        return False
+    expiry = _parse_expiry_utc(getattr(doc, "expiry_date", None))
+    if expiry is None:
+        return False
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=30)
+    return expiry < now or expiry <= cutoff
+
+
 def _doc_matches_storage(doc: Any, storage: str) -> bool:
     if not (
         isinstance(getattr(doc, "ai_analysis", None), dict)
@@ -46,7 +105,120 @@ def _s3_doc_to_file_item(doc: dict) -> dict:
         "name": doc.get("filename", (doc.get("file_path", "") or "").split("/")[-1]),
         "size": str(doc.get("size", 0)),
         "keepi_verified": True,
+        "can_edit_metadata": False,
     }
+
+
+def _replacement_fields_for_doc(
+    doc: Any, docs_by_id: dict[str, Any]
+) -> dict[str, Any]:
+    ai = (
+        doc.ai_analysis
+        if isinstance(getattr(doc, "ai_analysis", None), dict)
+        else {}
+    )
+    out: dict[str, Any] = {}
+    if _is_document_replaced(doc):
+        out["is_replaced"] = True
+        out["replaced_at"] = ai.get("replaced_at")
+        replaced_by_id = ai.get("replaced_by_document_id")
+        if replaced_by_id:
+            out["replaced_by_document_id"] = str(replaced_by_id)
+            replacement = docs_by_id.get(str(replaced_by_id))
+            if replacement is not None:
+                out["replaced_by_name"] = (
+                    getattr(replacement, "name", None)
+                    or getattr(replacement, "file_name", None)
+                )
+                out["replaced_by_category"] = getattr(replacement, "category", None)
+        return out
+    replaces_id = ai.get("replaces_document_id")
+    if replaces_id:
+        out["is_replacement"] = True
+        out["replaces_document_id"] = str(replaces_id)
+        old = docs_by_id.get(str(replaces_id))
+        if old is not None:
+            out["replaces_document_name"] = (
+                getattr(old, "name", None) or getattr(old, "file_name", None)
+            )
+            out["replaces_document_category"] = getattr(old, "category", None)
+    return out
+
+
+def _doc_to_keepi_file_fields(
+    doc: Any, docs_by_id: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    ai = (
+        doc.ai_analysis
+        if isinstance(getattr(doc, "ai_analysis", None), dict)
+        else {}
+    )
+    expiry = getattr(doc, "expiry_date", None)
+    fields: dict[str, Any] = {
+        "keepi_document_id": str(doc.id),
+        "category": getattr(doc, "category", None),
+        "description": getattr(doc, "description", None),
+        "expiry_date": expiry.isoformat() if expiry is not None else None,
+        "document_number": ai.get("document_number"),
+        "organization": ai.get("organization"),
+        "can_edit_metadata": True,
+    }
+    if docs_by_id is not None:
+        fields.update(_replacement_fields_for_doc(doc, docs_by_id))
+    return fields
+
+
+def _doc_cloud_provider(doc: Any) -> str:
+    cloud = (getattr(doc, "cloud_provider", None) or "").strip()
+    if cloud:
+        return cloud
+    if getattr(doc, "drive_file_id", None):
+        return "google_drive"
+    if getattr(doc, "s3_key", None):
+        return "keepi_cloud"
+    return ""
+
+
+def _storage_name_from_doc(doc: Any) -> Optional[str]:
+    s3_key = getattr(doc, "s3_key", None)
+    if s3_key:
+        key = str(s3_key)
+        return key.split("/")[-1] if "/" in key else key
+    return getattr(doc, "file_name", None)
+
+
+def _ensure_file_extension(new_name: str, reference_name: str) -> str:
+    if "." in new_name.strip():
+        return new_name.strip()
+    ref = (reference_name or "").strip()
+    if "." in ref:
+        ext = ref.rsplit(".", 1)[-1]
+        if ext:
+            return f"{new_name.strip()}.{ext}"
+    return new_name.strip()
+
+
+def _enrich_files_with_keepi_docs(
+    files: list[dict],
+    docs: list[Any],
+    *,
+    id_attr: str,
+    docs_by_id: Optional[dict[str, Any]] = None,
+) -> None:
+    by_external_id: dict[str, Any] = {}
+    for doc in docs:
+        external_id = getattr(doc, id_attr, None)
+        if external_id:
+            by_external_id[str(external_id)] = doc
+    lookup = dict(docs_by_id) if docs_by_id else {}
+    for doc in docs:
+        lookup.setdefault(str(doc.id), doc)
+    for file_item in files:
+        doc = by_external_id.get(str(file_item.get("id", "")))
+        if doc is not None:
+            file_item.update(_doc_to_keepi_file_fields(doc, lookup or None))
+        else:
+            file_item.setdefault("can_edit_metadata", False)
 
 
 async def _get_drive_service_or_raise(uid: str, db: Session) -> GoogleDriveService:
@@ -93,6 +265,10 @@ class DocumentApiService:
         self._db = db
         self._documents = document_service
 
+    def _user_docs_by_id(self, uid: str) -> dict[str, Any]:
+        docs = self._documents._document_repository.get_by_user_id(uid)
+        return {str(d.id): d for d in docs}
+
     async def get_s3_folder_contents(self, uid: str, path: str) -> dict:
         if not path or (
             not path.startswith(f"users/{uid}/") and path != f"users/{uid}"
@@ -107,6 +283,15 @@ class DocumentApiService:
         subfolders = result.get("folders", [])
         folder_name = path.split("/")[-1] if "/" in path else "Keepi Cloud"
         files = [_s3_doc_to_file_item(d) for d in documents]
+        s3_keys = [f["id"] for f in files if f.get("id")]
+        if s3_keys:
+            keepi_docs = self._documents.list_documents_by_s3_keys(uid, s3_keys)
+            _enrich_files_with_keepi_docs(
+                files,
+                keepi_docs,
+                id_attr="s3_key",
+                docs_by_id=self._user_docs_by_id(uid),
+            )
         folders_for_response = [
             {
                 "id": f.get("path", f.get("name", "")).rstrip("/"),
@@ -142,6 +327,15 @@ class DocumentApiService:
         root_files = [
             _s3_doc_to_file_item(doc) for doc in root_result.get("documents", [])
         ]
+        s3_keys = [f["id"] for f in root_files if f.get("id")]
+        if s3_keys:
+            keepi_docs = self._documents.list_documents_by_s3_keys(uid, s3_keys)
+            _enrich_files_with_keepi_docs(
+                root_files,
+                keepi_docs,
+                id_attr="s3_key",
+                docs_by_id=self._user_docs_by_id(uid),
+            )
         return {"folders": folders, "root_files": root_files}
 
     async def get_drive_folder_contents(self, uid: str, folder_id: str) -> dict:
@@ -166,9 +360,17 @@ class DocumentApiService:
             }
             for f in files:
                 f["keepi_verified"] = f["id"] in verified
+                f.setdefault("can_edit_metadata", False)
+            _enrich_files_with_keepi_docs(
+                files,
+                docs,
+                id_attr="drive_file_id",
+                docs_by_id=self._user_docs_by_id(uid),
+            )
         else:
             for f in files:
                 f["keepi_verified"] = False
+                f["can_edit_metadata"] = False
         folder_name = "Mi unidad"
         if parent_id:
             try:
@@ -247,21 +449,38 @@ class DocumentApiService:
             if user_config and user_config.cloud_provider
             else "google_drive"
         )
-        all_documents = await self._documents.get_user_documents(uid)
+        docs_by_id = self._user_docs_by_id(uid)
+        all_documents = list(docs_by_id.values())
         total_keepi = sum(
             1 for doc in all_documents if _doc_matches_storage(doc, storage_preference)
         )
-        expiring_soon = []
+        now = datetime.now(timezone.utc)
+        cutoff = now + timedelta(days=30)
+        alerts: list[dict] = []
         for doc in all_documents:
-            if doc.expiry_date:
-                try:
-                    expiry = datetime.fromisoformat(
-                        str(doc.expiry_date).replace("Z", "+00:00")
-                    )
-                    if expiry <= datetime.now(timezone.utc) + timedelta(days=30):
-                        expiring_soon.append(doc)
-                except Exception:
-                    continue
+            if not _doc_on_storage(doc, storage_preference):
+                continue
+            if _is_document_replaced(doc):
+                continue
+            expiry = _parse_expiry_utc(getattr(doc, "expiry_date", None))
+            if expiry is None:
+                continue
+            if expiry < now:
+                alerts.append(_doc_to_alert_item(doc, "expired"))
+            elif expiry <= cutoff:
+                alerts.append(_doc_to_alert_item(doc, "expiring_soon"))
+        alerts.sort(
+            key=lambda item: (
+                0 if item.get("alert_status") == "expired" else 1,
+                item.get("expiry_date") or "",
+            )
+        )
+        alerts_expired_count = sum(
+            1 for item in alerts if item.get("alert_status") == "expired"
+        )
+        alerts_expiring_count = sum(
+            1 for item in alerts if item.get("alert_status") == "expiring_soon"
+        )
         folders = []
         root_files = []
         requires_drive_auth = False
@@ -286,6 +505,15 @@ class DocumentApiService:
                     _s3_doc_to_file_item(doc)
                     for doc in root_result.get("documents", [])
                 ]
+                s3_keys = [f["id"] for f in root_files if f.get("id")]
+                if s3_keys:
+                    keepi_docs = self._documents.list_documents_by_s3_keys(uid, s3_keys)
+                    _enrich_files_with_keepi_docs(
+                        root_files,
+                        keepi_docs,
+                        id_attr="s3_key",
+                        docs_by_id=docs_by_id,
+                    )
             except Exception:
                 logger.exception("Error leyendo S3 en dashboard")
                 folders = []
@@ -323,8 +551,13 @@ class DocumentApiService:
         out: dict = {
             "folders": folders,
             "total_keepi": total_keepi,
-            "expiring_soon_count": len(expiring_soon),
-            "expiring_soon": expiring_soon[:20],
+            "alerts": alerts[:30],
+            "alerts_count": len(alerts),
+            "alerts_expired_count": alerts_expired_count,
+            "alerts_expiring_count": alerts_expiring_count,
+            "storage_preference": storage_preference,
+            "expiring_soon_count": len(alerts),
+            "expiring_soon": alerts[:20],
             "last_updated": datetime.now().isoformat(),
         }
         if storage_preference == "keepi_cloud":
@@ -334,6 +567,141 @@ class DocumentApiService:
             out["requires_action"] = requires_action
             out["authorization_url"] = authorization_url
         return out
+
+    def _document_to_metadata_payload(
+        self, doc: Any, docs_by_id: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        ai = (
+            doc.ai_analysis
+            if isinstance(getattr(doc, "ai_analysis", None), dict)
+            else {}
+        )
+        expiry = getattr(doc, "expiry_date", None)
+        cloud = _doc_cloud_provider(doc)
+        storage_file_name = _storage_name_from_doc(doc)
+        lookup = docs_by_id if docs_by_id is not None else {str(doc.id): doc}
+        payload: dict[str, Any] = {
+            "id": str(doc.id),
+            "name": getattr(doc, "name", None) or "",
+            "file_name": getattr(doc, "file_name", None),
+            "storage_file_name": storage_file_name,
+            "category": getattr(doc, "category", None) or "",
+            "description": getattr(doc, "description", None),
+            "expiry_date": expiry.isoformat() if expiry is not None else None,
+            "document_number": ai.get("document_number"),
+            "organization": ai.get("organization"),
+            "drive_file_id": getattr(doc, "drive_file_id", None),
+            "s3_key": getattr(doc, "s3_key", None),
+            "cloud_provider": cloud,
+        }
+        payload.update(_replacement_fields_for_doc(doc, lookup))
+        return payload
+
+    async def _resolve_storage_file_name(self, uid: str, doc: Any) -> Optional[str]:
+        drive_id = getattr(doc, "drive_file_id", None)
+        if drive_id:
+            try:
+                drive_service = await _get_drive_service_or_raise(uid, self._db)
+                meta = (
+                    drive_service.service.files()
+                    .get(fileId=str(drive_id), fields="name")
+                    .execute()
+                )
+                return meta.get("name") or getattr(doc, "file_name", None)
+            except HTTPException:
+                raise
+            except Exception:
+                logger.exception("No se pudo leer nombre en Drive para doc %s", doc.id)
+                return getattr(doc, "file_name", None) or _storage_name_from_doc(doc)
+        return _storage_name_from_doc(doc)
+
+    async def get_mobile_document_metadata(
+        self, uid: str, document_id: uuid.UUID
+    ) -> dict[str, Any]:
+        doc = self._documents._document_repository.get_by_id(str(document_id), uid)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        docs_by_id = self._user_docs_by_id(uid)
+        payload = self._document_to_metadata_payload(doc, docs_by_id)
+        storage_name = await self._resolve_storage_file_name(uid, doc)
+        if storage_name:
+            payload["storage_file_name"] = storage_name
+        return payload
+
+    async def update_mobile_document_metadata(
+        self,
+        uid: str,
+        document_id: uuid.UUID,
+        *,
+        name: Optional[str] = None,
+        file_name: Optional[str] = None,
+        category: Optional[str] = None,
+        description: Optional[str] = None,
+        expiry_date: Optional[datetime] = None,
+        document_number: Optional[str] = None,
+        organization: Optional[str] = None,
+    ) -> dict[str, Any]:
+        from app.models.document import DocumentUpdate as ModelDocumentUpdate
+
+        doc = self._documents._document_repository.get_by_id(str(document_id), uid)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+        ai = dict(doc.ai_analysis) if isinstance(doc.ai_analysis, dict) else {}
+        if document_number is not None:
+            ai["document_number"] = document_number
+        if organization is not None:
+            ai["organization"] = organization
+
+        update_fields: dict[str, Any] = {"ai_analysis": ai}
+        if name is not None:
+            update_fields["name"] = name.strip() or doc.name
+
+        if file_name is not None:
+            new_storage_name = file_name.strip()
+            if new_storage_name:
+                cloud = _doc_cloud_provider(doc)
+                current_storage = await self._resolve_storage_file_name(uid, doc)
+                reference = current_storage or getattr(doc, "file_name", None) or ""
+                final_name = _ensure_file_extension(new_storage_name, reference)
+                if final_name != (current_storage or "").strip():
+                    if cloud == "google_drive" and getattr(doc, "drive_file_id", None):
+                        drive_service = await _get_drive_service_or_raise(
+                            uid, self._db
+                        )
+                        await drive_service.rename_file(
+                            str(doc.drive_file_id), final_name
+                        )
+                    elif cloud == "keepi_cloud" and getattr(doc, "s3_key", None):
+                        s3_service = S3Service()
+                        new_key = await s3_service.rename_object(
+                            uid, str(doc.s3_key), final_name
+                        )
+                        update_fields["s3_key"] = new_key
+                update_fields["file_name"] = final_name
+                update_fields["name"] = final_name
+
+        if category is not None:
+            update_fields["category"] = category.strip() or doc.category
+        if description is not None:
+            update_fields["description"] = description.strip() or None
+        if expiry_date is not None:
+            update_fields["expiry_date"] = expiry_date
+
+        updated = await self._documents.update_document(
+            str(document_id),
+            uid,
+            ModelDocumentUpdate(**update_fields),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        raw = self._documents._document_repository.get_by_id(str(document_id), uid)
+        docs_by_id = self._user_docs_by_id(uid)
+        payload = self._document_to_metadata_payload(raw, docs_by_id)
+        storage_name = await self._resolve_storage_file_name(uid, raw)
+        if storage_name:
+            payload["storage_file_name"] = storage_name
+        return payload
 
     async def download_mobile_document(
         self, document_id: uuid.UUID

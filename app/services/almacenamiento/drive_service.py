@@ -312,6 +312,19 @@ class GoogleDriveService:
             print(f"Error actualizando descripción: {error}")
             return False
 
+    async def rename_file(self, file_id: str, new_name: str) -> bool:
+        """Renombra el archivo en Google Drive (nombre visible en Drive)."""
+        try:
+            self.service.files().update(
+                fileId=file_id,
+                body={"name": new_name},
+                fields="id, name",
+            ).execute()
+            return True
+        except HttpError as error:
+            print(f"Error renombrando archivo: {error}")
+            raise
+
     async def upload_file(
         self, file_data: bytes, file_name: str, folder_id: str, mime_type: str
     ) -> str:
