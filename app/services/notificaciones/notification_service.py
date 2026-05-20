@@ -167,14 +167,23 @@ class NotificationService:
         return {"ok": True}
 
     def run_expiry_emails_job(self, *, send_date, days_before: int) -> dict:
+        """Compat: un solo hito (días antes). Preferir run_expiry_reminders_job."""
         from app.services.notificaciones.expiry_notification_service import (
-            dispatch_expiry_emails,
+            dispatch_expiry_reminders,
         )
 
-        result = dispatch_expiry_emails(
+        result = dispatch_expiry_reminders(
             self.db, send_date=send_date, days_before=days_before
         )
         return result.to_dict()
+
+    def run_expiry_reminders_job(self, *, send_date) -> dict:
+        """30, 15 y 3 días antes del vencimiento (solo fecha calendario)."""
+        from app.services.notificaciones.expiry_notification_service import (
+            dispatch_expiry_reminders_all_milestones,
+        )
+
+        return dispatch_expiry_reminders_all_milestones(self.db, send_date=send_date)
 
     async def run_pill_reminders_job(self) -> Any:
         from app.services.notificaciones.pill_notification_service import (
