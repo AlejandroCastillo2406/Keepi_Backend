@@ -423,6 +423,36 @@ class DocumentService:
             "subscription_info": ai_analysis.get("subscription_info"),
         }
 
+    async def mark_document_replaced(
+        self,
+        user_id: str,
+        old_document_id: str,
+        new_document_id: str,
+    ) -> None:
+        from datetime import timezone
+
+        old = self._document_repository.get_by_id(old_document_id, user_id)
+        if not old:
+            raise ValueError("Documento a reemplazar no encontrado")
+        ai = dict(old.ai_analysis) if isinstance(old.ai_analysis, dict) else {}
+        if ai.get("replaced") is True:
+            raise ValueError("Este documento ya fue marcado como reemplazado")
+        ai["replaced"] = True
+        ai["replaced_at"] = datetime.now(timezone.utc).isoformat()
+        ai["replaced_by_document_id"] = str(new_document_id)
+        note = "[Documento reemplazado]"
+        description = old.description or ""
+        if note not in description:
+            description = f"{description}\n{note}".strip() if description else note
+        await self.update_document(
+            old_document_id,
+            user_id,
+            ModelDocumentUpdate(
+                ai_analysis=ai,
+                description=description,
+            ),
+        )
+
     async def save_analyzed_document(
         self,
         user_id: str,
@@ -435,6 +465,7 @@ class DocumentService:
         document_number: Optional[str] = None,
         organization: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        replaces_document_id: Optional[str] = None,
     ) -> ModelDocumentResponse:
         category = category.strip().title() if category else category
         user_config = await self.user_config_service.get_user_config(user_id)
@@ -493,9 +524,25 @@ class DocumentService:
             )
             file_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
             s3_key = f"drive/{drive_folder_id}/{drive_file_id}"
-        ai_analysis = {
+        ai_analysis: dict = {
             "keepi_classified": True,
         }
+        if replaces_document_id:
+            old = self._document_repository.get_by_id(replaces_document_id, user_id)
+            if not old:
+                raise ValueError("Documento a reemplazar no encontrado")
+            old_ai = (
+                dict(old.ai_analysis) if isinstance(old.ai_analysis, dict) else {}
+            )
+            if old_ai.get("replaced") is True:
+                raise ValueError("Este documento ya fue marcado como reemplazado")
+            expiry = getattr(old, "expiry_date", None)
+            if expiry is None:
+                raise ValueError(
+                    "Solo se pueden reemplazar documentos con fecha de vencimiento"
+                )
+            ai_analysis["replaces_document_id"] = str(replaces_document_id)
+
         document_data = DocumentCreate(
             name=save_as_name,
             category=category,
@@ -512,7 +559,12 @@ class DocumentService:
             drive_file_id=drive_file_id,
             drive_folder_id=drive_folder_id,
         )
-        return await self.create_document(user_id, document_data)
+        created = await self.create_document(user_id, document_data)
+        if replaces_document_id:
+            await self.mark_document_replaced(
+                user_id, replaces_document_id, str(created.id)
+            )
+        return created
 
     async def process_document_with_aws(
         self, user_id: str, file_data: bytes, file_name: str, file_type: str

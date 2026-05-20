@@ -215,6 +215,9 @@ async def mobile_save_analyzed_document(
     expiry_date: Optional[str] = Form(None),
     document_number: Optional[str] = Form(None),
     organization: Optional[str] = Form(None),
+    replaces_document_id: Optional[str] = Form(
+        None, description="UUID del documento vencido/por vencer que se reemplaza"
+    ),
     user_token: TokenPayload = Depends(require_no_temp_password_token),
     document_service: DocumentService = Depends(get_document_service),
 ):
@@ -241,12 +244,19 @@ async def mobile_save_analyzed_document(
             document_number=document_number or None,
             organization=organization or None,
             tags=None,
+            replaces_document_id=replaces_document_id,
+        )
+        msg = (
+            "Documento reemplazado. El anterior quedó marcado como reemplazado."
+            if replaces_document_id
+            else "Documento guardado correctamente"
         )
         return {
-            "message": "Documento guardado correctamente",
+            "message": msg,
             "document_id": str(document.id),
             "category": document.category,
             "file_name": document.file_name,
+            "replaced_document_id": replaces_document_id,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

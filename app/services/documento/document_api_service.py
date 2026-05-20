@@ -61,7 +61,24 @@ def _doc_to_alert_item(doc: Any, alert_status: str) -> dict:
         "cloud_provider": getattr(doc, "cloud_provider", None) or "",
         "keepi_document_id": str(doc.id),
         "can_edit_metadata": True,
+        "can_replace": _doc_eligible_for_replace(doc),
     }
+
+
+def _is_document_replaced(doc: Any) -> bool:
+    ai = getattr(doc, "ai_analysis", None)
+    return isinstance(ai, dict) and ai.get("replaced") is True
+
+
+def _doc_eligible_for_replace(doc: Any) -> bool:
+    if _is_document_replaced(doc):
+        return False
+    expiry = _parse_expiry_utc(getattr(doc, "expiry_date", None))
+    if expiry is None:
+        return False
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=30)
+    return expiry < now or expiry <= cutoff
 
 
 def _doc_matches_storage(doc: Any, storage: str) -> bool:
@@ -149,13 +166,7 @@ def _enrich_files_with_keepi_docs(files: list[dict], docs: list[Any], *, id_attr
     for file_item in files:
         doc = by_external_id.get(str(file_item.get("id", "")))
         if doc is not None:
-            storage_name = file_item.get("name")
             file_item.update(_doc_to_keepi_file_fields(doc))
-            if storage_name:
-                file_item["storage_file_name"] = storage_name
-            keepi_name = getattr(doc, "name", None)
-            if keepi_name:
-                file_item["name"] = keepi_name
         else:
             file_item.setdefault("can_edit_metadata", False)
 
@@ -379,6 +390,8 @@ class DocumentApiService:
         for doc in all_documents:
             if not _doc_on_storage(doc, storage_preference):
                 continue
+            if _is_document_replaced(doc):
+                continue
             expiry = _parse_expiry_utc(getattr(doc, "expiry_date", None))
             if expiry is None:
                 continue
@@ -581,6 +594,7 @@ class DocumentApiService:
                         )
                         update_fields["s3_key"] = new_key
                 update_fields["file_name"] = final_name
+                update_fields["name"] = final_name
 
         if category is not None:
             update_fields["category"] = category.strip() or doc.category
