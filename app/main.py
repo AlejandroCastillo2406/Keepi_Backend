@@ -30,6 +30,7 @@ from app.routes import (
     prescriptions,
     push_tokens,
     questionnaire,
+    search,
     subscriptions,
     user_config,
 )
@@ -146,6 +147,11 @@ app.include_router(
     archivo_router,
     prefix="/api/v1/archivos",
     tags=["Archivos Temporales"],
+)
+app.include_router(
+    search.router,
+    prefix="/api/v1/search",
+    tags=["Global Search"],
 )
 
 
