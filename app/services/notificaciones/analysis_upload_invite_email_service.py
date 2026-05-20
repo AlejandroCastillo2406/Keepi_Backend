@@ -1,6 +1,4 @@
 from html import escape as html_escape
-from datetime import datetime, timezone, timedelta
-from typing import Optional
 
 from app.core.config import settings
 
@@ -18,7 +16,7 @@ def build_analysis_upload_email_html(
     doctor_name: str,
     description: str,
     public_link: str,
-    expires_at: Optional[datetime] = None,
+    expires_in_days: int = 30,
 ) -> str:
     brand = (getattr(settings, "email_brand_name", "") or "").strip() or "Keepi"
 
@@ -27,11 +25,7 @@ def build_analysis_upload_email_html(
     safe_desc = html_escape((description or "").strip(), quote=True)
     safe_href = html_escape(public_link or "", quote=True)
     safe_brand = html_escape(brand, quote=True)
-    
-    if expires_at is not None:
-        safe_expiration_msg = html_escape(f"hasta el {expires_at.strftime('%d/%m/%Y')}", quote=True)
-    else:
-        safe_expiration_msg = html_escape("por 30 días", quote=True)
+    safe_days = html_escape(str(int(expires_in_days)), quote=True)
 
     logo_url = "https://raw.githubusercontent.com/AlejandroCastillo2406/Keepi_Front/master/assets/icons/logo.png"
 
@@ -76,7 +70,7 @@ def build_analysis_upload_email_html(
         </tr>
       </table>
 
-      <p style="margin:0 0 8px;font-size:14px;color:#6b7280;">Este enlace estará disponible {safe_expiration_msg}.</p>
+      <p style="margin:0 0 8px;font-size:14px;color:#6b7280;">Este enlace estará disponible por {safe_days} días.</p>
       <p style="margin:0;font-size:14px;color:#6b7280;">Si el enlace expiró o tienes problemas para abrirlo, comunícate con tu doctor para que te envíe uno nuevo.</p>
     </td></tr>
   </table>

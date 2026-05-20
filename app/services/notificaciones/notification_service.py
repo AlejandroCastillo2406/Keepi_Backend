@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.notification import (
@@ -180,3 +182,164 @@ class NotificationService:
         )
 
         return await run_pill_reminders_process(self.db)
+
+    def run_analysis_request_deadline_reminders_job(
+        self, *, send_date: date | None = None
+    ) -> dict[str, Any]:
+        from uuid import UUID
+
+        from app.models.analysis_request import AnalysisRequest
+        from app.models.analysis_request_invitation import AnalysisRequestUploadInvitation
+        from app.repositories.user_repository import UserRepository
+        from app.services.notificaciones.user_notify import (
+            notify_user_push_and_db,
+            notify_user_push_db_and_email,
+        )
+
+        effective_send_date = send_date or datetime.now(timezone.utc).date()
+        inv_rows = (
+            self.db.query(AnalysisRequestUploadInvitation)
+            .join(
+                AnalysisRequest,
+                AnalysisRequest.id == AnalysisRequestUploadInvitation.analysis_request_id,
+            )
+            .filter(
+                AnalysisRequestUploadInvitation.status.in_(["pending", "expired"]),
+                AnalysisRequest.status == "pending",
+                func.date(
+                    func.timezone(
+                        "UTC",
+                        AnalysisRequestUploadInvitation.expires_at,
+                    )
+                )
+                == effective_send_date,
+            )
+            .all()
+        )
+        candidates_found = len(inv_rows)
+        if candidates_found == 0:
+            return {
+                "send_date": effective_send_date.isoformat(),
+                "candidates_found": 0,
+                "already_notified": 0,
+                "sent": 0,
+                "errors": 0,
+                "error_details": [],
+            }
+
+        user_repo = UserRepository(self.db)
+
+        already_notified = 0
+        sent = 0
+        errors = 0
+        error_details: list[str] = []
+
+        for inv in inv_rows:
+            try:
+                expires_at = getattr(inv, "expires_at", None)
+                if expires_at is None:
+                    continue
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                else:
+                    expires_at = expires_at.astimezone(timezone.utc)
+
+                expiry_date = expires_at.date()
+                if expiry_date != effective_send_date:
+                    continue
+
+                analysis_req = (
+                    self.db.query(AnalysisRequest)
+                    .filter(AnalysisRequest.id == inv.analysis_request_id)
+                    .first()
+                )
+                if not analysis_req:
+                    continue
+
+                milestone = 100
+
+                patient = user_repo.get_by_id_with_role(inv.patient_id)
+                if patient is None:
+                    continue
+                email_to = (getattr(patient, "email", None) or "").strip()
+                if not email_to:
+                    email_to = (getattr(inv, "patient_email_snapshot", None) or "").strip()
+
+                # Dedupe:
+                # En la BD, `notifications_logs.document_id` tiene FK a `documents.id`, por lo que
+                # NO podemos usar esa tabla para guardar logs basados en `analysis_request_id`.
+                # En su lugar, evitamos duplicados consultando la tabla `notifications`.
+                pid = UUID(str(inv.patient_id))
+                existing = (
+                    self.db.query(Notification)
+                    .filter(
+                        Notification.user_id == pid,
+                        Notification.type == "analysis_request_deadline",
+                        Notification.target_date == effective_send_date,
+                    )
+                    .all()
+                )
+                already_sent = any(
+                    (n.payload or {}).get("analysis_request_id") == str(inv.analysis_request_id)
+                    and str((n.payload or {}).get("milestone")) == str(milestone)
+                    for n in existing
+                )
+                if already_sent:
+                    already_notified += 1
+                    continue
+
+                title = "Recordatorio: subir análisis"
+                message = "Hoy vence tu solicitud para subir el análisis."
+
+                payload = {
+                    "type": "analysis_request_deadline_reminder",
+                    "analysis_request_id": str(inv.analysis_request_id),
+                    "milestone": str(milestone),
+                    "expires_at": expires_at.isoformat(),
+                }
+                push_data = {
+                    "type": "analysis_request_deadline_reminder",
+                    "analysis_request_id": str(inv.analysis_request_id),
+                    "milestone": str(milestone),
+                    "title": title,
+                    "body": message,
+                }
+
+                if email_to:
+                    res = notify_user_push_db_and_email(
+                        self.db,
+                        inv.patient_id,
+                        title=title,
+                        message=message,
+                        to_email=email_to,
+                        notification_type="analysis_request_deadline",
+                        payload=payload,
+                        push_data=push_data,
+                        email_subject=title,
+                    )
+                else:
+                    notify_user_push_and_db(
+                        self.db,
+                        inv.patient_id,
+                        title=title,
+                        message=message,
+                        notification_type="analysis_request_deadline",
+                        payload=payload,
+                        push_data=push_data,
+                    )
+
+                sent += 1
+            except Exception as e:
+                errors += 1
+                error_details.append(
+                    f"analysis_request_id={getattr(inv, 'analysis_request_id', '')} error={e}"
+                )
+
+        return {
+            "send_date": effective_send_date.isoformat(),
+            "candidates_found": candidates_found,
+            "already_notified": already_notified,
+            "sent": sent,
+            "errors": errors,
+            "error_details": error_details,
+        }
