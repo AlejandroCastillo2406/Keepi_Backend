@@ -452,51 +452,108 @@ class DocumentService:
                 description=description,
             ),
         )
+    async def send_document_replaced_notification(
+        self, user_id: str, old_document_id: str, new_document_id: str
+    ) -> None:
+        """Push + in-app tras reemplazar (llamar desde la ruta save-analyzed)."""
+        old_doc = self._document_repository.get_by_id(old_document_id, user_id)
         new_doc = self._document_repository.get_by_id(new_document_id, user_id)
-        if new_doc is not None:
-            self._notify_document_replaced(user_id, old, new_doc)
+        if not old_doc or not new_doc:
+            logger.warning(
+                "Notificación reemplazo omitida: documento no encontrado "
+                "user_id=%s old=%s new=%s",
+                user_id,
+                old_document_id,
+                new_document_id,
+            )
+            return
+        self._notify_document_replaced(user_id, old_doc, new_doc)
+
+    @staticmethod
+    def _push_safe_text(value: str, *, max_len: int = 180) -> str:
+        cleaned = " ".join((value or "").split())
+        if len(cleaned) <= max_len:
+            return cleaned
+        return cleaned[: max_len - 1] + "…"
 
     def _notify_document_replaced(
         self, user_id: str, old_doc: Document, new_doc: Document
     ) -> None:
         from app.services.notificaciones.user_notify import notify_user_push_and_db
 
-        old_name = (getattr(old_doc, "name", None) or getattr(old_doc, "file_name", None) or "Documento").strip()
-        new_name = (getattr(new_doc, "name", None) or getattr(new_doc, "file_name", None) or "Documento").strip()
-        old_cat = (getattr(old_doc, "category", None) or "").strip()
-        new_cat = (getattr(new_doc, "category", None) or "").strip()
+        old_name = self._push_safe_text(
+            getattr(old_doc, "name", None)
+            or getattr(old_doc, "file_name", None)
+            or "Documento"
+        )
+        new_name = self._push_safe_text(
+            getattr(new_doc, "name", None)
+            or getattr(new_doc, "file_name", None)
+            or "Documento"
+        )
+        old_cat = self._push_safe_text(getattr(old_doc, "category", None) or "", max_len=80)
+        new_cat = self._push_safe_text(getattr(new_doc, "category", None) or "", max_len=80)
         title = "Documento reemplazado"
         if old_cat and new_cat:
             message = (
-                f'"{old_name}" ({old_cat}) fue reemplazado por '
-                f'"{new_name}" ({new_cat}).'
+                f"{old_name} ({old_cat}) fue reemplazado por {new_name} ({new_cat})."
             )
+        elif old_cat:
+            message = f"{old_name} ({old_cat}) fue reemplazado por {new_name}."
         else:
-            message = f'"{old_name}" fue reemplazado por "{new_name}".'
+            message = f"{old_name} fue reemplazado por {new_name}."
+        message = self._push_safe_text(message, max_len=240)
+
         payload = {
             "type": "document_replaced",
             "old_document_id": str(old_doc.id),
             "new_document_id": str(new_doc.id),
             "old_name": old_name,
             "new_name": new_name,
-            "old_category": old_cat or None,
-            "new_category": new_cat or None,
+            "old_category": old_cat,
+            "new_category": new_cat,
         }
-        push_data = {k: str(v) for k, v in payload.items() if v is not None}
+        # Mismo formato que analysis_request_completed (title/body en data FCM)
+        push_data = {
+            "type": "document_replaced",
+            "document_id": str(new_doc.id),
+            "old_document_id": str(old_doc.id),
+            "new_document_id": str(new_doc.id),
+            "old_name": old_name,
+            "new_name": new_name,
+            "old_category": old_cat,
+            "new_category": new_cat,
+            "title": title,
+            "body": message,
+        }
         try:
-            notify_user_push_and_db(
+            result = notify_user_push_and_db(
                 self.db,
                 user_id,
                 title=title,
                 message=message,
-                notification_type="document_replaced",
+                notification_type="info",
                 payload=payload,
                 document_id=str(new_doc.id),
                 push_data=push_data,
             )
+            if result.push_devices_ok == 0:
+                logger.warning(
+                    "Push document_replaced: 0 dispositivos entregados user_id=%s "
+                    "notification_id=%s (revisa token FCM / FIREBASE_SERVICE_ACCOUNT_PATH)",
+                    user_id,
+                    result.notification_id,
+                )
+            else:
+                logger.info(
+                    "Push document_replaced enviado user_id=%s devices_ok=%s notification_id=%s",
+                    user_id,
+                    result.push_devices_ok,
+                    result.notification_id,
+                )
         except Exception:
             logger.exception(
-                "No se pudo enviar notificación de reemplazo user_id=%s old=%s new=%s",
+                "Error enviando notificación de reemplazo user_id=%s old=%s new=%s",
                 user_id,
                 old_doc.id,
                 new_doc.id,
@@ -611,6 +668,9 @@ class DocumentService:
         created = await self.create_document(user_id, document_data)
         if replaces_document_id:
             await self.mark_document_replaced(
+                user_id, replaces_document_id, str(created.id)
+            )
+            await self.send_document_replaced_notification(
                 user_id, replaces_document_id, str(created.id)
             )
         return created
