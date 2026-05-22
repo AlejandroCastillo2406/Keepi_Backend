@@ -32,11 +32,13 @@ class GlobalSearchResponse(BaseModel):
 
 @router.get("/", response_model=GlobalSearchResponse)
 def global_search(
+    q: Optional[str] = Query(None, description="Texto libre (título / subtítulo)"),
     patient_id: Optional[uuid.UUID] = Query(None, description="CP-21: Buscar por paciente"),
     item_type: Optional[str] = Query(None, description="CP-22: Buscar por tipo"),
     status: Optional[str] = Query(None, description="CP-23: Buscar por estado"),
     start_date: Optional[datetime] = Query(None, description="CP-24: Rango de fechas - Inicio"),
     end_date: Optional[datetime] = Query(None, description="CP-24: Rango de fechas - Fin"),
+    limit: int = Query(30, ge=1, le=100, description="Máximo de resultados"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user) # 🔐 TOKEN BEARER REQUERIDO AQUÍ
 ):
@@ -116,7 +118,22 @@ def global_search(
                 status=analysis.status
             ))
 
+    if q:
+        needle = q.strip().lower()
+        if needle:
+            def _matches(item: GlobalSearchItem) -> bool:
+                haystack = " ".join(
+                    filter(
+                        None,
+                        [item.title, item.subtitle, item.status, item.type],
+                    )
+                ).lower()
+                return needle in haystack
+
+            results = [r for r in results if _matches(r)]
+
     # Ordenar del más reciente al más antiguo
     results.sort(key=lambda x: x.date, reverse=True)
+    results = results[:limit]
 
     return {"results": results, "total": len(results)}
