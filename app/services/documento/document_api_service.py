@@ -727,6 +727,25 @@ class DocumentApiService:
                 media_type=mime_type or "application/octet-stream",
                 headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
             )
+        if not file_path:
+            raise HTTPException(
+                status_code=404,
+                detail="El documento no tiene ruta de almacenamiento.",
+            )
         s3_service = S3Service()
-        file_url = await s3_service.get_file_url(file_path)
-        return RedirectResponse(url=file_url)
+        try:
+            file_content, mime_type, file_name = s3_service.get_file_bytes(file_path)
+        except Exception as exc:
+            logger.exception("Error leyendo archivo S3 %s", file_path)
+            raise HTTPException(
+                status_code=404,
+                detail="No se pudo leer el archivo en Keepi Cloud.",
+            ) from exc
+        safe_name = (getattr(document, "name", None) or file_name or "documento").replace(
+            '"', ""
+        )
+        return Response(
+            content=file_content,
+            media_type=mime_type or "application/octet-stream",
+            headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+        )
