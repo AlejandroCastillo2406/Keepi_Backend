@@ -412,6 +412,14 @@ class DocumentService:
             )
         else:
             recommended_name = recommended_name.strip()
+        from app.utils.storage_filename import resolve_storage_filename
+
+        recommended_name, _ = resolve_storage_filename(
+            file_name,
+            recommended_name,
+            file_type,
+            file_data,
+        )
         return {
             "category": category,
             "recommended_name": recommended_name,
@@ -573,6 +581,14 @@ class DocumentService:
         tags: Optional[List[str]] = None,
         replaces_document_id: Optional[str] = None,
     ) -> ModelDocumentResponse:
+        from app.utils.storage_filename import resolve_storage_filename
+
+        save_as_name, file_type = resolve_storage_filename(
+            file_name,
+            save_as_name,
+            file_type,
+            file_data,
+        )
         category = category.strip().title() if category else category
         user_config = await self.user_config_service.get_user_config(user_id)
         storage_preference = (
@@ -603,7 +619,11 @@ class DocumentService:
         if storage_preference == "keepi_cloud":
             folder_name = folder_result.get("folder_name", category)
             file_url = await self.aws_service.upload_to_s3_with_folder(
-                file_data, save_as_name, user_id, folder_name
+                file_data,
+                save_as_name,
+                user_id,
+                folder_name,
+                content_type=file_type,
             )
             s3_key = f"users/{user_id}/{folder_name}/{save_as_name}"
         elif storage_preference == "google_drive":

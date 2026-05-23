@@ -741,11 +741,19 @@ class DocumentApiService:
                 status_code=404,
                 detail="No se pudo leer el archivo en Keepi Cloud.",
             ) from exc
-        safe_name = (getattr(document, "name", None) or file_name or "documento").replace(
-            '"', ""
+        from app.utils.storage_filename import resolve_storage_filename, sniff_content_type
+
+        declared = getattr(document, "file_type", None) or mime_type
+        detected = sniff_content_type(file_content, declared) or declared
+        safe_name, detected = resolve_storage_filename(
+            getattr(document, "file_name", None) or file_name,
+            getattr(document, "name", None) or file_name,
+            detected,
+            file_content,
         )
+        safe_name = safe_name.replace('"', "")
         return Response(
             content=file_content,
-            media_type=mime_type or "application/octet-stream",
+            media_type=detected or "application/octet-stream",
             headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
         )

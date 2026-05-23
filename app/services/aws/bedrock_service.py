@@ -134,7 +134,7 @@ Analiza la imagen adjunta (documento o foto de documento llamada "{filename}") y
 
 3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
 
-4. NOMBRE RECOMENDADO: Nombre sugerido para el archivo basado en el contenido visible. Respeta la extensión de "{filename}".
+4. NOMBRE RECOMENDADO: Nombre sugerido para el archivo. OBLIGATORIO: usa la MISMA extensión que "{filename}" (si es .jpg/.png/.jpeg NUNCA pongas .pdf si no es .PDF la original).
 
 5. TAGS: Lista de 1 a 5 etiquetas en minúsculas.
 
@@ -188,13 +188,13 @@ Analiza el siguiente texto extraído de un documento llamado "{filename}" y devu
 
 2. FECHA DE VENCIMIENTO: Si hay fecha de vencimiento/expiración, en formato YYYY-MM-DD. Si no hay, null. Es importante NO confundir la fecha de expedicion con la fecha de vencimiento..
 
-3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
+3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0) TIENES QUE SER SINCERO Y NO PONER VALORES ALTOS SOLO POR PONER ALGO.
 
 4. NOMBRE RECOMENDADO DEL ARCHIVO: Debe ser MUY ESPECÍFICO. Extrae del texto el dato principal que identifica el documento y úsalo en el nombre. Formato: "[Tipo documento] [Dato identificador].ext".
    - Documentos personales (RFC, CURP, INE, pasaporte): usa el NOMBRE COMPLETO del titular. Ejemplo: "RFC Cesar Alejandro Castillo Garces.pdf", "INE Maria Lopez Hernandez.pdf".
    - Facturas/comprobantes: razón social o nombre del proveedor + folio o fecha. Ejemplo: "Factura CFE 2024-01.pdf".
    - Contratos: partes o objeto + fecha. Ejemplo: "Contrato arrendamiento 2024-03.pdf".
-   - Sin guiones bajos; usa espacios. Respeta la extensión del archivo original.
+   - Sin guiones bajos; usa espacios. Respeta SIEMPRE la extensión del archivo original (imagen = .jpg/.png/.jpeg, PDF = .pdf).
 
 5. TAGS: Lista de 1 a 5 etiquetas en minúsculas. Sin duplicar la categoría.
 
