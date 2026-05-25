@@ -23,6 +23,7 @@ from app.services.almacenamiento import FolderService, GoogleDriveService, S3Ser
 from app.services.autenticacion import GoogleOAuthService
 from app.services.notificaciones.analysis_upload_invite_email_service import (
     build_analysis_upload_email_html,
+    build_analysis_upload_email_subject,
     build_public_analysis_upload_link,
 )
 from app.services.notificaciones.notification_service import NotificationService
@@ -105,7 +106,7 @@ class AnalysisRequestService:
                 public_link=public_link,
                 expires_in_days=_INVITATION_TTL_DAYS,
             )
-            email_subject = "Tu doctor te pidió subir un análisis"
+            email_subject = build_analysis_upload_email_subject(doctor_name)
             try:
                 res = notify_user_push_db_and_email(
                     self._db,

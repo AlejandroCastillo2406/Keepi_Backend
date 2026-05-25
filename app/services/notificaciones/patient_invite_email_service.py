@@ -7,6 +7,11 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import settings
+from app.services.notificaciones.clinical_email_layout import (
+    _brand,
+    _format_doctor_display,
+    build_clinical_action_email_html,
+)
 
 
 @dataclass
@@ -16,35 +21,51 @@ class PatientInviteEmailResult:
     ses_message_id: str | None = None
 
 
-def _html(patient_name: str, email: str, temporary_password: str, brand: str) -> str:
-    pn = escape(patient_name)
-    em = escape(email)
-    pw = escape(temporary_password)
-    br = escape(brand)
-    return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8" /></head>
-<body style="font-family:system-ui,sans-serif;background:#f4f4f5;padding:24px;">
-  <table role="presentation" width="100%" style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;">
-    <tr><td>
-      <p style="margin:0 0 16px;font-size:18px;font-weight:600;color:#18181b;">{br}</p>
-      <p style="margin:0 0 12px;color:#3f3f46;">Hola {pn},</p>
-      <p style="margin:0 0 12px;color:#3f3f46;">Tu médico ha creado tu cuenta. Usuario (correo): <strong>{em}</strong></p>
-      <p style="margin:0 0 8px;color:#3f3f46;">Contraseña temporal (cámbiala al iniciar sesión):</p>
-      <p style="margin:0 0 20px;font-family:monospace;font-size:15px;background:#f4f4f5;padding:12px;border-radius:8px;">{pw}</p>
-      <p style="margin:0;font-size:14px;color:#71717a;">Por seguridad, deberás elegir una nueva contraseña la primera vez que entres.</p>
-    </td></tr>
-  </table>
-</body></html>"""
+def _html(
+    patient_name: str,
+    email: str,
+    temporary_password: str,
+    doctor_name: str | None,
+) -> str:
+    doctor = _format_doctor_display(doctor_name or "Tu médico")
+    cred_block = f"""
+      <div style="margin:0 0 20px;padding:16px;border-radius:10px;background:#F8FAFC;
+        border:1px solid #E2E8F0;">
+        <p style="margin:0 0 8px;font-size:13px;color:#64748B;">Usuario (correo)</p>
+        <p style="margin:0 0 14px;font-size:15px;font-weight:600;color:#111827;">{escape(email)}</p>
+        <p style="margin:0 0 8px;font-size:13px;color:#64748B;">Contraseña temporal</p>
+        <p style="margin:0;font-family:ui-monospace,monospace;font-size:15px;
+          color:#111827;letter-spacing:0.02em;">{escape(temporary_password)}</p>
+      </div>
+      <p style="margin:0;font-size:14px;color:#6B7280;">
+        Por seguridad, deberás elegir una nueva contraseña la primera vez que entres a la app.
+      </p>"""
+    return build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name or "Tu médico",
+        headline="Tu cuenta en Keepi está lista",
+        body_paragraphs=[
+            f"{doctor} creó tu cuenta de paciente. Usa estos datos para iniciar sesión en la app:",
+        ],
+        cta_label="Ir a Keepi",
+        cta_href=(settings.email_link_account or "https://keepi.onrender.com").strip(),
+        footer_note="No compartas tu contraseña temporal con nadie.",
+        highlight_box_html=cred_block,
+        badge_subtitle="Invitación de tu médico",
+    )
 
 
 def send_patient_invite_email(
     to_email: str,
     patient_name: str,
     temporary_password: str,
+    *,
+    doctor_name: str | None = None,
 ) -> PatientInviteEmailResult:
-    brand = (settings.email_brand_name or "").strip() or "Keepi"
-    subject = f"Tu acceso a {brand}"
-    html = _html(patient_name, to_email, temporary_password, brand)
+    brand = _brand()
+    doctor = _format_doctor_display(doctor_name or "Tu médico")
+    subject = f"{brand} – {doctor} te dio acceso a la app"
+    html = _html(patient_name, to_email, temporary_password, doctor_name)
 
     source_email = settings.ses_from_email
     source_name = settings.ses_from_name
