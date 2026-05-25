@@ -51,6 +51,20 @@ class AnalysisRequestRepository:
             .all()
         )
 
+    def list_completed_with_documents_by_doctor(
+        self, doctor_id: UUID
+    ) -> List[AnalysisRequest]:
+        return (
+            self.db.query(AnalysisRequest)
+            .filter(
+                AnalysisRequest.doctor_id == doctor_id,
+                AnalysisRequest.status == "completed",
+                AnalysisRequest.document_id.isnot(None),
+            )
+            .order_by(AnalysisRequest.completed_at.desc())
+            .all()
+        )
+
     def mark_as_completed(
         self, request_id: UUID, document_id: UUID
     ) -> Optional[AnalysisRequest]:

@@ -320,6 +320,46 @@ class AnalysisRequestService:
             "expires_at": invitation.expires_at,
         }
 
+    async def _save_analysis_to_patient_s3(
+        self,
+        *,
+        patient_uid: str,
+        analysis_req: AnalysisRequest,
+        content: bytes,
+        filename: str,
+        mime_type: str,
+        extra_tags: Optional[List[str]] = None,
+    ) -> Document:
+        """Mismo almacenamiento que la subida web: S3 del paciente, cloud_provider=s3."""
+        s3_service = S3Service()
+        upload_res = await s3_service.upload_document(
+            patient_uid,
+            io.BytesIO(content),
+            filename,
+            mime_type,
+            folder=_ANALYSIS_DOCUMENT_CATEGORY,
+        )
+        s3_key = upload_res.get("file_path")
+        file_url = upload_res.get("signed_url")
+        tags = [f"analysis_request:{analysis_req.id}"]
+        if extra_tags:
+            tags.extend(extra_tags)
+        document = Document(
+            user_id=UUID(patient_uid),
+            name=filename,
+            category=_ANALYSIS_DOCUMENT_CATEGORY,
+            description=f"Archivo subido para solicitud: {analysis_req.description}",
+            file_url=file_url,
+            file_name=filename,
+            file_size=len(content),
+            file_type=mime_type.split("/")[0] if "/" in mime_type else mime_type,
+            cloud_provider="s3",
+            drive_file_id=None,
+            s3_key=s3_key,
+            tags=tags,
+        )
+        return self._docs.persist(document)
+
     async def upload_via_public_token(
         self,
         *,
@@ -363,35 +403,14 @@ class AnalysisRequestService:
             )
             mime_type = file.content_type or "application/octet-stream"
 
-            s3_service = S3Service()
-            upload_res = await s3_service.upload_document(
-                patient_uid,
-                io.BytesIO(content),
-                filename,
-                mime_type,
-                folder=_ANALYSIS_DOCUMENT_CATEGORY,
+            document = await self._save_analysis_to_patient_s3(
+                patient_uid=patient_uid,
+                analysis_req=analysis_req,
+                content=content,
+                filename=filename,
+                mime_type=mime_type,
+                extra_tags=["public_upload"],
             )
-            s3_key = upload_res.get("file_path")
-            file_url = upload_res.get("signed_url")
-
-            document = Document(
-                user_id=UUID(patient_uid),
-                name=filename,
-                category=_ANALYSIS_DOCUMENT_CATEGORY,
-                description=f"Archivo subido para solicitud: {analysis_req.description}",
-                file_url=file_url,
-                file_name=filename,
-                file_size=len(content),
-                file_type=mime_type.split("/")[0],
-                cloud_provider="s3",
-                drive_file_id=None,
-                s3_key=s3_key,
-                tags=[
-                    f"analysis_request:{analysis_req.id}",
-                    "public_upload",
-                ],
-            )
-            self._docs.persist(document)
 
             updated_request = self._repo.mark_as_completed(
                 analysis_req.id, document.id
@@ -435,11 +454,47 @@ class AnalysisRequestService:
             raise HTTPException(
                 status_code=404, detail="Solicitud no válida o ya completada."
             )
-        return await self.upload_and_complete(
-            patient_uid=str(analysis_req.patient_id),
-            request_id=request_id,
-            file=file,
-        )
+        try:
+            content = await file.read()
+            if not content:
+                raise HTTPException(status_code=400, detail="El archivo está vacío")
+            ext_from_mime = ""
+            if file.content_type and "/" in file.content_type:
+                ext_from_mime = file.content_type.split("/")[-1]
+            filename = (
+                file.filename
+                or f"estudio_{request_id.hex}.{ext_from_mime or 'bin'}"
+            )
+            mime_type = file.content_type or "application/octet-stream"
+            patient_uid = str(analysis_req.patient_id)
+
+            document = await self._save_analysis_to_patient_s3(
+                patient_uid=patient_uid,
+                analysis_req=analysis_req,
+                content=content,
+                filename=filename,
+                mime_type=mime_type,
+                extra_tags=["doctor_upload"],
+            )
+            updated_request = self._repo.mark_as_completed(request_id, document.id)
+            if not updated_request:
+                raise HTTPException(
+                    status_code=500, detail="No se pudo completar la solicitud."
+                )
+            self._notify_doctor_completed(
+                analysis_req=updated_request, document_id=document.id
+            )
+            return {
+                "message": "Archivo subido y solicitud completada.",
+                "request_id": str(updated_request.id),
+                "document_id": str(document.id),
+            }
+        except HTTPException:
+            raise
+        except Exception:
+            self._db.rollback()
+            logger.exception("Error en doctor_upload_and_complete")
+            raise HTTPException(status_code=500, detail=_MSG_ERROR_INTERNO) from None
 
     async def upload_and_complete(
         self,
