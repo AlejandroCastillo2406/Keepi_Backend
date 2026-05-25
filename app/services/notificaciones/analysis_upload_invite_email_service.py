@@ -10,8 +10,11 @@ from app.services.notificaciones.clinical_email_layout import (
 def build_public_analysis_upload_link(raw_token: str) -> str:
     base = (settings.public_questionnaire_base_url or "").strip().rstrip("/")
     if not base:
-        return raw_token
-    return f"{base}/upload/{raw_token}"
+        return ""
+    token = (raw_token or "").strip()
+    if not token:
+        return ""
+    return f"{base}/upload/{token}"
 
 
 def build_analysis_upload_email_subject(doctor_name: str) -> str:
@@ -43,21 +46,38 @@ def build_analysis_upload_email_html(
         <p style="margin:0;font-size:14px;line-height:1.55;color:#334155;">{safe_desc}</p>
       </div>"""
 
+    link = (public_link or "").strip()
+    has_web_link = link.startswith("http")
+    body_paragraphs = [
+        f"{_format_doctor_display(doctor_name)} necesita que compartas los resultados "
+        "de tu estudio."
+    ]
+    if has_web_link:
+        body_paragraphs.append(
+            "Puedes subir el archivo de forma segura con el botón de abajo, "
+            "sin iniciar sesión en la app."
+        )
+    else:
+        body_paragraphs.append(
+            "Abre la app Keepi en tu teléfono y revisa la sección de análisis "
+            "para subir el archivo."
+        )
+
+    footer_note = (
+        f"Este enlace estará disponible {expires_in_days} días. "
+        "Si expiró, pídele a tu médico que te envíe uno nuevo."
+        if has_web_link
+        else "Si no ves la solicitud en la app, pídele a tu médico que la reenvíe."
+    )
+
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
         headline="Sube el resultado de tu análisis",
-        body_paragraphs=[
-            f"{_format_doctor_display(doctor_name)} necesita que compartas los resultados "
-            "de tu estudio. Puedes subir el archivo de forma segura con el botón de abajo, "
-            "sin iniciar sesión en la app.",
-        ],
-        cta_label="Subir análisis",
-        cta_href=public_link,
-        footer_note=(
-            f"Este enlace estará disponible {expires_in_days} días. "
-            "Si expiró, pídele a tu médico que te envíe uno nuevo."
-        ),
+        body_paragraphs=body_paragraphs,
+        cta_label="Subir análisis" if has_web_link else "",
+        cta_href=link if has_web_link else "",
+        footer_note=footer_note,
         highlight_box_html=highlight,
         badge_subtitle="Solicitud de análisis",
     )

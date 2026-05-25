@@ -97,13 +97,35 @@ class AnalysisRequestService:
             payload["public_upload_link"] = public_link
             push_data["public_upload_link"] = public_link
 
-        send_email = bool(patient_email and public_link)
-        if send_email:
+        email_to = (patient_email or "").strip()
+        if not email_to:
+            logger.info(
+                "Solicitud %s: paciente %s sin email; solo push/in-app.",
+                analysis_request_id,
+                patient_id,
+            )
+            push_ok = self._fallback_push_only(
+                patient_id=patient_id,
+                title=title,
+                body=body,
+                payload=payload,
+                push_data=push_data,
+            )
+        else:
+            link = (public_link or "").strip()
+            if link and not link.startswith("http"):
+                logger.warning(
+                    "Solicitud %s: enlace público inválido (%r); email sin botón web.",
+                    analysis_request_id,
+                    link[:80],
+                )
+                link = ""
+
             email_html = build_analysis_upload_email_html(
                 patient_name=patient_name,
                 doctor_name=doctor_name,
                 description=description,
-                public_link=public_link,
+                public_link=link,
                 expires_in_days=_INVITATION_TTL_DAYS,
             )
             email_subject = build_analysis_upload_email_subject(doctor_name)
@@ -113,7 +135,7 @@ class AnalysisRequestService:
                     patient_id,
                     title=title,
                     message=body,
-                    to_email=patient_email,
+                    to_email=email_to,
                     notification_type="info",
                     payload=payload,
                     push_data=push_data,
@@ -121,12 +143,19 @@ class AnalysisRequestService:
                     email_html=email_html,
                 )
                 push_ok = res.push_devices_ok
-                if not res.email or not res.email.success:
+                if res.email and res.email.success:
+                    logger.info(
+                        "Solicitud %s: email enviado a %s (link_web=%s).",
+                        analysis_request_id,
+                        email_to,
+                        bool(link.startswith("http")),
+                    )
+                else:
                     err = res.email.error if res.email else "no_response"
                     logger.warning(
                         "Email de solicitud %s a %s falló: %s",
                         analysis_request_id,
-                        patient_email,
+                        email_to,
                         err,
                     )
             except Exception:
@@ -141,14 +170,6 @@ class AnalysisRequestService:
                     payload=payload,
                     push_data=push_data,
                 )
-        else:
-            push_ok = self._fallback_push_only(
-                patient_id=patient_id,
-                title=title,
-                body=body,
-                payload=payload,
-                push_data=push_data,
-            )
 
         if push_ok == 0:
             logger.warning(
@@ -237,7 +258,8 @@ class AnalysisRequestService:
             public_link = build_public_analysis_upload_link(raw_token)
         except Exception:
             logger.exception(
-                "No se pudo crear invitación pública para solicitud %s; se envía sólo push",
+                "No se pudo crear invitación pública para solicitud %s; "
+                "se notificará igual por push/email si hay email del paciente",
                 created.id,
             )
 

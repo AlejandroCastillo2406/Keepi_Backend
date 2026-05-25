@@ -81,9 +81,30 @@ def build_clinical_action_email_html(
     safe_doctor = html_escape(_format_doctor_display(doctor_name), quote=True)
     safe_headline = html_escape(headline.strip(), quote=True)
     safe_badge = html_escape(badge_subtitle.strip(), quote=True)
-    safe_href = html_escape(cta_href or "", quote=True)
-    safe_cta = html_escape(cta_label.strip(), quote=True)
+    href = (cta_href or "").strip()
+    label = (cta_label or "").strip()
+    show_cta = href.startswith("http") and bool(label)
+    safe_href = html_escape(href, quote=True)
+    safe_cta = html_escape(label, quote=True)
     safe_footer = html_escape(footer_note.strip(), quote=True)
+
+    cta_block = ""
+    if show_cta:
+        cta_block = f"""
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+              style="margin:26px 0 8px;" width="100%">
+              <tr>
+                <td align="center">
+                  <a href="{safe_href}" target="_blank"
+                    style="display:inline-block;background:{_ACCENT};color:#ffffff;
+                      text-decoration:none;font-size:15px;font-weight:600;
+                      padding:14px 32px;border-radius:50px;min-width:200px;
+                      text-align:center;box-shadow:0 4px 14px rgba(242,109,45,0.35);">
+                    {safe_cta}
+                  </a>
+                </td>
+              </tr>
+            </table>"""
 
     paragraphs_html = "".join(
         f'<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#374151;">'
@@ -151,21 +172,7 @@ def build_clinical_action_email_html(
 
             {paragraphs_html}
             {highlight_box_html}
-
-            <table role="presentation" border="0" cellpadding="0" cellspacing="0"
-              style="margin:26px 0 8px;" width="100%">
-              <tr>
-                <td align="center">
-                  <a href="{safe_href}" target="_blank"
-                    style="display:inline-block;background:{_ACCENT};color:#ffffff;
-                      text-decoration:none;font-size:15px;font-weight:600;
-                      padding:14px 32px;border-radius:50px;min-width:200px;
-                      text-align:center;box-shadow:0 4px 14px rgba(242,109,45,0.35);">
-                    {safe_cta}
-                  </a>
-                </td>
-              </tr>
-            </table>
+            {cta_block}
 
             <p style="margin:0;font-size:13px;line-height:1.55;color:#9CA3AF;text-align:center;">
               {safe_footer}
