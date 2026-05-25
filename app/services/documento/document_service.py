@@ -44,6 +44,14 @@ class DocumentService:
         self.folder_service = FolderService(self.db)
         self.ai_analysis_service = DocumentAnalysisService()
 
+    @staticmethod
+    def _normalize_document_category(category: str) -> str:
+        """Normaliza categoría/carpeta; 'recetas' se conserva en minúsculas."""
+        raw = (category or "").strip()
+        if raw.lower() == "recetas":
+            return "recetas"
+        return raw.title() if raw else raw
+
     def list_documents_by_drive_file_ids(
         self, user_id: str, drive_file_ids: List[str]
     ) -> List[Document]:
@@ -589,7 +597,7 @@ class DocumentService:
             file_type,
             file_data,
         )
-        category = category.strip().title() if category else category
+        category = self._normalize_document_category(category)
         user_config = await self.user_config_service.get_user_config(user_id)
         storage_preference = (
             user_config.cloud_provider.value
