@@ -1,13 +1,29 @@
 from html import escape as html_escape
 
 from app.core.config import settings
+from app.services.notificaciones.clinical_email_layout import (
+    _format_doctor_display,
+    build_clinical_action_email_html,
+)
 
 
 def build_public_analysis_upload_link(raw_token: str) -> str:
     base = (settings.public_questionnaire_base_url or "").strip().rstrip("/")
     if not base:
-        return raw_token
-    return f"{base}/upload/{raw_token}"
+        return ""
+    token = (raw_token or "").strip()
+    if not token:
+        return ""
+    return f"{base}/upload/{token}"
+
+
+def build_analysis_upload_email_subject(doctor_name: str) -> str:
+    brand = (getattr(settings, "email_brand_name", "") or "").strip()
+    if brand.startswith("http"):
+        brand = "Keepi"
+    brand = brand or "Keepi"
+    doctor = _format_doctor_display(doctor_name)
+    return f"{brand} – {doctor} te pidió subir un análisis"
 
 
 def build_analysis_upload_email_html(
@@ -18,60 +34,50 @@ def build_analysis_upload_email_html(
     public_link: str,
     expires_in_days: int = 30,
 ) -> str:
-    brand = (getattr(settings, "email_brand_name", "") or "").strip() or "Keepi"
+    desc = (description or "").strip()
+    highlight = ""
+    if desc:
+        safe_desc = html_escape(desc, quote=True)
+        highlight = f"""
+      <div style="margin:0 0 20px;padding:14px 16px;border-radius:10px;
+        background:#F8FAFC;border:1px solid #E2E8F0;">
+        <p style="margin:0 0 6px;font-size:11px;font-weight:700;letter-spacing:0.05em;
+          text-transform:uppercase;color:#64748B;">Detalle de la solicitud</p>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#334155;">{safe_desc}</p>
+      </div>"""
 
-    safe_name = html_escape((patient_name or "").strip() or "Hola", quote=True)
-    safe_doctor = html_escape((doctor_name or "Tu doctor").strip(), quote=True)
-    safe_desc = html_escape((description or "").strip(), quote=True)
-    safe_href = html_escape(public_link or "", quote=True)
-    safe_brand = html_escape(brand, quote=True)
-    safe_days = html_escape(str(int(expires_in_days)), quote=True)
+    link = (public_link or "").strip()
+    has_web_link = link.startswith("http")
+    body_paragraphs = [
+        f"{_format_doctor_display(doctor_name)} necesita que compartas los resultados "
+        "de tu estudio."
+    ]
+    if has_web_link:
+        body_paragraphs.append(
+            "Puedes subir el archivo de forma segura con el botón de abajo, "
+            "sin iniciar sesión en la app."
+        )
+    else:
+        body_paragraphs.append(
+            "Abre la app Keepi en tu teléfono y revisa la sección de análisis "
+            "para subir el archivo."
+        )
 
-    logo_url = "https://raw.githubusercontent.com/AlejandroCastillo2406/Keepi_Front/master/assets/icons/logo.png"
-
-    description_block = (
-        f"""
-      <div style="margin:0 0 24px;padding:14px 16px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;font-size:14px;line-height:1.5;">
-        <strong style="display:block;margin-bottom:4px;color:#9a3412;">Detalle de la solicitud</strong>
-        {safe_desc}
-      </div>
-        """
-        if safe_desc
-        else ""
+    footer_note = (
+        f"Este enlace estará disponible {expires_in_days} días. "
+        "Si expiró, pídele a tu médico que te envíe uno nuevo."
+        if has_web_link
+        else "Si no ves la solicitud en la app, pídele a tu médico que la reenvíe."
     )
 
-    return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8" /></head>
-<body style="font-family:system-ui,sans-serif;background:#f3f4f6;padding:24px;">
-  <table role="presentation" width="100%" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-top: 4px solid #ea580c;">
-    <tr><td>
-
-      <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
-        <tr>
-          <td valign="middle">
-            <img src="{logo_url}" alt="Icono" style="height:42px; width:auto; display:block; margin-right:12px;" />
-          </td>
-          <td valign="middle">
-            <span style="font-size:30px; font-weight:800; color:#1e293b; font-family:system-ui,sans-serif; letter-spacing:-0.5px;">{safe_brand}</span>
-          </td>
-        </tr>
-      </table>
-
-      <p style="margin:0 0 12px;color:#374151;">Hola {safe_name},</p>
-      <p style="margin:0 0 20px;color:#374151;">{safe_doctor} te pidió subir el resultado de un análisis. Puedes hacerlo de forma segura desde el siguiente enlace, sin necesidad de iniciar sesión.</p>
-
-      {description_block}
-
-      <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
-        <tr>
-          <td align="center" bgcolor="#ea580c" style="border-radius:8px;">
-            <a href="{safe_href}" target="_blank" style="font-size:15px;font-family:system-ui,sans-serif;color:#ffffff;text-decoration:none;padding:12px 24px;border:1px solid #ea580c;display:inline-block;border-radius:8px;font-weight:600;">Subir análisis</a>
-          </td>
-        </tr>
-      </table>
-
-      <p style="margin:0 0 8px;font-size:14px;color:#6b7280;">Este enlace estará disponible por {safe_days} días.</p>
-      <p style="margin:0;font-size:14px;color:#6b7280;">Si el enlace expiró o tienes problemas para abrirlo, comunícate con tu doctor para que te envíe uno nuevo.</p>
-    </td></tr>
-  </table>
-</body></html>"""
+    return build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        headline="Sube el resultado de tu análisis",
+        body_paragraphs=body_paragraphs,
+        cta_label="Subir análisis" if has_web_link else "",
+        cta_href=link if has_web_link else "",
+        footer_note=footer_note,
+        highlight_box_html=highlight,
+        badge_subtitle="Solicitud de análisis",
+    )

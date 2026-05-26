@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 import boto3
 from fastapi import HTTPException, UploadFile
@@ -18,10 +19,18 @@ from app.models.prescription import (
     PrescriptionPatientResponse,
 )
 from app.repositories.prescription_repository import PrescriptionRepository
+from app.repositories.user_repository import UserRepository
 from app.utils.prescription_cedula_parser import procesar_receta_con_seguridad
 from app.services.notificaciones.fcm_push_service import build_reminder_prompt_payload
 from app.services.notificaciones.notification_service import NotificationService
 from app.services.ocr.textract_service import extract_text_from_document
+
+if TYPE_CHECKING:
+    from app.services.documento.document_service import DocumentService
+
+logger = logging.getLogger(__name__)
+
+PRESCRIPTION_FOLDER_CATEGORY = "recetas"
 
 
 def _as_int_or_none(value: str | int | None) -> int | None:
@@ -48,10 +57,12 @@ class PrescriptionService:
         db: Session,
         prescription_repository: PrescriptionRepository | None = None,
         notification_service: NotificationService | None = None,
+        document_service: "DocumentService | None" = None,
     ) -> None:
         self._db = db
         self._rx = prescription_repository or PrescriptionRepository(db)
         self._notifications = notification_service or NotificationService(db)
+        self._document_service = document_service
         self._s3 = boto3.client(
             "s3",
             aws_access_key_id=settings.aws_access_key_id,
@@ -135,6 +146,13 @@ class PrescriptionService:
             for d in item_dtos
         ]
         saved = self._rx.create_with_items(draft, orm_items)
+        await self._archive_prescription_to_doctor_folder(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            file_data=content,
+            file_name=filename,
+            file_type=mime,
+        )
         return PrescriptionDraftResponse(
             id=str(saved.id),
             patient_id=str(saved.patient_id),
@@ -194,6 +212,64 @@ class PrescriptionService:
         prescription = self._rx.get_by_id(prescription_id)
         assert prescription is not None
         return self._to_patient_response(prescription)
+
+    async def _archive_prescription_to_doctor_folder(
+        self,
+        *,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        file_data: bytes,
+        file_name: str,
+        file_type: str,
+    ) -> None:
+        """Guarda la receta en la carpeta 'recetas' del almacenamiento del doctor."""
+        if self._document_service is None:
+            from app.factories.document_factory import (
+                get_document_repository,
+                get_folder_repository,
+            )
+            from app.services.documento.document_service import DocumentService
+
+            self._document_service = DocumentService(
+                db=self._db,
+                document_repository=get_document_repository(self._db),
+                folder_repository=get_folder_repository(self._db),
+            )
+
+        patient = UserRepository(self._db).get_by_id_plain(patient_id)
+        patient_label = (patient.name or patient.email or str(patient_id)) if patient else str(
+            patient_id
+        )
+        safe_patient = "".join(
+            c if c.isalnum() or c in (" ", "-", "_") else "_" for c in patient_label
+        ).strip()[:40] or "paciente"
+        storage_name = file_name
+        if safe_patient.lower() not in file_name.lower():
+            storage_name = f"Receta_{safe_patient}_{file_name}"
+
+        try:
+            await self._document_service.save_analyzed_document(
+                user_id=str(doctor_id),
+                file_data=file_data,
+                file_name=file_name,
+                file_type=file_type,
+                category=PRESCRIPTION_FOLDER_CATEGORY,
+                save_as_name=storage_name,
+                tags=["receta", f"patient:{patient_id}"],
+            )
+            logger.info(
+                "Receta archivada en carpeta '%s' del doctor %s (paciente %s)",
+                PRESCRIPTION_FOLDER_CATEGORY,
+                doctor_id,
+                patient_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Error archivando receta en carpeta '%s' del doctor %s: %s",
+                PRESCRIPTION_FOLDER_CATEGORY,
+                doctor_id,
+                exc,
+            )
 
     def set_reminders_opt_in(
         self,

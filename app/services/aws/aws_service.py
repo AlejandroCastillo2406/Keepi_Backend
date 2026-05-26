@@ -643,7 +643,12 @@ class AWSService:
             raise
 
     async def upload_to_s3_with_folder(
-        self, file_data: bytes, file_name: str, user_id: str, folder_name: str
+        self,
+        file_data: bytes,
+        file_name: str,
+        user_id: str,
+        folder_name: str,
+        content_type: str | None = None,
     ) -> str:
         try:
 
@@ -654,17 +659,20 @@ class AWSService:
 
             logger.info("Subiendo archivo a carpeta de categoría: %s", key)
 
-            self.s3_client.put_object(
-                Bucket=settings.aws_s3_bucket,
-                Key=key,
-                Body=file_data,
-                Metadata={
+            put_kwargs = {
+                "Bucket": settings.aws_s3_bucket,
+                "Key": key,
+                "Body": file_data,
+                "Metadata": {
                     "user_id": user_id,
                     "category": category_ascii,
                     "folder": clean_folder,
                     "uploaded_at": str(int(time.time())),
                 },
-            )
+            }
+            if content_type:
+                put_kwargs["ContentType"] = content_type
+            self.s3_client.put_object(**put_kwargs)
 
             file_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{key}"
             logger.info("Archivo subido a carpeta de categoría: %s", file_url)

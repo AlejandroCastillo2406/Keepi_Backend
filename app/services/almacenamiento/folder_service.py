@@ -177,7 +177,10 @@ class FolderService:
             return None
 
     def _normalize_category_name(self, category: str) -> str:
-        return category.strip().title() if category else ""
+        raw = (category or "").strip()
+        if raw.lower() == "recetas":
+            return "recetas"
+        return raw.title() if raw else ""
 
     async def ensure_category_folder_exists(
         self, user_id: str, category: str, storage_preference: str

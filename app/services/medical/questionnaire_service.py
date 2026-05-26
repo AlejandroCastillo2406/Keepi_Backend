@@ -28,6 +28,7 @@ from app.models.questionnaire_invitation import (
 )
 from app.models.questionnaire import SpecialtySummary
 from app.repositories.questionnaire_repository import QuestionnaireRepository
+from app.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
 from app.services.notificaciones.notification_service import NotificationService
@@ -184,9 +185,12 @@ class QuestionnaireService:
     ) -> QuestionnaireInvitationSendResponse:
         summary, raw_token = self.create_invitation_batch(doctor_id, payload)
         public_link = build_public_questionnaire_link(raw_token)
+        doctor = UserRepository(self._db).get_by_id_plain(doctor_id)
+        doctor_name = (doctor.name if doctor else None) or "Tu médico"
         email_res = send_questionnaire_invite_email(
             to_email=summary.patient_email,
             patient_name=summary.patient_name,
+            doctor_name=doctor_name,
             public_link=public_link,
         )
         if not email_res.success:

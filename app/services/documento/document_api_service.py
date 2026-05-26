@@ -20,6 +20,7 @@ from app.services.usuarios import UserConfigService, UserService
 
 logger = logging.getLogger(__name__)
 MSG_ERROR_INTERNO = "Error interno del servidor"
+KEEPI_PATIENT_ANALYSES_FOLDER_ID = "keepi-patient-analyses"
 
 
 def _doc_on_storage(doc: Any, storage: str) -> bool:
@@ -269,7 +270,76 @@ class DocumentApiService:
         docs = self._documents._document_repository.get_by_user_id(uid)
         return {str(d.id): d for d in docs}
 
+    def _build_doctor_patient_analysis_files(self, doctor_uid: str) -> list[dict]:
+        from app.core.roles import ROLE_DOCTOR
+        from app.repositories.analysis_request_repository import AnalysisRequestRepository
+        from app.repositories.user_repository import UserRepository
+
+        try:
+            doctor_uuid = uuid.UUID(str(doctor_uid))
+        except (ValueError, TypeError):
+            return []
+        from app.repositories.user_repository import UserRepository as _UserRepo
+
+        user = _UserRepo(self._db).get_by_id_with_role(doctor_uuid)
+        if not user or not user.role or user.role.name != ROLE_DOCTOR:
+            return []
+
+        repo = AnalysisRequestRepository(self._db)
+        user_repo = UserRepository(self._db)
+        requests = repo.list_completed_with_documents_by_doctor(user.id)
+        files: list[dict] = []
+        for req in requests:
+            if not req.document_id:
+                continue
+            doc = self._documents.get_document_by_id_any(req.document_id)
+            if not doc:
+                continue
+            s3_key = getattr(doc, "s3_key", None)
+            if not s3_key:
+                continue
+            patient = user_repo.get_by_id_plain(req.patient_id)
+            patient_label = (
+                (getattr(patient, "name", None) or getattr(patient, "email", None))
+                if patient
+                else None
+            ) or "Paciente"
+            display_name = (
+                getattr(doc, "name", None)
+                or getattr(doc, "file_name", None)
+                or "Análisis"
+            )
+            files.append(
+                {
+                    "id": str(doc.id),
+                    "name": f"{patient_label} — {display_name}",
+                    "size": str(getattr(doc, "file_size", 0) or 0),
+                    "keepi_verified": True,
+                    "keepi_document_id": str(doc.id),
+                    "can_edit_metadata": False,
+                    "category": getattr(doc, "category", None),
+                    "description": getattr(doc, "description", None),
+                    "patient_name": patient_label,
+                    "analysis_request_id": str(req.id),
+                    "cloud_provider": "s3",
+                }
+            )
+        return files
+
+    async def get_patient_analyses_folder(self, doctor_uid: str) -> dict:
+        files = self._build_doctor_patient_analysis_files(doctor_uid)
+        return {
+            "folder": {
+                "id": KEEPI_PATIENT_ANALYSES_FOLDER_ID,
+                "name": "Análisis Clínicos (pacientes)",
+            },
+            "folders": [],
+            "files": files,
+        }
+
     async def get_s3_folder_contents(self, uid: str, path: str) -> dict:
+        if path == KEEPI_PATIENT_ANALYSES_FOLDER_ID:
+            return await self.get_patient_analyses_folder(uid)
         if not path or (
             not path.startswith(f"users/{uid}/") and path != f"users/{uid}"
         ):
@@ -339,6 +409,8 @@ class DocumentApiService:
         return {"folders": folders, "root_files": root_files}
 
     async def get_drive_folder_contents(self, uid: str, folder_id: str) -> dict:
+        if folder_id == KEEPI_PATIENT_ANALYSES_FOLDER_ID:
+            return await self.get_patient_analyses_folder(uid)
         drive_service = await _get_drive_service_or_raise(uid, self._db)
         parent_id = None if folder_id == "root" else folder_id
         subfolders = await drive_service.get_folder_structure(parent_id)
@@ -548,8 +620,22 @@ class DocumentApiService:
             except Exception:
                 logger.exception("Error leyendo carpetas de Drive")
                 folders = []
+        patient_analysis_files: list[dict] = []
+        if getattr(user, "role_name", "") == "DOCTOR":
+            patient_analysis_files = self._build_doctor_patient_analysis_files(uid)
+            if patient_analysis_files:
+                folders.insert(
+                    0,
+                    {
+                        "id": KEEPI_PATIENT_ANALYSES_FOLDER_ID,
+                        "name": "Análisis Clínicos (pacientes)",
+                        "document_count": len(patient_analysis_files),
+                        "path": KEEPI_PATIENT_ANALYSES_FOLDER_ID,
+                    },
+                )
         out: dict = {
             "folders": folders,
+            "patient_analysis_files": patient_analysis_files,
             "total_keepi": total_keepi,
             "alerts": alerts[:30],
             "alerts_count": len(alerts),
@@ -727,6 +813,33 @@ class DocumentApiService:
                 media_type=mime_type or "application/octet-stream",
                 headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
             )
+        if not file_path:
+            raise HTTPException(
+                status_code=404,
+                detail="El documento no tiene ruta de almacenamiento.",
+            )
         s3_service = S3Service()
-        file_url = await s3_service.get_file_url(file_path)
-        return RedirectResponse(url=file_url)
+        try:
+            file_content, mime_type, file_name = s3_service.get_file_bytes(file_path)
+        except Exception as exc:
+            logger.exception("Error leyendo archivo S3 %s", file_path)
+            raise HTTPException(
+                status_code=404,
+                detail="No se pudo leer el archivo en Keepi Cloud.",
+            ) from exc
+        from app.utils.storage_filename import resolve_storage_filename, sniff_content_type
+
+        declared = getattr(document, "file_type", None) or mime_type
+        detected = sniff_content_type(file_content, declared) or declared
+        safe_name, detected = resolve_storage_filename(
+            getattr(document, "file_name", None) or file_name,
+            getattr(document, "name", None) or file_name,
+            detected,
+            file_content,
+        )
+        safe_name = safe_name.replace('"', "")
+        return Response(
+            content=file_content,
+            media_type=detected or "application/octet-stream",
+            headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+        )

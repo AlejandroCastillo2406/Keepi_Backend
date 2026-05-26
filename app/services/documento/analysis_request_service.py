@@ -23,6 +23,7 @@ from app.services.almacenamiento import FolderService, GoogleDriveService, S3Ser
 from app.services.autenticacion import GoogleOAuthService
 from app.services.notificaciones.analysis_upload_invite_email_service import (
     build_analysis_upload_email_html,
+    build_analysis_upload_email_subject,
     build_public_analysis_upload_link,
 )
 from app.services.notificaciones.notification_service import NotificationService
@@ -96,23 +97,45 @@ class AnalysisRequestService:
             payload["public_upload_link"] = public_link
             push_data["public_upload_link"] = public_link
 
-        send_email = bool(patient_email and public_link)
-        if send_email:
+        email_to = (patient_email or "").strip()
+        if not email_to:
+            logger.info(
+                "Solicitud %s: paciente %s sin email; solo push/in-app.",
+                analysis_request_id,
+                patient_id,
+            )
+            push_ok = self._fallback_push_only(
+                patient_id=patient_id,
+                title=title,
+                body=body,
+                payload=payload,
+                push_data=push_data,
+            )
+        else:
+            link = (public_link or "").strip()
+            if link and not link.startswith("http"):
+                logger.warning(
+                    "Solicitud %s: enlace público inválido (%r); email sin botón web.",
+                    analysis_request_id,
+                    link[:80],
+                )
+                link = ""
+
             email_html = build_analysis_upload_email_html(
                 patient_name=patient_name,
                 doctor_name=doctor_name,
                 description=description,
-                public_link=public_link,
+                public_link=link,
                 expires_in_days=_INVITATION_TTL_DAYS,
             )
-            email_subject = "Tu doctor te pidió subir un análisis"
+            email_subject = build_analysis_upload_email_subject(doctor_name)
             try:
                 res = notify_user_push_db_and_email(
                     self._db,
                     patient_id,
                     title=title,
                     message=body,
-                    to_email=patient_email,
+                    to_email=email_to,
                     notification_type="info",
                     payload=payload,
                     push_data=push_data,
@@ -120,12 +143,19 @@ class AnalysisRequestService:
                     email_html=email_html,
                 )
                 push_ok = res.push_devices_ok
-                if not res.email or not res.email.success:
+                if res.email and res.email.success:
+                    logger.info(
+                        "Solicitud %s: email enviado a %s (link_web=%s).",
+                        analysis_request_id,
+                        email_to,
+                        bool(link.startswith("http")),
+                    )
+                else:
                     err = res.email.error if res.email else "no_response"
                     logger.warning(
                         "Email de solicitud %s a %s falló: %s",
                         analysis_request_id,
-                        patient_email,
+                        email_to,
                         err,
                     )
             except Exception:
@@ -140,14 +170,6 @@ class AnalysisRequestService:
                     payload=payload,
                     push_data=push_data,
                 )
-        else:
-            push_ok = self._fallback_push_only(
-                patient_id=patient_id,
-                title=title,
-                body=body,
-                payload=payload,
-                push_data=push_data,
-            )
 
         if push_ok == 0:
             logger.warning(
@@ -236,7 +258,8 @@ class AnalysisRequestService:
             public_link = build_public_analysis_upload_link(raw_token)
         except Exception:
             logger.exception(
-                "No se pudo crear invitación pública para solicitud %s; se envía sólo push",
+                "No se pudo crear invitación pública para solicitud %s; "
+                "se notificará igual por push/email si hay email del paciente",
                 created.id,
             )
 
@@ -320,6 +343,46 @@ class AnalysisRequestService:
             "expires_at": invitation.expires_at,
         }
 
+    async def _save_analysis_to_patient_s3(
+        self,
+        *,
+        patient_uid: str,
+        analysis_req: AnalysisRequest,
+        content: bytes,
+        filename: str,
+        mime_type: str,
+        extra_tags: Optional[List[str]] = None,
+    ) -> Document:
+        """Mismo almacenamiento que la subida web: S3 del paciente, cloud_provider=s3."""
+        s3_service = S3Service()
+        upload_res = await s3_service.upload_document(
+            patient_uid,
+            io.BytesIO(content),
+            filename,
+            mime_type,
+            folder=_ANALYSIS_DOCUMENT_CATEGORY,
+        )
+        s3_key = upload_res.get("file_path")
+        file_url = upload_res.get("signed_url")
+        tags = [f"analysis_request:{analysis_req.id}"]
+        if extra_tags:
+            tags.extend(extra_tags)
+        document = Document(
+            user_id=UUID(patient_uid),
+            name=filename,
+            category=_ANALYSIS_DOCUMENT_CATEGORY,
+            description=f"Archivo subido para solicitud: {analysis_req.description}",
+            file_url=file_url,
+            file_name=filename,
+            file_size=len(content),
+            file_type=mime_type.split("/")[0] if "/" in mime_type else mime_type,
+            cloud_provider="s3",
+            drive_file_id=None,
+            s3_key=s3_key,
+            tags=tags,
+        )
+        return self._docs.persist(document)
+
     async def upload_via_public_token(
         self,
         *,
@@ -363,35 +426,14 @@ class AnalysisRequestService:
             )
             mime_type = file.content_type or "application/octet-stream"
 
-            s3_service = S3Service()
-            upload_res = await s3_service.upload_document(
-                patient_uid,
-                io.BytesIO(content),
-                filename,
-                mime_type,
-                folder=_ANALYSIS_DOCUMENT_CATEGORY,
+            document = await self._save_analysis_to_patient_s3(
+                patient_uid=patient_uid,
+                analysis_req=analysis_req,
+                content=content,
+                filename=filename,
+                mime_type=mime_type,
+                extra_tags=["public_upload"],
             )
-            s3_key = upload_res.get("file_path")
-            file_url = upload_res.get("signed_url")
-
-            document = Document(
-                user_id=UUID(patient_uid),
-                name=filename,
-                category=_ANALYSIS_DOCUMENT_CATEGORY,
-                description=f"Archivo subido para solicitud: {analysis_req.description}",
-                file_url=file_url,
-                file_name=filename,
-                file_size=len(content),
-                file_type=mime_type.split("/")[0],
-                cloud_provider="s3",
-                drive_file_id=None,
-                s3_key=s3_key,
-                tags=[
-                    f"analysis_request:{analysis_req.id}",
-                    "public_upload",
-                ],
-            )
-            self._docs.persist(document)
 
             updated_request = self._repo.mark_as_completed(
                 analysis_req.id, document.id
@@ -435,11 +477,47 @@ class AnalysisRequestService:
             raise HTTPException(
                 status_code=404, detail="Solicitud no válida o ya completada."
             )
-        return await self.upload_and_complete(
-            patient_uid=str(analysis_req.patient_id),
-            request_id=request_id,
-            file=file,
-        )
+        try:
+            content = await file.read()
+            if not content:
+                raise HTTPException(status_code=400, detail="El archivo está vacío")
+            ext_from_mime = ""
+            if file.content_type and "/" in file.content_type:
+                ext_from_mime = file.content_type.split("/")[-1]
+            filename = (
+                file.filename
+                or f"estudio_{request_id.hex}.{ext_from_mime or 'bin'}"
+            )
+            mime_type = file.content_type or "application/octet-stream"
+            patient_uid = str(analysis_req.patient_id)
+
+            document = await self._save_analysis_to_patient_s3(
+                patient_uid=patient_uid,
+                analysis_req=analysis_req,
+                content=content,
+                filename=filename,
+                mime_type=mime_type,
+                extra_tags=["doctor_upload"],
+            )
+            updated_request = self._repo.mark_as_completed(request_id, document.id)
+            if not updated_request:
+                raise HTTPException(
+                    status_code=500, detail="No se pudo completar la solicitud."
+                )
+            self._notify_doctor_completed(
+                analysis_req=updated_request, document_id=document.id
+            )
+            return {
+                "message": "Archivo subido y solicitud completada.",
+                "request_id": str(updated_request.id),
+                "document_id": str(document.id),
+            }
+        except HTTPException:
+            raise
+        except Exception:
+            self._db.rollback()
+            logger.exception("Error en doctor_upload_and_complete")
+            raise HTTPException(status_code=500, detail=_MSG_ERROR_INTERNO) from None
 
     async def upload_and_complete(
         self,

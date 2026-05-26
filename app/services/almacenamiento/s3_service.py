@@ -413,6 +413,17 @@ class S3Service:
             logger.error(f"Error obteniendo URL de archivo S3: {str(e)}")
             raise
 
+    def get_file_bytes(self, file_path: str) -> tuple[bytes, str, str]:
+        """Descarga el objeto S3 y devuelve (contenido, content_type, nombre_archivo)."""
+        if not file_path:
+            raise ValueError("Ruta de archivo inválida")
+        response = self.s3_client.get_object(Bucket=self.bucket_name, Key=file_path)
+        body = response["Body"].read()
+        content_type = response.get("ContentType") or "application/octet-stream"
+        meta = response.get("Metadata") or {}
+        filename = meta.get("original_filename") or file_path.split("/")[-1]
+        return body, content_type, filename
+
     async def _ensure_category_folder_exists(
         self, user_id: str, folder_name: str
     ) -> None:
