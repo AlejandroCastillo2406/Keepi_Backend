@@ -71,3 +71,14 @@ async def doctor_propose_time(
         body,
         current_user.name or "",
     )
+
+
+@router.post("/{appointment_id}/cancel", response_model=AppointmentResponse)
+async def cancel_doctor_appointment(
+    appointment_id: UUID,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    return AppointmentService.cancel_doctor_appointment(
+        db, appointment_id, current_user.id
+    )

@@ -168,3 +168,28 @@ class AppointmentService:
             push_data={"type": "appointment_proposed", "appointment_id": str(row.id)},
         )
         return row
+
+    @staticmethod
+    def cancel_doctor_appointment(
+        db: Session,
+        appointment_id: UUID,
+        doctor_id: UUID,
+    ) -> Appointment:
+        repo = AppointmentService._repo(db)
+        appointment = repo.get_by_id(appointment_id)
+
+        if not appointment:
+            raise HTTPException(status_code=404, detail="Cita no encontrada")
+
+        if appointment.doctor_id != doctor_id:
+            raise HTTPException(
+                status_code=403, detail="No tienes permiso para modificar esta cita"
+            )
+
+        if appointment.status == "canceled":
+            raise HTTPException(
+                status_code=400, detail="Esta cita ya se encuentra cancelada"
+            )
+
+        appointment.status = "canceled"
+        return repo.save(appointment)
