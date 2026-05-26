@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import datetime
 from typing import Any, Optional
+
+from app.utils.storage_filename import _split_name, extension_for_content_type
 
 _ANALYSIS_SUBFOLDER = "Analisis"
 _PRESCRIPTION_SUBFOLDER = "Recetas"
@@ -37,6 +40,21 @@ def doctor_patient_analysis_folder(patient_name: str) -> str:
 
 def doctor_patient_prescription_folder(patient_name: str) -> str:
     return f"{sanitize_storage_segment(patient_name)}/{_PRESCRIPTION_SUBFOLDER}"
+
+
+def build_receta_assigned_filename(
+    assigned_at: datetime,
+    *,
+    content_type: str,
+    original_filename: str = "",
+) -> str:
+    """Nombre final en S3: Receta_YYYY-MM-DD.ext según fecha de asignación."""
+    date_str = assigned_at.strftime("%Y-%m-%d")
+    _, orig_ext = _split_name(original_filename or "")
+    ext = orig_ext or extension_for_content_type(content_type or "") or ".pdf"
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    return f"Receta_{date_str}{ext}"
 
 
 def sanitize_s3_relative_path(path: str) -> str:

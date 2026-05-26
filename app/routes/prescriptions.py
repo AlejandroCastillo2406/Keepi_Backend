@@ -48,7 +48,7 @@ async def confirm_prescription(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo DOCTOR puede confirmar recetas",
         )
-    return svc.confirm_prescription(
+    return await svc.confirm_prescription(
         prescription_id=prescription_id,
         doctor_id=current_user.id,
         doctor_name=current_user.name or "Doctor",

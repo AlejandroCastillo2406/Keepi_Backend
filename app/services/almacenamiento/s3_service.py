@@ -599,17 +599,30 @@ class S3Service:
 
     async def _count_documents_in_folder(self, folder_prefix: str) -> int:
         try:
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket_name, Prefix=folder_prefix, MaxKeys=1000
-            )
+            prefix = (folder_prefix or "").strip()
+            if prefix and not prefix.endswith("/"):
+                prefix = f"{prefix}/"
 
-            files = [
-                obj
-                for obj in response.get("Contents", [])
-                if not obj["Key"].endswith("/")
-            ]
-
-            return len(files)
+            total = 0
+            continuation_token = None
+            while True:
+                kwargs: dict = {
+                    "Bucket": self.bucket_name,
+                    "Prefix": prefix,
+                    "MaxKeys": 1000,
+                }
+                if continuation_token:
+                    kwargs["ContinuationToken"] = continuation_token
+                response = self.s3_client.list_objects_v2(**kwargs)
+                total += sum(
+                    1
+                    for obj in response.get("Contents", [])
+                    if not obj["Key"].endswith("/")
+                )
+                continuation_token = response.get("NextContinuationToken")
+                if not continuation_token:
+                    break
+            return total
 
         except Exception as e:
             logger.error(

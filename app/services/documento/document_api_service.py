@@ -362,14 +362,22 @@ class DocumentApiService:
                 id_attr="s3_key",
                 docs_by_id=self._user_docs_by_id(uid),
             )
-        folders_for_response = [
-            {
-                "id": f.get("path", f.get("name", "")).rstrip("/"),
-                "name": f.get("name", ""),
-                "files_count": 0,
-            }
-            for f in subfolders
-        ]
+        folders_for_response = []
+        for f in subfolders:
+            folder_path = (f.get("path") or "").strip()
+            if folder_path and not folder_path.endswith("/"):
+                folder_path = f"{folder_path}/"
+            file_count = 0
+            if folder_path:
+                file_count = await s3._count_documents_in_folder(folder_path)
+            folders_for_response.append(
+                {
+                    "id": (folder_path or f.get("name", "")).rstrip("/"),
+                    "name": f.get("name", ""),
+                    "files_count": file_count,
+                    "document_count": file_count,
+                }
+            )
         return {
             "folder": {"id": path, "name": folder_name},
             "folders": folders_for_response,

@@ -25,6 +25,7 @@ from app.services.notificaciones.fcm_push_service import build_reminder_prompt_p
 from app.services.notificaciones.notification_service import NotificationService
 from app.services.ocr.textract_service import extract_text_from_document
 from app.utils.doctor_patient_storage import (
+    build_receta_assigned_filename,
     doctor_patient_prescription_folder,
     patient_folder_label,
 )
@@ -147,13 +148,6 @@ class PrescriptionService:
             for d in item_dtos
         ]
         saved = self._rx.create_with_items(draft, orm_items)
-        await self._archive_prescription_to_doctor_folder(
-            doctor_id=doctor_id,
-            patient_id=patient_id,
-            file_data=content,
-            file_name=filename,
-            file_type=mime,
-        )
         return PrescriptionDraftResponse(
             id=str(saved.id),
             patient_id=str(saved.patient_id),
@@ -163,7 +157,7 @@ class PrescriptionService:
             items=item_dtos,
         )
 
-    def confirm_prescription(
+    async def confirm_prescription(
         self,
         *,
         prescription_id: uuid.UUID,
@@ -177,9 +171,10 @@ class PrescriptionService:
         if prescription.doctor_id != doctor_id:
             raise HTTPException(status_code=403, detail="No autorizado")
 
+        assigned_at = datetime.now(timezone.utc)
         prescription.extracted_text = body.extracted_text
         prescription.status = "published_to_patient"
-        prescription.confirmed_at = datetime.now(timezone.utc)
+        prescription.confirmed_at = assigned_at
         prescription.patient_reminders_enabled = False
         self._rx.save(prescription)
 
@@ -195,6 +190,11 @@ class PrescriptionService:
                     raw_payload={},
                 )
             )
+
+        await self._archive_prescription_on_assign(
+            prescription=prescription,
+            assigned_at=assigned_at,
+        )
 
         reminder_payload = build_reminder_prompt_payload(doctor_name)
         self._notifications.notify_user_push_in_app(
@@ -214,6 +214,49 @@ class PrescriptionService:
         assert prescription is not None
         return self._to_patient_response(prescription)
 
+    async def _archive_prescription_on_assign(
+        self,
+        *,
+        prescription: Prescription,
+        assigned_at: datetime,
+    ) -> None:
+        source_key = (prescription.source_s3_key or "").strip()
+        if not source_key:
+            logger.warning(
+                "Receta %s sin source_s3_key; no se archiva en carpeta del doctor",
+                prescription.id,
+            )
+            return
+        try:
+            obj = self._s3.get_object(
+                Bucket=settings.aws_s3_bucket,
+                Key=source_key,
+            )
+            file_data = obj["Body"].read()
+        except Exception:
+            logger.exception(
+                "No se pudo leer receta %s desde S3 (%s)",
+                prescription.id,
+                source_key,
+            )
+            return
+
+        mime = prescription.source_file_type or "application/octet-stream"
+        original = prescription.source_file_name or "receta"
+        storage_name = build_receta_assigned_filename(
+            assigned_at,
+            content_type=mime,
+            original_filename=original,
+        )
+        await self._archive_prescription_to_doctor_folder(
+            doctor_id=prescription.doctor_id,
+            patient_id=prescription.patient_id,
+            file_data=file_data,
+            file_name=original,
+            file_type=mime,
+            save_as_name=storage_name,
+        )
+
     async def _archive_prescription_to_doctor_folder(
         self,
         *,
@@ -222,6 +265,7 @@ class PrescriptionService:
         file_data: bytes,
         file_name: str,
         file_type: str,
+        save_as_name: str,
     ) -> None:
         """Guarda la receta en S3 del doctor: {nombre_paciente}/Recetas."""
         if self._document_service is None:
@@ -248,7 +292,7 @@ class PrescriptionService:
                 file_name=file_name,
                 file_type=file_type,
                 category=category,
-                save_as_name=file_name,
+                save_as_name=save_as_name,
                 tags=["receta", f"patient:{patient_id}"],
             )
             logger.info(
