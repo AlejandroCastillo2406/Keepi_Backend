@@ -321,7 +321,7 @@ class DocumentApiService:
                     "description": getattr(doc, "description", None),
                     "patient_name": patient_label,
                     "analysis_request_id": str(req.id),
-                    "cloud_provider": "s3",
+                    "cloud_provider": getattr(doc, "cloud_provider", None) or "keepi_cloud",
                 }
             )
         return files

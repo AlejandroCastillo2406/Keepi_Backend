@@ -56,25 +56,20 @@ class FolderService:
                 "storage_type": storage_preference,
             }
 
+    def _clean_s3_segment(self, segment: str) -> str:
+        from app.utils.doctor_patient_storage import sanitize_storage_segment
+
+        return sanitize_storage_segment(segment)
+
     def _clean_folder_name(self, category: str, storage_preference: str = None) -> str:
         if storage_preference == "keepi_cloud":
-
-            try:
-
-                normalized = unicodedata.normalize("NFD", category)
-
-                ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
-
-                if not ascii_name.strip():
-                    ascii_name = category
-
-                sanitized = re.sub(r"[^a-zA-Z0-9\-_]", "_", ascii_name)
-                return sanitized[:50]
-            except Exception as e:
-                logger.warning(f"Error sanitizando nombre de carpeta: {e}")
-
-                sanitized = re.sub(r"[^a-zA-Z0-9\-_]", "_", category)
-                return sanitized[:50]
+            if "/" in (category or ""):
+                return "/".join(
+                    self._clean_s3_segment(p)
+                    for p in category.split("/")
+                    if p.strip()
+                )
+            return self._clean_s3_segment(category)
         else:
 
             clean_name = re.sub(r"\s+", " ", category.strip())
@@ -178,6 +173,8 @@ class FolderService:
 
     def _normalize_category_name(self, category: str) -> str:
         raw = (category or "").strip()
+        if "/" in raw:
+            return raw
         if raw.lower() == "recetas":
             return "recetas"
         return raw.title() if raw else ""

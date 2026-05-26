@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.models.user_config import CloudProvider, UserConfigUpdate
 from app.services.almacenamiento import S3Service
 from app.services.autenticacion import GoogleOAuthService
-from app.services.subscription.subscription_service import SubscriptionService
 from app.services.usuarios.user_config_service import UserConfigService
 
 logger = logging.getLogger(__name__)
@@ -38,24 +37,6 @@ class CloudStorageSetupService:
                 "message": "Almacenamiento restablecido a sin configurar",
                 "storage_type": "not_configured",
             }
-
-        if storage_type == "keepi_cloud":
-            subscription_service = SubscriptionService()
-            subscription = await subscription_service.get_user_subscription(
-                user_id, self._db
-            )
-            status_value = (
-                getattr(subscription.status, "value", subscription.status)
-                if subscription
-                else None
-            )
-            plan_code = None
-            if subscription and subscription.plan_id:
-                plan_code = SubscriptionService.resolve_plan_code(
-                    self._db, subscription.plan_id
-                )
-            if not subscription or status_value != "active" or plan_code != "premium":
-                raise PermissionError("SUBSCRIPTION_REQUIRED")
 
         await cfg.get_or_create_user_config(user_id)
 

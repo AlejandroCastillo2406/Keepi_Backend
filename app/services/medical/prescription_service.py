@@ -24,14 +24,15 @@ from app.utils.prescription_cedula_parser import procesar_receta_con_seguridad
 from app.services.notificaciones.fcm_push_service import build_reminder_prompt_payload
 from app.services.notificaciones.notification_service import NotificationService
 from app.services.ocr.textract_service import extract_text_from_document
+from app.utils.doctor_patient_storage import (
+    doctor_patient_prescription_folder,
+    patient_folder_label,
+)
 
 if TYPE_CHECKING:
     from app.services.documento.document_service import DocumentService
 
 logger = logging.getLogger(__name__)
-
-PRESCRIPTION_FOLDER_CATEGORY = "recetas"
-
 
 def _as_int_or_none(value: str | int | None) -> int | None:
     if value is None:
@@ -222,7 +223,7 @@ class PrescriptionService:
         file_name: str,
         file_type: str,
     ) -> None:
-        """Guarda la receta en la carpeta 'recetas' del almacenamiento del doctor."""
+        """Guarda la receta en S3 del doctor: {nombre_paciente}/Recetas."""
         if self._document_service is None:
             from app.factories.document_factory import (
                 get_document_repository,
@@ -237,15 +238,8 @@ class PrescriptionService:
             )
 
         patient = UserRepository(self._db).get_by_id_plain(patient_id)
-        patient_label = (patient.name or patient.email or str(patient_id)) if patient else str(
-            patient_id
-        )
-        safe_patient = "".join(
-            c if c.isalnum() or c in (" ", "-", "_") else "_" for c in patient_label
-        ).strip()[:40] or "paciente"
-        storage_name = file_name
-        if safe_patient.lower() not in file_name.lower():
-            storage_name = f"Receta_{safe_patient}_{file_name}"
+        patient_label = patient_folder_label(patient)
+        category = doctor_patient_prescription_folder(patient_label)
 
         try:
             await self._document_service.save_analyzed_document(
@@ -253,20 +247,20 @@ class PrescriptionService:
                 file_data=file_data,
                 file_name=file_name,
                 file_type=file_type,
-                category=PRESCRIPTION_FOLDER_CATEGORY,
-                save_as_name=storage_name,
+                category=category,
+                save_as_name=file_name,
                 tags=["receta", f"patient:{patient_id}"],
             )
             logger.info(
-                "Receta archivada en carpeta '%s' del doctor %s (paciente %s)",
-                PRESCRIPTION_FOLDER_CATEGORY,
+                "Receta archivada en '%s' del doctor %s (paciente %s)",
+                category,
                 doctor_id,
                 patient_id,
             )
         except Exception as exc:
             logger.exception(
-                "Error archivando receta en carpeta '%s' del doctor %s: %s",
-                PRESCRIPTION_FOLDER_CATEGORY,
+                "Error archivando receta en '%s' del doctor %s: %s",
+                category,
                 doctor_id,
                 exc,
             )

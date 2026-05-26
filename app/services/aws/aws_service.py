@@ -652,7 +652,9 @@ class AWSService:
     ) -> str:
         try:
 
-            clean_folder = self._sanitize_folder_name(folder_name)
+            from app.utils.doctor_patient_storage import sanitize_s3_relative_path
+
+            clean_folder = sanitize_s3_relative_path(folder_name)
 
             category_ascii = self._to_ascii_safe(folder_name)
             key = f"users/{user_id}/{clean_folder}/{file_name}"

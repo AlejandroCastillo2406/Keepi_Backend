@@ -13,8 +13,10 @@ from app.models.user_config import (
     UserConfigUpdate,
 )
 from app.repositories.user_config_repository import UserConfigRepository
+from app.services.almacenamiento import S3Service
 
 logger = logging.getLogger(__name__)
+_s3 = S3Service()
 
 
 class UserConfigService:
@@ -73,15 +75,39 @@ class UserConfigService:
             self.db.rollback()
             raise
 
+    async def _provision_keepi_cloud_folder(self, user_id: str) -> None:
+        try:
+            result = await _s3.create_user_folder(user_id)
+            if not result.get("success"):
+                logger.warning(
+                    "Carpeta S3 no creada para usuario %s: %s", user_id, result
+                )
+        except Exception:
+            logger.exception("Error creando carpeta S3 para usuario %s", user_id)
+
+    async def _activate_keepi_cloud_default(
+        self, user_id: str
+    ) -> UserConfigResponse:
+        updated = await self.update_user_config(
+            user_id, UserConfigUpdate(cloud_provider=CloudProvider.KEEPI_CLOUD)
+        )
+        if not updated:
+            raise ValueError("No se pudo activar Keepi Cloud por defecto")
+        await self._provision_keepi_cloud_folder(user_id)
+        return updated
+
     async def get_or_create_user_config(self, user_id: str) -> UserConfigResponse:
         try:
             config = await self.get_user_config(user_id)
             if not config:
                 default_config = UserConfigCreate(
-                    cloud_provider=CloudProvider.NOT_CONFIGURED,
+                    cloud_provider=CloudProvider.KEEPI_CLOUD,
                     notification_preferences={},
                 )
                 config = await self.create_user_config(user_id, default_config)
+                await self._provision_keepi_cloud_folder(user_id)
+            elif config.cloud_provider == CloudProvider.NOT_CONFIGURED:
+                config = await self._activate_keepi_cloud_default(user_id)
             return config
         except Exception as e:
             logger.error("Error obteniendo/creando configuración de usuario: %s", e)

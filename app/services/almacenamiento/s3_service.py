@@ -121,9 +121,13 @@ class S3Service:
             if not folder.endswith("/"):
                 folder += "/"
 
-            await self._ensure_category_folder_exists(user_id, folder)
+            from app.utils.doctor_patient_storage import sanitize_s3_relative_path
 
-            file_path = f"users/{user_id}/{folder}{unique_filename}"
+            folder_relative = sanitize_s3_relative_path(folder.rstrip("/"))
+            folder_key = f"{folder_relative}/" if folder_relative else "other/"
+            await self._ensure_category_folder_exists(user_id, folder_key)
+
+            file_path = f"users/{user_id}/{folder_key}{unique_filename}"
 
             file_content = file_data.read()
             file_size = len(file_content)
@@ -428,40 +432,42 @@ class S3Service:
         self, user_id: str, folder_name: str
     ) -> None:
         try:
-            folder_path = f"users/{user_id}/{folder_name}"
+            from app.utils.doctor_patient_storage import sanitize_s3_relative_path
 
-            try:
-                self.s3_client.head_object(Bucket=self.bucket_name, Key=folder_path)
-                logger.info(
-                    f"Carpeta de categoría '{folder_name}' ya existe para usuario {user_id}"
-                )
+            relative = sanitize_s3_relative_path((folder_name or "").rstrip("/"))
+            if not relative:
                 return
-            except ClientError as e:
-                if e.response["Error"]["Code"] == "404":
 
-                    logger.info(
-                        f"Creando carpeta de categoría '{folder_name}' para usuario {user_id}"
-                    )
-                else:
-                    raise
+            segments = [s for s in relative.split("/") if s]
+            accumulated = ""
+            for segment in segments:
+                accumulated = f"{accumulated}/{segment}" if accumulated else segment
+                folder_path = f"users/{user_id}/{accumulated}"
 
-            category_ascii = self._to_ascii_safe(folder_name.rstrip("/"))
+                try:
+                    self.s3_client.head_object(Bucket=self.bucket_name, Key=folder_path)
+                    continue
+                except ClientError as e:
+                    if e.response["Error"]["Code"] != "404":
+                        raise
 
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=folder_path,
-                Body=b"",
-                Metadata={
-                    "user_id": user_id,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "type": "category_folder",
-                    "category": category_ascii,
-                },
-            )
-
-            logger.info(
-                f"Carpeta de categoría '{folder_name}' creada exitosamente para usuario {user_id}"
-            )
+                category_ascii = self._to_ascii_safe(accumulated)
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=folder_path,
+                    Body=b"",
+                    Metadata={
+                        "user_id": user_id,
+                        "created_at": datetime.utcnow().isoformat(),
+                        "type": "category_folder",
+                        "category": category_ascii,
+                    },
+                )
+                logger.info(
+                    "Carpeta S3 '%s' creada para usuario %s",
+                    accumulated,
+                    user_id,
+                )
 
         except Exception as e:
             logger.error(

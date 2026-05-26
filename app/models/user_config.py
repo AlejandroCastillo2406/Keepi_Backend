@@ -23,7 +23,7 @@ class UserConfig(Base):
         index=True,
         unique=True,
     )
-    cloud_provider = Column(String(50), nullable=False, default="not_configured")
+    cloud_provider = Column(String(50), nullable=False, default="keepi_cloud")
     notification_preferences = Column(JSON, nullable=True, default=dict)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -48,7 +48,7 @@ class CloudProvider(str, Enum):
 
 
 class UserConfigBase(BaseModel):
-    cloud_provider: CloudProvider = CloudProvider.NOT_CONFIGURED
+    cloud_provider: CloudProvider = CloudProvider.KEEPI_CLOUD
     notification_preferences: Optional[Dict[str, Any]] = None
 
 

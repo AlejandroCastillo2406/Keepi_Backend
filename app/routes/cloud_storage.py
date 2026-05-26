@@ -11,8 +11,6 @@ from app.models.user import User
 from app.services.almacenamiento.cloud_storage_setup_service import (
     CloudStorageSetupService,
 )
-from app.services.subscription.subscription_service import SubscriptionService
-
 router = APIRouter()
 logger = logging.getLogger(__name__)
 MSG_ERROR_INTERNO = "Error interno del servidor"
@@ -40,33 +38,6 @@ async def setup_cloud_storage(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except PermissionError as e:
-        if str(e) == "SUBSCRIPTION_REQUIRED":
-            subscription_service = SubscriptionService()
-            subscription = await subscription_service.get_user_subscription(
-                str(current_user.id), db
-            )
-            status_value = (
-                getattr(subscription.status, "value", subscription.status)
-                if subscription
-                else None
-            )
-            plan_code = None
-            if subscription and subscription.plan_id:
-                plan_code = SubscriptionService.resolve_plan_code(
-                    db, subscription.plan_id
-                )
-            raise HTTPException(
-                status_code=402,
-                detail={
-                    "error": "subscription_required",
-                    "message": "Se requiere una suscripción activa para usar Keepi Cloud",
-                    "subscription_info": {
-                        "required_plan": "premium",
-                        "current_plan": plan_code if plan_code else "none",
-                        "current_status": status_value if subscription else "none",
-                    },
-                },
-            )
         raise HTTPException(status_code=403, detail=str(e))
     except HTTPException:
         raise

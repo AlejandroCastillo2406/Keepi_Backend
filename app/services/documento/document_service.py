@@ -46,8 +46,10 @@ class DocumentService:
 
     @staticmethod
     def _normalize_document_category(category: str) -> str:
-        """Normaliza categoría/carpeta; 'recetas' se conserva en minúsculas."""
+        """Normaliza categoría/carpeta; rutas {paciente}/Analisis|Recetas se conservan."""
         raw = (category or "").strip()
+        if "/" in raw:
+            return raw
         if raw.lower() == "recetas":
             return "recetas"
         return raw.title() if raw else raw
@@ -710,7 +712,7 @@ class DocumentService:
 
             user_config = await self.user_config_service.get_user_config(user_id)
             cloud_provider = (
-                user_config.cloud_provider if user_config else "google_drive"
+                user_config.cloud_provider if user_config else "keepi_cloud"
             )
 
             file_url = None
@@ -828,7 +830,7 @@ class DocumentService:
         cloud_provider = (
             user_config.cloud_provider.value
             if user_config and user_config.cloud_provider
-            else "google_drive"
+            else "keepi_cloud"
         )
         folder_result = await self.folder_service.ensure_category_folder_exists(
             uid, category, cloud_provider
