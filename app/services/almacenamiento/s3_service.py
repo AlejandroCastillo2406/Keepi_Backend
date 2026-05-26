@@ -108,11 +108,17 @@ class S3Service:
         filename: str,
         content_type: str,
         folder: str = None,
+        storage_filename: str | None = None,
     ) -> Dict[str, Any]:
         try:
 
             file_extension = filename.split(".")[-1] if "." in filename else ""
-            unique_filename = f"{uuid.uuid4()}.{file_extension}"
+            if storage_filename and storage_filename.strip():
+                unique_filename = storage_filename.strip().replace("\\", "/").split("/")[
+                    -1
+                ]
+            else:
+                unique_filename = f"{uuid.uuid4()}.{file_extension}"
 
             if not folder:
 
@@ -229,16 +235,33 @@ class S3Service:
                     kwargs["ContinuationToken"] = continuation_token
                 response = self.s3_client.list_objects_v2(**kwargs)
 
+                subfolder_names = {
+                    p["Prefix"].rstrip("/").split("/")[-1]
+                    for p in response.get("CommonPrefixes", [])
+                }
+                subfolder_marker_keys = {
+                    p["Prefix"].rstrip("/")
+                    for p in response.get("CommonPrefixes", [])
+                }
+
                 for obj in response.get("Contents", []):
                     if obj["Key"].endswith("/"):
                         continue
                     filename = obj["Key"].split("/")[-1]
                     size = obj.get("Size", 0)
+                    if size == 0 and (
+                        obj["Key"] in subfolder_marker_keys
+                        or filename in subfolder_names
+                    ):
+                        continue
                     try:
                         metadata_response = self.s3_client.head_object(
                             Bucket=self.bucket_name, Key=obj["Key"]
                         )
                         meta = metadata_response.get("Metadata") or {}
+                        marker_type = (meta.get("type") or "").lower()
+                        if marker_type in ("category_folder", "folder") and size == 0:
+                            continue
                         documents.append(
                             {
                                 "file_path": obj["Key"],
@@ -259,6 +282,11 @@ class S3Service:
                         logger.warning(
                             "head_object falló para %s: %s", obj["Key"], head_err
                         )
+                        if size == 0 and (
+                            obj["Key"] in subfolder_marker_keys
+                            or filename in subfolder_names
+                        ):
+                            continue
                         documents.append(
                             {
                                 "file_path": obj["Key"],
@@ -442,7 +470,7 @@ class S3Service:
             accumulated = ""
             for segment in segments:
                 accumulated = f"{accumulated}/{segment}" if accumulated else segment
-                folder_path = f"users/{user_id}/{accumulated}"
+                folder_path = f"users/{user_id}/{accumulated}/"
 
                 try:
                     self.s3_client.head_object(Bucket=self.bucket_name, Key=folder_path)

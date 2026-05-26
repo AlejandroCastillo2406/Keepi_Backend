@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from app.services.notificaciones.user_notify import (
     notify_user_push_db_and_email,
 )
 from app.utils.doctor_patient_storage import (
+    build_analysis_result_filename,
     doctor_patient_analysis_folder,
     patient_folder_label,
 )
@@ -371,14 +373,22 @@ class AnalysisRequestService:
         )
         storage_folder = f"{doctor_patient_analysis_folder(folder_label)}/"
         category = doctor_patient_analysis_folder(folder_label)
+        uploaded_at = datetime.now(timezone.utc)
+        storage_name = build_analysis_result_filename(
+            uploaded_at,
+            analysis_description=analysis_req.description or "",
+            content_type=mime_type,
+            original_filename=filename,
+        )
 
         s3_service = S3Service()
         upload_res = await s3_service.upload_document(
             doctor_uid,
             io.BytesIO(content),
-            filename,
+            storage_name,
             mime_type,
             folder=storage_folder,
+            storage_filename=storage_name,
         )
         s3_key = upload_res.get("file_path")
         file_url = upload_res.get("signed_url")
@@ -390,11 +400,11 @@ class AnalysisRequestService:
             tags.extend(extra_tags)
         document = Document(
             user_id=doctor_id,
-            name=filename,
+            name=storage_name,
             category=category,
             description=f"Análisis de {folder_label}: {analysis_req.description}",
             file_url=file_url,
-            file_name=filename,
+            file_name=storage_name,
             file_size=len(content),
             file_type=mime_type.split("/")[0] if "/" in mime_type else mime_type,
             cloud_provider="keepi_cloud",

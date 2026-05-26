@@ -42,6 +42,26 @@ def doctor_patient_prescription_folder(patient_name: str) -> str:
     return f"{sanitize_storage_segment(patient_name)}/{_PRESCRIPTION_SUBFOLDER}"
 
 
+def build_analysis_result_filename(
+    uploaded_at: datetime,
+    *,
+    analysis_description: str,
+    content_type: str,
+    original_filename: str = "",
+) -> str:
+    """Nombre en S3: Resultado_{analisis_solicitado}_{YYYY-MM-DD}.ext"""
+    date_str = uploaded_at.strftime("%Y-%m-%d")
+    desc = sanitize_storage_segment(
+        (analysis_description or "").strip() or "analisis",
+        max_len=60,
+    )
+    _, orig_ext = _split_name(original_filename or "")
+    ext = orig_ext or extension_for_content_type(content_type or "") or ".pdf"
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    return f"Resultado_{desc}_{date_str}{ext}"
+
+
 def build_receta_assigned_filename(
     assigned_at: datetime,
     *,
