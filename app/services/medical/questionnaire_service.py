@@ -198,15 +198,32 @@ class QuestionnaireService:
         public_link = build_public_questionnaire_link(raw_token)
         doctor = UserRepository(self._db).get_by_id_plain(doctor_id)
         doctor_name = (doctor.name if doctor else None) or "Tu médico"
+        link_ok = (public_link or "").strip().startswith("http")
+        if not link_ok:
+            logger.warning(
+                "Invitación %s: PUBLIC_QUESTIONNAIRE_BASE_URL vacía o inválida; "
+                "el correo se enviará sin enlace web usable (link=%r).",
+                summary.id,
+                (public_link or "")[:80],
+            )
         email_res = send_questionnaire_invite_email(
             to_email=summary.patient_email,
             patient_name=summary.patient_name,
             doctor_name=doctor_name,
             public_link=public_link,
         )
-        if not email_res.success:
+        if email_res.success:
+            logger.info(
+                "Invitación cuestionario %s: correo enviado a %s (ses_id=%s, link_web=%s).",
+                summary.id,
+                summary.patient_email,
+                getattr(email_res, "ses_message_id", None),
+                link_ok,
+            )
+        else:
             logger.warning(
-                "Invitación cuestionario creada pero el correo no se envió: %s → %s",
+                "Invitación cuestionario %s creada pero el correo NO se envió a %s: %s",
+                summary.id,
                 summary.patient_email,
                 email_res.error,
             )

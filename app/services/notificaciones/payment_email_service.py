@@ -634,11 +634,16 @@ def send_payment_email_ses(
 def send_simple_html_email_ses(
     to_email: str, subject: str, html_body: str
 ) -> PaymentEmailResult:
+    import logging
+
+    log = logging.getLogger(__name__)
     source_email = (settings.ses_from_email or "").strip()
     source_name = (settings.ses_from_name or "").strip() or source_email
     if not source_email:
+        log.warning("SES: SES_FROM_EMAIL no configurado; no se envía a %s", to_email)
         return PaymentEmailResult(success=False, error="SES_FROM_EMAIL no configurado")
     if not settings.aws_access_key_id or not settings.aws_secret_access_key:
+        log.warning("SES: credenciales AWS vacías; no se envía a %s", to_email)
         return PaymentEmailResult(
             success=False, error="Credenciales AWS no configuradas"
         )
@@ -659,6 +664,9 @@ def send_simple_html_email_ses(
                 "Body": {"Html": {"Data": html_body, "Charset": "UTF-8"}},
             },
         )
-        return PaymentEmailResult(success=True, ses_message_id=result.get("MessageId"))
+        msg_id = result.get("MessageId")
+        log.info("SES: correo enviado a %s (MessageId=%s)", to_email.strip(), msg_id)
+        return PaymentEmailResult(success=True, ses_message_id=msg_id)
     except (BotoCoreError, ClientError) as exc:
+        log.warning("SES: fallo al enviar a %s: %s", to_email.strip(), exc)
         return PaymentEmailResult(success=False, error=str(exc))
