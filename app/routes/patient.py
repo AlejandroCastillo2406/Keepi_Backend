@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_patient_user
-from app.dto.timeline_dto import TimelineEventResponse
+from app.dto.timeline_dto import PriorDocumentItemResponse, TimelineEventResponse
 from app.models.appointment import (
     AppointmentPatientCreateRequest,
     AppointmentPatientRespondRequest,
@@ -56,3 +56,11 @@ async def get_my_care_timeline(
     timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
 ):
     return timeline_svc.timeline_for_patient(str(patient.id))
+
+
+@router.get("/prior-documents", response_model=List[PriorDocumentItemResponse])
+async def get_my_prior_documents(
+    patient: User = Depends(require_patient_user),
+    timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
+):
+    return timeline_svc.prior_documents_for_patient(str(patient.id))

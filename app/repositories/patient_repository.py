@@ -11,6 +11,7 @@ from app.dto.timeline_dto import EventType, TimelineEventResponse, Questionnaire
 
 from app.models.analysis_request import AnalysisRequest
 from app.models.appointment import Appointment
+from app.models.document import Document
 from app.models.prescription import Prescription
 from app.models.user import User as UserModel
 from app.models.questionnaire_invitation import QuestionnaireInvitation
@@ -235,6 +236,54 @@ class PatientRepository:
 
             logger.error(f"Error en timeline (cuestionarios): {e}")
 
+        try:
+            patient_tag = f"patient:{pid}"
+            prior_docs = (
+                db.query(Document)
+                .filter(Document.tags.isnot(None))
+                .order_by(Document.created_at.desc())
+                .all()
+            )
+            prior_for_patient = [
+                d
+                for d in prior_docs
+                if d.tags
+                and "documento_previo" in d.tags
+                and patient_tag in d.tags
+            ]
+            if prior_for_patient:
+                when = max(
+                    (_as_utc(d.created_at) or now_utc for d in prior_for_patient),
+                    default=now_utc,
+                )
+                count = len(prior_for_patient)
+                label = (
+                    f"{count} archivo subido"
+                    if count == 1
+                    else f"{count} archivos subidos"
+                )
+                raw_events.append(
+                    {
+                        "id": f"priordocs_{pid}",
+                        "date": _fmt_date(when),
+                        "time": _fmt_time(when),
+                        "title": "Documentos médicos previos",
+                        "actor": "Paciente",
+                        "event_type": EventType.PRIOR_DOCUMENTS,
+                        "subtitle": label,
+                        "description": (
+                            "Estudios o informes compartidos al completar el "
+                            "cuestionario inicial."
+                        ),
+                        "raw_dt": when,
+                        "action_patient_id": str(pid),
+                        "prior_documents_count": count,
+                    }
+                )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error en timeline (documentos previos): {e}")
+
         raw_events.sort(key=lambda x: x["raw_dt"])
 
         pending_request_ids = set()
@@ -277,7 +326,30 @@ class PatientRepository:
                     visual_state=vstate,
                     questionnaire_status=e.get("questionnaire_status"),
                     completed_at=e.get("completed_at"),
+                    action_patient_id=e.get("action_patient_id"),
+                    prior_documents_count=e.get("prior_documents_count"),
                 )
             )
 
         return out
+
+    @staticmethod
+    def list_prior_documents_for_patient(
+        db: Session, patient_id: str
+    ) -> List[Document]:
+        try:
+            pid = UUID(str(patient_id))
+        except (ValueError, TypeError):
+            return []
+        patient_tag = f"patient:{pid}"
+        rows = (
+            db.query(Document)
+            .filter(Document.tags.isnot(None))
+            .order_by(Document.created_at.desc())
+            .all()
+        )
+        return [
+            d
+            for d in rows
+            if d.tags and "documento_previo" in d.tags and patient_tag in d.tags
+        ]

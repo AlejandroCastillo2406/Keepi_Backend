@@ -10,6 +10,7 @@ from app.utils.storage_filename import _split_name, extension_for_content_type
 
 _ANALYSIS_SUBFOLDER = "Analisis"
 _PRESCRIPTION_SUBFOLDER = "Recetas"
+_PRIOR_DOCS_SUBFOLDER = "Documentos_Previos"
 
 
 def sanitize_storage_segment(name: str, *, max_len: int = 50) -> str:
@@ -40,6 +41,27 @@ def doctor_patient_analysis_folder(patient_name: str) -> str:
 
 def doctor_patient_prescription_folder(patient_name: str) -> str:
     return f"{sanitize_storage_segment(patient_name)}/{_PRESCRIPTION_SUBFOLDER}"
+
+
+def doctor_patient_prior_documents_folder(patient_name: str) -> str:
+    return f"{sanitize_storage_segment(patient_name)}/{_PRIOR_DOCS_SUBFOLDER}"
+
+
+def build_prior_document_filename(
+    uploaded_at: datetime,
+    *,
+    content_type: str,
+    original_filename: str = "",
+    sequence: int = 1,
+) -> str:
+    """Nombre en S3: DocumentoPrevio_{YYYY-MM-DD}_{n}.ext"""
+    date_str = uploaded_at.strftime("%Y-%m-%d")
+    _, orig_ext = _split_name(original_filename or "")
+    ext = orig_ext or extension_for_content_type(content_type or "") or ".pdf"
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    seq = max(1, int(sequence))
+    return f"DocumentoPrevio_{date_str}_{seq}{ext}"
 
 
 def build_analysis_result_filename(

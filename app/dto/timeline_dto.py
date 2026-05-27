@@ -12,6 +12,7 @@ class EventType(str, Enum):
     ANALYSIS_UPLOAD = "analysis_upload"
     REGISTRATION = "registration"
     QUESTIONNAIRE = "questionnaire"
+    PRIOR_DOCUMENTS = "prior_documents"
 
 
 class QuestionnaireStatus(str, Enum):
@@ -34,6 +35,21 @@ class TimelineEventResponse(BaseModel):
 
     questionnaire_status: Optional[QuestionnaireStatus] = None
     completed_at: Optional[str] = None
+    action_patient_id: Optional[str] = Field(
+        default=None,
+        description="Paciente asociado (p. ej. abrir listado de documentos previos).",
+    )
+    prior_documents_count: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class PriorDocumentItemResponse(BaseModel):
+    id: str
+    name: str
+    file_name: Optional[str] = None
+    s3_key: Optional[str] = None
+    file_size: Optional[int] = None
+    file_type: Optional[str] = None
+    created_at: Optional[str] = None

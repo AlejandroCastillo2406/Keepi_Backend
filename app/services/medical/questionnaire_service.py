@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import List, Optional
 
+from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.dto.questionnaire_responses_dto import PatientQuestionnaireAnswerView
@@ -17,14 +20,22 @@ from app.models.questionnaire import (
     TemplateResponse,
     TemplateUpdateRequest,
 )
+from app.models.document import Document
 from app.models.questionnaire_invitation import (
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
+    PublicPriorDocumentUploadResponse,
     QuestionnaireInvitation,
     QuestionnaireInvitationSendResponse,
     QuestionnaireInvitationSummaryResponse,
     QuestionnaireSendInvitationRequest,
+)
+from app.repositories.document_repository import DocumentRepository
+from app.services.almacenamiento import S3Service
+from app.utils.doctor_patient_storage import (
+    build_prior_document_filename,
+    doctor_patient_prior_documents_folder,
 )
 from app.models.questionnaire import SpecialtySummary
 from app.repositories.questionnaire_repository import QuestionnaireRepository
@@ -219,3 +230,77 @@ class QuestionnaireService:
             patient_id=str(invitation.patient_id),
         )
         return response
+
+    async def upload_public_prior_document(
+        self, token: str, file: UploadFile
+    ) -> PublicPriorDocumentUploadResponse:
+        inv = self._repo._get_invitation_for_public_token(token)
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        inv = self._repo._mark_expired_if_needed(inv)
+        if not bool(getattr(inv, "collect_prior_documents", False)):
+            raise HTTPException(
+                status_code=403,
+                detail="Esta invitación no permite subir documentos previos",
+            )
+        if inv.status != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail="Primero debes completar el cuestionario",
+            )
+
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+        mime = file.content_type or "application/octet-stream"
+        original = (file.filename or "documento").strip()
+        uploaded_at = datetime.now(timezone.utc)
+        storage_name = build_prior_document_filename(
+            uploaded_at,
+            content_type=mime,
+            original_filename=original,
+            sequence=(uploaded_at.microsecond % 9000) + 1000,
+        )
+        patient_label = inv.patient_name_snapshot or "paciente"
+        folder = f"{doctor_patient_prior_documents_folder(patient_label)}/"
+        doctor_uid = str(inv.doctor_id)
+
+        s3_service = S3Service()
+        upload_res = await s3_service.upload_document(
+            doctor_uid,
+            io.BytesIO(content),
+            storage_name,
+            mime,
+            folder=folder,
+            storage_filename=storage_name,
+        )
+        s3_key = upload_res.get("file_path")
+        file_url = upload_res.get("signed_url")
+        category = doctor_patient_prior_documents_folder(patient_label)
+
+        doc = Document(
+            user_id=inv.doctor_id,
+            name=storage_name,
+            category=category,
+            description="Documento médico previo (cuestionario inicial)",
+            file_url=file_url,
+            file_name=storage_name,
+            file_size=len(content),
+            file_type=mime.split("/")[0] if "/" in mime else mime,
+            cloud_provider="keepi_cloud",
+            drive_file_id=None,
+            s3_key=s3_key,
+            tags=[
+                "documento_previo",
+                f"patient:{inv.patient_id}",
+                f"questionnaire_invitation:{inv.id}",
+            ],
+        )
+        saved = DocumentRepository(self._db).persist(doc)
+
+        return PublicPriorDocumentUploadResponse(
+            message="Documento subido correctamente",
+            document_id=str(saved.id),
+            file_name=storage_name,
+        )

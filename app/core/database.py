@@ -95,6 +95,7 @@ class DatabaseConfig:
                 user_device_token,
             )
             Base.metadata.create_all(bind=engine)
+            cls._apply_schema_patches()
             with SessionLocal() as db:
                 _seed_roles_if_empty(db)
                 seed_questionnaire(db)
@@ -103,6 +104,22 @@ class DatabaseConfig:
         except Exception as e:
             logger.exception("Error inicializando BD: %s", e)
             raise
+
+    @classmethod
+    def _apply_schema_patches(cls) -> None:
+        """Migraciones ligeras idempotentes (columnas nuevas en tablas existentes)."""
+        try:
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS collect_prior_documents "
+                        "BOOLEAN NOT NULL DEFAULT FALSE"
+                    )
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning("Schema patch questionnaire_invitations: %s", e)
 
     @classmethod
     def get_db_session(cls) -> Session:

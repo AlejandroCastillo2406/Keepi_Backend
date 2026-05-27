@@ -904,6 +904,7 @@ class QuestionnaireRepository:
             token_hash="__pending__",
             status="pending",
             expires_at=expires_at,
+            collect_prior_documents=bool(data.collect_prior_documents),
         )
         self._db.add(invitation)
         self._db.flush()
@@ -977,6 +978,9 @@ class QuestionnaireRepository:
                 status=inv.status,
                 expires_at=inv.expires_at,
                 questions=[],
+                collect_prior_documents=bool(
+                    getattr(inv, "collect_prior_documents", False)
+                ),
             )
 
         items = (
@@ -991,6 +995,9 @@ class QuestionnaireRepository:
             patient_email=inv.patient_email_snapshot,
             status=inv.status,
             expires_at=inv.expires_at,
+            collect_prior_documents=bool(
+                getattr(inv, "collect_prior_documents", False)
+            ),
             questions=[
                 {
                     "item_id": str(i.id),
@@ -1070,6 +1077,9 @@ class QuestionnaireRepository:
                 invitation_id=str(inv.id),
                 status=inv.status,
                 completed_at=inv.completed_at or now,
+                collect_prior_documents=bool(
+                    getattr(inv, "collect_prior_documents", False)
+                ),
             ),
             inv,
         )

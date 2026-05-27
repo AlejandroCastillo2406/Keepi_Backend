@@ -29,6 +29,7 @@ from app.models.questionnaire_invitation import (
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
+    PublicPriorDocumentUploadResponse,
     QuestionnaireInvitationSendResponse,
     QuestionnaireInvitationSummaryResponse,
     QuestionnaireSendInvitationRequest,
@@ -338,6 +339,18 @@ def submit_public_invitation(
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
     return svc.submit_public_invitation_with_notify(token, payload)
+
+
+@router.post(
+    "/public/{token}/prior-documents",
+    response_model=PublicPriorDocumentUploadResponse,
+)
+async def upload_public_prior_document(
+    token: str,
+    file: UploadFile = File(...),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return await svc.upload_public_prior_document(token, file)
 
 
 @router.get(

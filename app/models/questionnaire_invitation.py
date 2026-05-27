@@ -58,6 +58,9 @@ class QuestionnaireInvitation(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     used_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    collect_prior_documents = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -157,6 +160,7 @@ class PublicInvitationViewResponse(BaseModel):
     status: str
     expires_at: datetime
     questions: List[InvitationQuestionView] = Field(default_factory=list)
+    collect_prior_documents: bool = False
 
 
 class PublicInvitationAnswerIn(BaseModel):
@@ -175,6 +179,10 @@ class QuestionnaireSendInvitationRequest(BaseModel):
     patient_id: str
     template_ids: List[str] = Field(default_factory=list)
     question_ids: List[str] = Field(default_factory=list)
+    collect_prior_documents: bool = Field(
+        default=False,
+        description="Si true, tras el cuestionario el paciente puede subir estudios previos (alta de paciente).",
+    )
 
 
 class QuestionnaireInvitationSummaryResponse(BaseModel):
@@ -204,3 +212,10 @@ class PublicInvitationSubmitResponse(BaseModel):
     invitation_id: str
     status: str
     completed_at: datetime
+    collect_prior_documents: bool = False
+
+
+class PublicPriorDocumentUploadResponse(BaseModel):
+    message: str
+    document_id: str
+    file_name: str
