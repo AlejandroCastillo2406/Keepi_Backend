@@ -40,6 +40,11 @@ class TimelineEventResponse(BaseModel):
         description="Paciente asociado (p. ej. abrir listado de documentos previos).",
     )
     prior_documents_count: Optional[int] = None
+    has_doctor_note: bool = False
+    doctor_note_preview: Optional[str] = Field(
+        default=None,
+        description="Vista previa de la nota clínica del médico (solo en vista doctor).",
+    )
 
     class Config:
         from_attributes = True

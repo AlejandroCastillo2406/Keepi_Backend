@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
@@ -8,6 +8,10 @@ class AnalysisRequestCreate(BaseModel):
     patient_id: UUID
     description: str
     expires_at: Optional[datetime] = None
+    doctor_note: Optional[str] = Field(
+        default=None,
+        description="Nota clínica del médico vinculada al evento del timeline.",
+    )
 
 
 class AnalysisRequestResponse(BaseModel):

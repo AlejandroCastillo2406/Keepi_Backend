@@ -26,6 +26,8 @@ from app.models.questionnaire import (
 )
 from app.dto.questionnaire_responses_dto import PatientQuestionnaireAnswerView
 from app.models.questionnaire_invitation import (
+    PublicDynamicAnswerRequest,
+    PublicDynamicAnswerResponse,
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
@@ -322,11 +324,23 @@ def get_invitation(
     "/public/{token}",
     response_model=PublicInvitationViewResponse,
 )
-def get_public_invitation(
+async def get_public_invitation(
     token: str,
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return svc.get_public_invitation_view(token)
+    return await svc.get_public_invitation_view(token)
+
+
+@router.post(
+    "/public/{token}/dynamic/answer",
+    response_model=PublicDynamicAnswerResponse,
+)
+async def answer_dynamic_question(
+    token: str,
+    payload: PublicDynamicAnswerRequest,
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return await svc.answer_dynamic_question(token, payload)
 
 
 @router.post(

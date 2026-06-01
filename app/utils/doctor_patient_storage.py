@@ -11,6 +11,7 @@ from app.utils.storage_filename import _split_name, extension_for_content_type
 _ANALYSIS_SUBFOLDER = "Analisis"
 _PRESCRIPTION_SUBFOLDER = "Recetas"
 _PRIOR_DOCS_SUBFOLDER = "Documentos_Previos"
+_NOTES_SUBFOLDER = "Notas"
 
 
 def sanitize_storage_segment(name: str, *, max_len: int = 50) -> str:
@@ -45,6 +46,23 @@ def doctor_patient_prescription_folder(patient_name: str) -> str:
 
 def doctor_patient_prior_documents_folder(patient_name: str) -> str:
     return f"{sanitize_storage_segment(patient_name)}/{_PRIOR_DOCS_SUBFOLDER}"
+
+
+def doctor_patient_notes_folder(patient_name: str) -> str:
+    return f"{sanitize_storage_segment(patient_name)}/{_NOTES_SUBFOLDER}"
+
+
+def build_doctor_timeline_note_filename(
+    *,
+    event_type: str,
+    created_at: datetime,
+    note_id: str,
+) -> str:
+    """Nombre en S3: Nota_{tipo}_{YYYY-MM-DD}_{id_corto}.txt"""
+    kind = sanitize_storage_segment((event_type or "evento").replace("_", "-"), max_len=24)
+    date_str = created_at.strftime("%Y-%m-%d")
+    short = sanitize_storage_segment(note_id.replace("-", "")[:12] or "nota", max_len=12)
+    return f"Nota_{kind}_{date_str}_{short}.txt"
 
 
 def build_prior_document_filename(

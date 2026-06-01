@@ -61,6 +61,7 @@ class DatabaseConfig:
                 analysis_request_invitation,
                 appointment,
                 document,
+                doctor_timeline_note,
                 folder,
                 notification,
                 notifications_log,
@@ -81,6 +82,7 @@ class DatabaseConfig:
                 analysis_request_invitation,
                 appointment,
                 document,
+                doctor_timeline_note,
                 folder,
                 notification,
                 notifications_log,
@@ -114,6 +116,13 @@ class DatabaseConfig:
                     text(
                         "ALTER TABLE questionnaire_invitations "
                         "ADD COLUMN IF NOT EXISTS collect_prior_documents "
+                        "BOOLEAN NOT NULL DEFAULT FALSE"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS is_dynamic "
                         "BOOLEAN NOT NULL DEFAULT FALSE"
                     )
                 )

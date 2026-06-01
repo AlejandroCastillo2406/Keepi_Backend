@@ -274,6 +274,20 @@ class AnalysisRequestService:
             description=data.description,
             public_link=public_link,
         )
+        note_text = (getattr(data, "doctor_note", None) or "").strip()
+        if note_text:
+            from app.dto.timeline_dto import EventType
+            from app.services.medical.doctor_timeline_note_service import (
+                DoctorTimelineNoteService,
+            )
+
+            DoctorTimelineNoteService(self._db).save_note_for_event(
+                doctor_id=doctor_id,
+                patient_id=data.patient_id,
+                timeline_event_id=f"anreq_{created.id}",
+                event_type=EventType.ANALYSIS_REQUEST.value,
+                content=note_text,
+            )
         return created
 
     def get_pending_for_patient(

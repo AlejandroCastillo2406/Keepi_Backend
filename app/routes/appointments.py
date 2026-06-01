@@ -12,7 +12,9 @@ from app.models.appointment import (
     AppointmentResponse,
 )
 from app.models.user import User
+from app.dto.timeline_dto import EventType
 from app.services.medical.appointment_service import AppointmentService
+from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
 
 router = APIRouter()
 
@@ -23,7 +25,16 @@ async def create_appointment(
     current_user: User = Depends(require_doctor_user),
     db: Session = Depends(get_db),
 ):
-    return AppointmentService.create_doctor_appointment(db, current_user.id, body)
+    appt = AppointmentService.create_doctor_appointment(db, current_user.id, body)
+    if body.notes and body.notes.strip():
+        DoctorTimelineNoteService(db).save_note_for_event(
+            doctor_id=current_user.id,
+            patient_id=appt.patient_id,
+            timeline_event_id=f"appt_{appt.id}",
+            event_type=EventType.APPOINTMENT.value,
+            content=body.notes.strip(),
+        )
+    return appt
 
 
 @router.get("/doctor/calendar", response_model=list[AppointmentResponse])

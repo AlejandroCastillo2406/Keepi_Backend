@@ -23,21 +23,34 @@ def build_questionnaire_invite_email_html(
     patient_name: str,
     doctor_name: str,
     public_link: str,
+    is_dynamic: bool = False,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
-    return build_clinical_action_email_html(
-        patient_name=patient_name,
-        doctor_name=doctor_name,
-        headline="Cuestionario de salud",
-        body_paragraphs=[
+    if is_dynamic:
+        paragraphs = [
+            f"{doctor} te invitó a un cuestionario de salud personalizado con IA. "
+            "Cada pregunta se adapta a tus respuestas anteriores (máximo 10 preguntas).",
+            "El enlace es personal y puedes contestarlo desde el celular o la computadora.",
+        ]
+        headline = "Cuestionario dinámico de salud"
+        badge = "Cuestionario con IA"
+    else:
+        paragraphs = [
             f"{doctor} te invitó a completar un cuestionario de salud. "
             "Tus respuestas ayudan a preparar mejor tu atención médica.",
             "El enlace es personal y puedes contestarlo desde el celular o la computadora.",
-        ],
+        ]
+        headline = "Cuestionario de salud"
+        badge = "Cuestionario de salud"
+    return build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        headline=headline,
+        body_paragraphs=paragraphs,
         cta_label="Completar cuestionario",
         cta_href=public_link,
         footer_note="Si el enlace expiró, solicita uno nuevo a tu médico.",
-        badge_subtitle="Cuestionario de salud",
+        badge_subtitle=badge,
     )
 
 
@@ -47,11 +60,13 @@ def send_questionnaire_invite_email(
     patient_name: str,
     doctor_name: str,
     public_link: str,
+    is_dynamic: bool = False,
 ):
     subject = build_questionnaire_invite_email_subject(doctor_name)
     html = build_questionnaire_invite_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
         public_link=public_link,
+        is_dynamic=is_dynamic,
     )
     return send_simple_html_email_ses(to_email, subject, html)

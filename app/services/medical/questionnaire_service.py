@@ -22,6 +22,9 @@ from app.models.questionnaire import (
 )
 from app.models.document import Document
 from app.models.questionnaire_invitation import (
+    DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
+    PublicDynamicAnswerRequest,
+    PublicDynamicAnswerResponse,
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
@@ -31,6 +34,7 @@ from app.models.questionnaire_invitation import (
     QuestionnaireInvitationSummaryResponse,
     QuestionnaireSendInvitationRequest,
 )
+from app.services.aws.bedrock_service import BedrockService
 from app.repositories.document_repository import DocumentRepository
 from app.services.almacenamiento import S3Service
 from app.utils.doctor_patient_storage import (
@@ -57,6 +61,7 @@ class QuestionnaireService:
     ) -> None:
         self._db = db
         self._repo = questionnaire_repository or QuestionnaireRepository(db)
+        self._bedrock = BedrockService()
 
     def list_specialties_with_counts(
         self, doctor_id: uuid.UUID
@@ -166,10 +171,115 @@ class QuestionnaireService:
     ) -> QuestionnaireInvitationSummaryResponse:
         return self._repo.get_invitation_summary(doctor_id, invitation_id)
 
-    def get_public_invitation_view(
+    async def get_public_invitation_view(
         self, raw_token: str
     ) -> PublicInvitationViewResponse:
+        view = self._repo.get_public_invitation_view(raw_token)
+        if not view.is_dynamic or view.status != "pending" or view.questions:
+            return view
+
+        inv = self._repo._get_invitation_for_public_token(raw_token)
+        if inv is None:
+            return view
+        inv = self._repo._mark_expired_if_needed(inv)
+        if inv.status != "pending":
+            return self._repo.get_public_invitation_view(raw_token)
+
+        answered = self._repo.count_answered_dynamic_items(inv.id)
+        if answered >= DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS:
+            self._repo.complete_invitation(inv)
+            return self._repo.get_public_invitation_view(raw_token)
+
+        await self._generate_dynamic_question_item(inv, answered)
         return self._repo.get_public_invitation_view(raw_token)
+
+    async def _generate_dynamic_question_item(
+        self, invitation: QuestionnaireInvitation, answered_count: int
+    ):
+        conversation = self._repo.get_dynamic_conversation(invitation.id)
+        spec = await self._bedrock.generate_dynamic_questionnaire_question(
+            patient_name=invitation.patient_name_snapshot,
+            conversation=conversation,
+            question_number=answered_count + 1,
+            max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
+        )
+        return self._repo.add_dynamic_question_item(
+            invitation.id,
+            question_text=spec["question_text"],
+            response_type=spec["response_type"],
+            options=spec.get("options"),
+            help_text=spec.get("help_text"),
+            is_required=bool(spec.get("is_required", True)),
+            sort_order=answered_count,
+        )
+
+    async def answer_dynamic_question(
+        self, raw_token: str, payload: PublicDynamicAnswerRequest
+    ) -> PublicDynamicAnswerResponse:
+        inv = self._repo._get_invitation_for_public_token(raw_token)
+        if inv is None:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        if not bool(getattr(inv, "is_dynamic", False)):
+            raise HTTPException(
+                status_code=400,
+                detail="Esta invitación no es un cuestionario dinámico",
+            )
+        inv = self._repo._mark_expired_if_needed(inv)
+        if inv.status == "completed":
+            raise HTTPException(
+                status_code=409, detail="Este cuestionario ya fue completado"
+            )
+        if inv.status != "pending":
+            raise HTTPException(status_code=400, detail="Invitación no disponible")
+
+        pending = self._repo.get_pending_dynamic_item(inv.id)
+        if pending is None:
+            answered = self._repo.count_answered_dynamic_items(inv.id)
+            if answered >= DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS:
+                self._repo.complete_invitation(inv)
+                return PublicDynamicAnswerResponse(
+                    completed=True,
+                    collect_prior_documents=bool(
+                        getattr(inv, "collect_prior_documents", False)
+                    ),
+                    dynamic_answered_count=answered,
+                )
+            pending = await self._generate_dynamic_question_item(inv, answered)
+
+        answer = payload.answer
+        if pending.is_required_snapshot and answer in (None, "", [], {}):
+            raise HTTPException(
+                status_code=400, detail="Esta pregunta es obligatoria"
+            )
+
+        self._repo.save_dynamic_item_answer(pending, answer)
+        answered = self._repo.count_answered_dynamic_items(inv.id)
+
+        if answered >= DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS:
+            self._repo.complete_invitation(inv)
+            NotificationService(self._db).notify_questionnaire_completed_for_doctor(
+                inv.doctor_id,
+                patient_name=inv.patient_name_snapshot,
+                invitation_id=str(inv.id),
+                patient_id=str(inv.patient_id),
+            )
+            return PublicDynamicAnswerResponse(
+                completed=True,
+                collect_prior_documents=bool(
+                    getattr(inv, "collect_prior_documents", False)
+                ),
+                dynamic_answered_count=answered,
+            )
+
+        next_item = await self._generate_dynamic_question_item(inv, answered)
+        return PublicDynamicAnswerResponse(
+            completed=False,
+            collect_prior_documents=bool(
+                getattr(inv, "collect_prior_documents", False)
+            ),
+            next_question=self._repo._invitation_item_to_view(next_item),
+            dynamic_answered_count=answered,
+        )
 
     def submit_public_invitation(
         self, raw_token: str, payload: PublicInvitationSubmitRequest
@@ -211,6 +321,7 @@ class QuestionnaireService:
             patient_name=summary.patient_name,
             doctor_name=doctor_name,
             public_link=public_link,
+            is_dynamic=bool(payload.use_dynamic_questionnaire),
         )
         if email_res.success:
             logger.info(

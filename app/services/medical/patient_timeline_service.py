@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.dto.timeline_dto import PriorDocumentItemResponse, TimelineEventResponse
 from app.repositories.patient_repository import PatientRepository
 from app.repositories.user_repository import UserRepository
+from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
 
 
 class PatientTimelineService:
@@ -34,7 +35,22 @@ class PatientTimelineService:
                 status_code=404,
                 detail="Paciente no vinculado a su cuenta.",
             )
-        return self._patient.get_timeline_events(self._db, str(patient_id))
+        events = self._patient.get_timeline_events(self._db, str(patient_id))
+        return DoctorTimelineNoteService(self._db).attach_notes_to_timeline(
+            patient_id, events
+        )
+
+    def get_doctor_note_for_event(
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        timeline_event_id: str,
+    ):
+        return DoctorTimelineNoteService(self._db).get_note_content(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            timeline_event_id=timeline_event_id,
+        )
 
     def prior_documents_for_patient(self, patient_id: str) -> List[PriorDocumentItemResponse]:
         rows = self._patient.list_prior_documents_for_patient(self._db, patient_id)

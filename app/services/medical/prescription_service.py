@@ -212,6 +212,22 @@ class PrescriptionService:
         )
         prescription = self._rx.get_by_id(prescription_id)
         assert prescription is not None
+
+        note_text = (body.doctor_note or "").strip()
+        if note_text:
+            from app.dto.timeline_dto import EventType
+            from app.services.medical.doctor_timeline_note_service import (
+                DoctorTimelineNoteService,
+            )
+
+            DoctorTimelineNoteService(self._db).save_note_for_event(
+                doctor_id=doctor_id,
+                patient_id=prescription.patient_id,
+                timeline_event_id=f"pres_{prescription.id}",
+                event_type=EventType.PRESCRIPTION.value,
+                content=note_text,
+            )
+
         return self._to_patient_response(prescription)
 
     async def _archive_prescription_on_assign(

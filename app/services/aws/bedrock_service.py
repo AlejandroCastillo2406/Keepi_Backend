@@ -405,3 +405,186 @@ TEXTO DEL DOCUMENTO:
         except Exception as e:
             logger.error(f"Error en IA al limpiar preguntas: {e}")
             return [{"texto": line, "tipo": "short_text", "opciones": None} for line in raw_text.split('\n') if len(line.strip()) > 8]
+
+    async def generate_dynamic_questionnaire_question(
+        self,
+        *,
+        patient_name: str,
+        conversation: List[Dict[str, Any]],
+        question_number: int,
+        max_questions: int = 10,
+    ) -> Dict[str, Any]:
+        """Genera la siguiente pregunta de un cuestionario clínico adaptativo."""
+        fallback = self._fallback_dynamic_question(question_number, conversation)
+
+        if not self.bedrock_client:
+            return fallback
+
+        history_lines = []
+        for idx, turn in enumerate(conversation, start=1):
+            q = (turn.get("question_text") or "").strip()
+            a = turn.get("answer")
+            if isinstance(a, list):
+                a_text = ", ".join(str(x) for x in a)
+            else:
+                a_text = str(a) if a is not None else ""
+            history_lines.append(f"{idx}. P: {q}\n   R: {a_text}")
+
+        history_block = (
+            "\n".join(history_lines) if history_lines else "(sin respuestas previas)"
+        )
+
+        prompt = f"""
+Eres un asistente clínico que elabora UN cuestionario de salud breve para un paciente.
+Paciente: {patient_name}
+Pregunta actual a generar: {question_number} de {max_questions} (máximo).
+
+Historial de preguntas y respuestas:
+{history_block}
+
+REGLAS:
+1. Genera UNA sola pregunta nueva en español, clara y empática, sin repetir temas ya cubiertos.
+2. La pregunta debe ser relevante para atención médica general (síntomas, antecedentes, hábitos, medicación, alergias, etc.).
+3. Elige el tipo de respuesta más adecuado entre: single_choice, multi_choice, yes_no, numeric, short_text, long_text.
+4. Para yes_no usa opciones ["No", "No estoy seguro", "Sí"].
+5. Para single_choice o multi_choice incluye entre 3 y 6 opciones concretas.
+6. Para numeric incluye help_text indicando la unidad si aplica.
+7. is_required debe ser true salvo que la pregunta sea claramente opcional.
+
+Responde SOLO JSON válido (sin markdown):
+{{
+  "question_text": "¿...?",
+  "response_type": "yes_no",
+  "options": ["No", "No estoy seguro", "Sí"],
+  "help_text": null,
+  "is_required": true
+}}
+"""
+        try:
+            response_text = await self._call_claude(prompt)
+            response_text = response_text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.startswith("```"):
+                response_text = response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            parsed = json.loads(response_text)
+            rt = (parsed.get("response_type") or "short_text").lower()
+            if rt not in (
+                "single_choice",
+                "multi_choice",
+                "yes_no",
+                "numeric",
+                "short_text",
+                "long_text",
+            ):
+                rt = "short_text"
+            options = parsed.get("options")
+            if rt == "yes_no":
+                options = ["No", "No estoy seguro", "Sí"]
+            if rt in ("single_choice", "multi_choice") and not options:
+                rt = "short_text"
+                options = None
+            if rt not in ("single_choice", "multi_choice", "yes_no"):
+                options = None
+            return {
+                "question_text": (parsed.get("question_text") or fallback["question_text"]).strip(),
+                "response_type": rt,
+                "options": options,
+                "help_text": parsed.get("help_text"),
+                "is_required": bool(parsed.get("is_required", True)),
+            }
+        except Exception as e:
+            logger.warning("Bedrock cuestionario dinámico: %s", e)
+            return fallback
+
+    def _fallback_dynamic_question(
+        self, question_number: int, conversation: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        asked = {((t.get("question_text") or "").lower()[:40]) for t in conversation}
+        bank = [
+            {
+                "question_text": "¿Cuál es el motivo principal de tu consulta hoy?",
+                "response_type": "long_text",
+                "options": None,
+                "help_text": "Describe brevemente tus síntomas o inquietudes.",
+                "is_required": True,
+            },
+            {
+                "question_text": "¿Desde cuándo has tenido estos síntomas?",
+                "response_type": "short_text",
+                "options": None,
+                "help_text": "Ejemplo: 3 días, 2 semanas.",
+                "is_required": True,
+            },
+            {
+                "question_text": "¿Tomas algún medicamento de forma habitual?",
+                "response_type": "yes_no",
+                "options": ["No", "No estoy seguro", "Sí"],
+                "help_text": None,
+                "is_required": True,
+            },
+            {
+                "question_text": "¿Tienes alergias conocidas a medicamentos o alimentos?",
+                "response_type": "yes_no",
+                "options": ["No", "No estoy seguro", "Sí"],
+                "help_text": None,
+                "is_required": True,
+            },
+            {
+                "question_text": "¿Cuál es tu peso aproximado en kilogramos?",
+                "response_type": "numeric",
+                "options": None,
+                "help_text": "Solo el número en kg.",
+                "is_required": False,
+            },
+            {
+                "question_text": "¿Fumas o consumes alcohol con regularidad?",
+                "response_type": "single_choice",
+                "options": ["No", "Ocasionalmente", "Con frecuencia"],
+                "help_text": None,
+                "is_required": True,
+            },
+            {
+                "question_text": "¿Has tenido cirugías previas?",
+                "response_type": "yes_no",
+                "options": ["No", "No estoy seguro", "Sí"],
+                "help_text": None,
+                "is_required": True,
+            },
+            {
+                "question_text": "¿Algún familiar directo tiene enfermedades crónicas importantes?",
+                "response_type": "multi_choice",
+                "options": [
+                    "Diabetes",
+                    "Hipertensión",
+                    "Cáncer",
+                    "Ninguna",
+                    "No lo sé",
+                ],
+                "help_text": "Puedes elegir varias.",
+                "is_required": False,
+            },
+            {
+                "question_text": "¿Cómo calificarías tu nivel de actividad física?",
+                "response_type": "single_choice",
+                "options": ["Sedentario", "Ligero", "Moderado", "Activo"],
+                "help_text": None,
+                "is_required": True,
+            },
+            {
+                "question_text": "¿Hay algo más que quieras que tu médico sepa antes de la consulta?",
+                "response_type": "long_text",
+                "options": None,
+                "help_text": "Opcional.",
+                "is_required": False,
+            },
+        ]
+        idx = min(question_number - 1, len(bank) - 1)
+        for i in range(len(bank)):
+            candidate = bank[(idx + i) % len(bank)]
+            key = candidate["question_text"].lower()[:40]
+            if key not in asked:
+                return candidate
+        return bank[idx]

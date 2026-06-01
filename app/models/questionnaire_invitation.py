@@ -61,6 +61,9 @@ class QuestionnaireInvitation(Base):
     collect_prior_documents = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    is_dynamic = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -161,6 +164,9 @@ class PublicInvitationViewResponse(BaseModel):
     expires_at: datetime
     questions: List[InvitationQuestionView] = Field(default_factory=list)
     collect_prior_documents: bool = False
+    is_dynamic: bool = False
+    dynamic_max_questions: int = 10
+    dynamic_answered_count: int = 0
 
 
 class PublicInvitationAnswerIn(BaseModel):
@@ -183,6 +189,25 @@ class QuestionnaireSendInvitationRequest(BaseModel):
         default=False,
         description="Si true, tras el cuestionario el paciente puede subir estudios previos (alta de paciente).",
     )
+    use_dynamic_questionnaire: bool = Field(
+        default=False,
+        description="Cuestionario adaptativo con IA (Bedrock). No compatible con plantillas.",
+    )
+
+
+DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS = 10
+
+
+class PublicDynamicAnswerRequest(BaseModel):
+    answer: Any
+
+
+class PublicDynamicAnswerResponse(BaseModel):
+    completed: bool
+    collect_prior_documents: bool = False
+    next_question: Optional[InvitationQuestionView] = None
+    dynamic_answered_count: int = 0
+    dynamic_max_questions: int = DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS
 
 
 class QuestionnaireInvitationSummaryResponse(BaseModel):

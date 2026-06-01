@@ -167,6 +167,19 @@ class AppointmentService:
             payload={"appointment_id": str(row.id), "action": "patient_decision"},
             push_data={"type": "appointment_proposed", "appointment_id": str(row.id)},
         )
+        if body.notes and body.notes.strip():
+            from app.dto.timeline_dto import EventType
+            from app.services.medical.doctor_timeline_note_service import (
+                DoctorTimelineNoteService,
+            )
+
+            DoctorTimelineNoteService(db).save_note_for_event(
+                doctor_id=doctor_id,
+                patient_id=row.patient_id,
+                timeline_event_id=f"appt_{row.id}",
+                event_type=EventType.APPOINTMENT.value,
+                content=body.notes.strip(),
+            )
         return row
 
     @staticmethod

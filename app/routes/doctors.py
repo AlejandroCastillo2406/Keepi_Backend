@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.dto.timeline_dto import PriorDocumentItemResponse, TimelineEventResponse
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
+from app.models.doctor_timeline_note import DoctorTimelineNoteResponse
 from app.models.user import (
     DoctorCreatePatientRequest,
     DoctorCreatePatientResponse,
@@ -80,6 +81,21 @@ async def get_patient_timeline(
     timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
 ):
     return timeline_svc.timeline_for_doctor_patient(current_user.id, patient_id)
+
+
+@router.get(
+    "/patients/{patient_id}/timeline/events/{event_id}/doctor-note",
+    response_model=DoctorTimelineNoteResponse,
+)
+async def get_timeline_event_doctor_note(
+    patient_id: UUID,
+    event_id: str,
+    current_user: User = Depends(require_no_temp_password_user),
+    timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
+):
+    return timeline_svc.get_doctor_note_for_event(
+        current_user.id, patient_id, event_id
+    )
 
 
 @router.get(

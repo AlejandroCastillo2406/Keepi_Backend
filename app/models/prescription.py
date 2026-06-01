@@ -85,6 +85,10 @@ class PrescriptionConfirmRequest(BaseModel):
     extracted_text: str = ""
     items: List[PrescriptionItemIn] = []
     ask_reminder_opt_in: bool = True
+    doctor_note: Optional[str] = Field(
+        default=None,
+        description="Nota clínica del médico vinculada al evento del timeline.",
+    )
 
 
 class PrescriptionPatientResponse(BaseModel):
