@@ -18,6 +18,11 @@ class DoctorTimelineNoteRepository:
         self._db.refresh(row)
         return row
 
+    def save(self, row: DoctorTimelineNote) -> DoctorTimelineNote:
+        self._db.commit()
+        self._db.refresh(row)
+        return row
+
     def get_for_patient_event(
         self, patient_id: uuid.UUID, timeline_event_id: str
     ) -> Optional[DoctorTimelineNote]:

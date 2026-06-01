@@ -1,4 +1,4 @@
-"""Rutas de almacenamiento del doctor: {paciente}/Analisis y {paciente}/Recetas."""
+"""Rutas de almacenamiento del doctor en S3: users/{doctor_id}/{paciente}/Analisis|Recetas|Notas|..."""
 from __future__ import annotations
 
 import re
@@ -49,7 +49,16 @@ def doctor_patient_prior_documents_folder(patient_name: str) -> str:
 
 
 def doctor_patient_notes_folder(patient_name: str) -> str:
+    """Carpeta relativa al doctor: {nombre_paciente}/Notas"""
     return f"{sanitize_storage_segment(patient_name)}/{_NOTES_SUBFOLDER}"
+
+
+def doctor_patient_notes_s3_key(
+    doctor_id: str, patient_name: str, filename: str
+) -> str:
+    """Clave S3 completa: users/{doctor_id}/{paciente}/Notas/{archivo}"""
+    folder = doctor_patient_notes_folder(patient_name)
+    return f"users/{doctor_id}/{folder}/{filename}"
 
 
 def build_doctor_timeline_note_filename(

@@ -52,6 +52,22 @@ class PatientTimelineService:
             timeline_event_id=timeline_event_id,
         )
 
+    def upsert_doctor_note_for_event(
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        timeline_event_id: str,
+        event_type: str,
+        content: str,
+    ):
+        return DoctorTimelineNoteService(self._db).upsert_note_for_event(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            timeline_event_id=timeline_event_id,
+            event_type=event_type,
+            content=content,
+        )
+
     def prior_documents_for_patient(self, patient_id: str) -> List[PriorDocumentItemResponse]:
         rows = self._patient.list_prior_documents_for_patient(self._db, patient_id)
         return [self._prior_doc_item(d) for d in rows]

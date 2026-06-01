@@ -19,7 +19,7 @@ from app.repositories.doctor_timeline_note_repository import DoctorTimelineNoteR
 from app.repositories.user_repository import UserRepository
 from app.utils.doctor_patient_storage import (
     build_doctor_timeline_note_filename,
-    doctor_patient_notes_folder,
+    doctor_patient_notes_s3_key,
     patient_folder_label,
 )
 
@@ -92,22 +92,80 @@ class DoctorTimelineNoteService:
 
         existing = self._repo.get_for_patient_event(patient_id, timeline_event_id)
         if existing is not None:
-            logger.info(
-                "Nota ya existe para evento %s; se omite duplicado.",
-                timeline_event_id,
+            return self._write_note_content(
+                note=existing,
+                doctor_id=doctor_id,
+                patient=patient,
+                timeline_event_id=timeline_event_id,
+                event_type=event_type,
+                text=text,
             )
-            return existing
 
         created_at = datetime.now(timezone.utc)
         note_id = str(uuid.uuid4())
-        folder = doctor_patient_notes_folder(patient_folder_label(patient))
+        patient_label = patient_folder_label(patient)
         filename = build_doctor_timeline_note_filename(
             event_type=event_type,
             created_at=created_at,
             note_id=note_id,
         )
-        s3_key = f"{folder}/{filename}"
+        s3_key = doctor_patient_notes_s3_key(
+            str(doctor_id), patient_label, filename
+        )
+        self._put_note_s3(
+            s3_key=s3_key,
+            patient=patient,
+            timeline_event_id=timeline_event_id,
+            event_type=event_type,
+            text=text,
+            created_at=created_at,
+        )
 
+        row = DoctorTimelineNote(
+            id=uuid.UUID(note_id),
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            timeline_event_id=timeline_event_id,
+            event_type=(event_type or "")[:40],
+            s3_key=s3_key,
+            content_preview=self._preview(text),
+        )
+        return self._repo.create(row)
+
+    def upsert_note_for_event(
+        self,
+        *,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        timeline_event_id: str,
+        event_type: str,
+        content: str,
+    ) -> DoctorTimelineNoteResponse:
+        note = self.save_note_for_event(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            timeline_event_id=timeline_event_id,
+            event_type=event_type,
+            content=content,
+        )
+        if note is None:
+            raise HTTPException(status_code=400, detail="La nota no puede estar vacía")
+        return self.get_note_content(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            timeline_event_id=timeline_event_id,
+        )
+
+    def _put_note_s3(
+        self,
+        *,
+        s3_key: str,
+        patient,
+        timeline_event_id: str,
+        event_type: str,
+        text: str,
+        created_at: datetime,
+    ) -> None:
         header = (
             f"Paciente: {patient.name}\n"
             f"Evento: {timeline_event_id}\n"
@@ -116,7 +174,6 @@ class DoctorTimelineNoteService:
             f"---\n"
         )
         body = header + text
-
         try:
             self._s3.put_object(
                 Bucket=settings.aws_s3_bucket,
@@ -131,16 +188,32 @@ class DoctorTimelineNoteService:
                 detail="No se pudo guardar la nota en almacenamiento",
             ) from e
 
-        row = DoctorTimelineNote(
-            id=uuid.UUID(note_id),
-            doctor_id=doctor_id,
-            patient_id=patient_id,
-            timeline_event_id=timeline_event_id,
-            event_type=(event_type or "")[:40],
+    def _write_note_content(
+        self,
+        *,
+        note: DoctorTimelineNote,
+        doctor_id: uuid.UUID,
+        patient,
+        timeline_event_id: str,
+        event_type: str,
+        text: str,
+    ) -> DoctorTimelineNote:
+        updated_at = datetime.now(timezone.utc)
+        s3_key = note.s3_key
+        if s3_key and not s3_key.startswith("users/"):
+            s3_key = f"users/{doctor_id}/{s3_key.lstrip('/')}"
+            note.s3_key = s3_key
+        self._put_note_s3(
             s3_key=s3_key,
-            content_preview=self._preview(text),
+            patient=patient,
+            timeline_event_id=timeline_event_id,
+            event_type=event_type or note.event_type,
+            text=text,
+            created_at=updated_at,
         )
-        return self._repo.create(row)
+        note.content_preview = self._preview(text)
+        note.event_type = (event_type or note.event_type or "")[:40]
+        return self._repo.save(note)
 
     def get_note_content(
         self,
@@ -163,14 +236,18 @@ class DoctorTimelineNoteService:
                 detail="No hay nota del médico para este evento",
             )
 
+        s3_key = note.s3_key
+        if s3_key and not s3_key.startswith("users/"):
+            s3_key = f"users/{doctor_id}/{s3_key.lstrip('/')}"
+
         try:
             obj = self._s3.get_object(
                 Bucket=settings.aws_s3_bucket,
-                Key=note.s3_key,
+                Key=s3_key,
             )
             raw = obj["Body"].read().decode("utf-8", errors="replace")
         except Exception as e:
-            logger.warning("No se pudo leer nota S3 %s: %s", note.s3_key, e)
+            logger.warning("No se pudo leer nota S3 %s: %s", s3_key, e)
             raw = note.content_preview
 
         if "---\n" in raw:

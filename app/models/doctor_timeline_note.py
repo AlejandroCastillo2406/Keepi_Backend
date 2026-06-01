@@ -50,3 +50,4 @@ class DoctorTimelineNoteResponse(BaseModel):
 
 class DoctorTimelineNoteCreate(BaseModel):
     doctor_note: str = Field(..., min_length=1, max_length=8000)
+    event_type: str | None = Field(None, max_length=40)

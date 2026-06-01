@@ -8,7 +8,10 @@ from app.core.database import get_db
 from app.dto.timeline_dto import PriorDocumentItemResponse, TimelineEventResponse
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
-from app.models.doctor_timeline_note import DoctorTimelineNoteResponse
+from app.models.doctor_timeline_note import (
+    DoctorTimelineNoteCreate,
+    DoctorTimelineNoteResponse,
+)
 from app.models.user import (
     DoctorCreatePatientRequest,
     DoctorCreatePatientResponse,
@@ -95,6 +98,29 @@ async def get_timeline_event_doctor_note(
 ):
     return timeline_svc.get_doctor_note_for_event(
         current_user.id, patient_id, event_id
+    )
+
+
+@router.put(
+    "/patients/{patient_id}/timeline/events/{event_id}/doctor-note",
+    response_model=DoctorTimelineNoteResponse,
+)
+async def upsert_timeline_event_doctor_note(
+    patient_id: UUID,
+    event_id: str,
+    payload: DoctorTimelineNoteCreate,
+    current_user: User = Depends(require_no_temp_password_user),
+    timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
+):
+    event_type = (payload.event_type or "").strip()
+    if not event_type:
+        event_type = event_id.split("_", 1)[0] if "_" in event_id else "event"
+    return timeline_svc.upsert_doctor_note_for_event(
+        current_user.id,
+        patient_id,
+        event_id,
+        event_type=event_type,
+        content=payload.doctor_note,
     )
 
 
