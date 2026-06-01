@@ -299,6 +299,20 @@ class QuestionnaireService:
             for r in rows
         ]
 
+    def create_dynamic_invitation_with_email(
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: str,
+        *,
+        collect_prior_documents: bool = False,
+    ) -> QuestionnaireInvitationSendResponse:
+        payload = QuestionnaireSendInvitationRequest(
+            patient_id=patient_id,
+            collect_prior_documents=collect_prior_documents,
+            use_dynamic_questionnaire=True,
+        )
+        return self.create_invitation_with_email(doctor_id, payload)
+
     def create_invitation_with_email(
         self,
         doctor_id: uuid.UUID,

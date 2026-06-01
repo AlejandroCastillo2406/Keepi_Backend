@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel
 from typing import Any
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -192,6 +192,23 @@ class QuestionnaireSendInvitationRequest(BaseModel):
     use_dynamic_questionnaire: bool = Field(
         default=False,
         description="Cuestionario adaptativo con IA (Bedrock). No compatible con plantillas.",
+    )
+
+    @field_validator("use_dynamic_questionnaire", mode="before")
+    @classmethod
+    def _coerce_dynamic_flag(cls, value):
+        if value in (True, 1, "1", "true", "True", "yes", "on"):
+            return True
+        return False
+
+
+class DynamicQuestionnaireInvitationRequest(BaseModel):
+    """Alta de invitación solo con cuestionario dinámico (sin plantillas)."""
+
+    patient_id: str
+    collect_prior_documents: bool = Field(
+        default=False,
+        description="Paso opcional de documentos previos al finalizar.",
     )
 
 

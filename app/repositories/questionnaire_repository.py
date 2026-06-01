@@ -867,10 +867,14 @@ class QuestionnaireRepository:
             )
         return rows
 
+    @staticmethod
+    def _is_dynamic_invitation(data: QuestionnaireSendInvitationRequest) -> bool:
+        return bool(getattr(data, "use_dynamic_questionnaire", False))
+
     def create_invitation_batch(
         self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
     ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
-        if data.use_dynamic_questionnaire:
+        if self._is_dynamic_invitation(data):
             return self._create_dynamic_invitation_batch(doctor_id, data)
 
         patient_id = _as_uuid(data.patient_id)

@@ -26,6 +26,7 @@ from app.models.questionnaire import (
 )
 from app.dto.questionnaire_responses_dto import PatientQuestionnaireAnswerView
 from app.models.questionnaire_invitation import (
+    DynamicQuestionnaireInvitationRequest,
     PublicDynamicAnswerRequest,
     PublicDynamicAnswerResponse,
     PublicInvitationSubmitRequest,
@@ -293,6 +294,23 @@ def upsert_template_questions(
 
 
 @router.post(
+    "/invitations/dynamic",
+    response_model=QuestionnaireInvitationSendResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+def create_dynamic_invitation(
+    payload: DynamicQuestionnaireInvitationRequest,
+    current_user: User = Depends(require_doctor_user),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.create_dynamic_invitation_with_email(
+        current_user.id,
+        payload.patient_id,
+        collect_prior_documents=payload.collect_prior_documents,
+    )
+
+
+@router.post(
     "/invitations",
     response_model=QuestionnaireInvitationSendResponse,
     status_code=http_status.HTTP_201_CREATED,
@@ -302,6 +320,12 @@ def create_invitation(
     current_user: User = Depends(require_doctor_user),
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
+    if payload.use_dynamic_questionnaire:
+        return svc.create_dynamic_invitation_with_email(
+            current_user.id,
+            payload.patient_id,
+            collect_prior_documents=payload.collect_prior_documents,
+        )
     return svc.create_invitation_with_email(current_user.id, payload)
 
 
