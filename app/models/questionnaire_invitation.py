@@ -187,6 +187,8 @@ class PublicIntakeSectionSubmitRequest(BaseModel):
 class PublicIntakeSectionSubmitResponse(BaseModel):
     intake_completed: bool
     intake_sections: List[IntakeSectionView] = Field(default_factory=list)
+    intake_only: bool = False
+    collect_prior_documents: bool = False
 
 
 class PublicInvitationViewResponse(BaseModel):
@@ -202,6 +204,7 @@ class PublicInvitationViewResponse(BaseModel):
     dynamic_answered_count: int = 0
     enable_clinical_intake: bool = False
     intake_completed: bool = False
+    intake_only: bool = False
     intake_sections: List[IntakeSectionView] = Field(default_factory=list)
     specialty: Optional[str] = None
     consultation_reason: Optional[str] = None
@@ -234,6 +237,10 @@ class QuestionnaireSendInvitationRequest(BaseModel):
     enable_clinical_intake: bool = Field(
         default=True,
         description="Ficha clínica previa al cuestionario (mismo enlace web).",
+    )
+    intake_only: bool = Field(
+        default=False,
+        description="Solo ficha clínica, sin cuestionario (mismo enlace /q/{token}).",
     )
     phone: Optional[str] = None
     birth_date: Optional[str] = None

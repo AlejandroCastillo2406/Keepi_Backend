@@ -900,11 +900,35 @@ class QuestionnaireRepository:
             return False
         return True
 
+    @staticmethod
+    def _intake_only_from_payload(data) -> bool:
+        flag = getattr(data, "intake_only", False)
+        if flag in (True, 1, "1", "true", "True", "yes", "on"):
+            return True
+        return False
+
+    def _invitation_item_count(self, invitation_id: uuid.UUID) -> int:
+        return (
+            self._db.query(QuestionnaireInvitationItem)
+            .filter(QuestionnaireInvitationItem.invitation_id == invitation_id)
+            .count()
+        )
+
+    def _is_intake_only_invitation(self, inv: QuestionnaireInvitation) -> bool:
+        if not bool(getattr(inv, "enable_clinical_intake", False)):
+            return False
+        if bool(getattr(inv, "is_dynamic", False)):
+            return False
+        return self._invitation_item_count(inv.id) == 0
+
     def _apply_clinical_intake_to_invitation(
         self, invitation: QuestionnaireInvitation, data
     ) -> None:
-        invitation.enable_clinical_intake = self._enable_clinical_intake_from_payload(
-            data
+        intake_only = self._intake_only_from_payload(data)
+        invitation.enable_clinical_intake = (
+            True
+            if intake_only
+            else self._enable_clinical_intake_from_payload(data)
         )
         invitation.intake_context = self._intake_context_from_payload(data)
         invitation.intake_responses = {}
@@ -950,21 +974,53 @@ class QuestionnaireRepository:
         inv.intake_responses = merged
         sections_raw = build_intake_sections_for_invitation(ctx, merged)
         sections = [IntakeSectionView.model_validate(s) for s in sections_raw]
+        intake_only = self._is_intake_only_invitation(inv)
         if intake_is_complete(sections_raw, merged):
             inv.intake_completed_at = datetime.now(timezone.utc)
+            if intake_only:
+                now = datetime.now(timezone.utc)
+                inv.status = "completed"
+                inv.used_at = now
+                inv.completed_at = now
         self._db.commit()
         self._db.refresh(inv)
         completed = inv.intake_completed_at is not None
         return PublicIntakeSectionSubmitResponse(
             intake_completed=completed,
             intake_sections=sections,
-        )
+            intake_only=intake_only,
+            collect_prior_documents=bool(
+                getattr(inv, "collect_prior_documents", False)
+            ),
+        ), inv if intake_only and completed else None
 
     def create_invitation_batch(
         self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
     ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
         if self._is_dynamic_invitation(data):
+            if self._intake_only_from_payload(data):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Solo ficha clínica no puede combinarse con cuestionario dinámico",
+                )
             return self._create_dynamic_invitation_batch(doctor_id, data)
+
+        intake_only = self._intake_only_from_payload(data)
+        has_questions = bool(data.template_ids or data.question_ids)
+        if intake_only:
+            if has_questions:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Solo ficha clínica no puede combinarse con plantillas o preguntas",
+                )
+        elif not has_questions:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Indica plantillas, preguntas, cuestionario dinámico "
+                    "o activa solo ficha clínica (intake_only)"
+                ),
+            )
 
         patient_id = _as_uuid(data.patient_id)
         if patient_id is None:
@@ -1250,6 +1306,8 @@ class QuestionnaireRepository:
         enable_intake, intake_done, intake_sections, specialty, reason = (
             self._intake_meta_for_invitation(inv)
         )
+        intake_only = self._is_intake_only_invitation(inv)
+        collect_prior = bool(getattr(inv, "collect_prior_documents", False))
 
         if inv.status != "pending":
             return PublicInvitationViewResponse(
@@ -1259,14 +1317,13 @@ class QuestionnaireRepository:
                 status=inv.status,
                 expires_at=inv.expires_at,
                 questions=[],
-                collect_prior_documents=bool(
-                    getattr(inv, "collect_prior_documents", False)
-                ),
+                collect_prior_documents=collect_prior,
                 is_dynamic=is_dynamic,
                 dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
                 dynamic_answered_count=answered_dynamic,
                 enable_clinical_intake=enable_intake,
                 intake_completed=intake_done,
+                intake_only=intake_only,
                 intake_sections=intake_sections,
                 specialty=specialty,
                 consultation_reason=reason,
@@ -1280,14 +1337,13 @@ class QuestionnaireRepository:
                 status=inv.status,
                 expires_at=inv.expires_at,
                 questions=[],
-                collect_prior_documents=bool(
-                    getattr(inv, "collect_prior_documents", False)
-                ),
+                collect_prior_documents=collect_prior,
                 is_dynamic=is_dynamic,
                 dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
                 dynamic_answered_count=answered_dynamic,
                 enable_clinical_intake=True,
                 intake_completed=False,
+                intake_only=intake_only,
                 intake_sections=intake_sections,
                 specialty=specialty,
                 consultation_reason=reason,
@@ -1305,14 +1361,13 @@ class QuestionnaireRepository:
                 status=inv.status,
                 expires_at=inv.expires_at,
                 questions=questions,
-                collect_prior_documents=bool(
-                    getattr(inv, "collect_prior_documents", False)
-                ),
+                collect_prior_documents=collect_prior,
                 is_dynamic=True,
                 dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
                 dynamic_answered_count=answered_dynamic,
                 enable_clinical_intake=enable_intake,
                 intake_completed=intake_done,
+                intake_only=intake_only,
                 intake_sections=intake_sections,
                 specialty=specialty,
                 consultation_reason=reason,
@@ -1330,14 +1385,13 @@ class QuestionnaireRepository:
             patient_email=inv.patient_email_snapshot,
             status=inv.status,
             expires_at=inv.expires_at,
-            collect_prior_documents=bool(
-                getattr(inv, "collect_prior_documents", False)
-            ),
+            collect_prior_documents=collect_prior,
             is_dynamic=False,
             dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
             dynamic_answered_count=0,
             enable_clinical_intake=enable_intake,
             intake_completed=intake_done,
+            intake_only=intake_only,
             intake_sections=intake_sections,
             specialty=specialty,
             consultation_reason=reason,

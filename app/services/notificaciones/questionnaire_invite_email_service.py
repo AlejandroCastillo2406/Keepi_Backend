@@ -21,9 +21,20 @@ def build_questionnaire_invite_email_html(
     public_link: str,
     is_dynamic: bool = False,
     enable_clinical_intake: bool = True,
+    intake_only: bool = False,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
-    if enable_clinical_intake:
+    if intake_only:
+        paragraphs = [
+            f"{doctor} te invitó a completar tu ficha clínica antes de la consulta.",
+            "Podrás registrar datos personales, antecedentes, alergias, medicamentos "
+            "y motivo de consulta en un solo enlace.",
+            "No necesitas crear cuenta: el enlace es personal y funciona en celular o computadora.",
+        ]
+        headline = "Completa tu ficha clínica"
+        badge = "Ficha clínica · Keepi"
+        cta = "Completar mi ficha"
+    elif enable_clinical_intake:
         paragraphs = [
             f"{doctor} te invitó a completar tu información clínica antes de la consulta.",
             "En el mismo enlace podrás llenar tu ficha (datos, antecedentes, alergias, medicamentos) "
@@ -68,9 +79,14 @@ def build_questionnaire_invite_email_html(
 
 
 def build_questionnaire_invite_email_subject(
-    doctor_name: str, *, enable_clinical_intake: bool = True
+    doctor_name: str,
+    *,
+    enable_clinical_intake: bool = True,
+    intake_only: bool = False,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
+    if intake_only:
+        return f"{_brand()} – {doctor} te invitó a completar tu ficha clínica"
     if enable_clinical_intake:
         return f"{_brand()} – {doctor} te invitó a completar tu información clínica"
     return f"{_brand()} – {doctor} te envió un cuestionario"
@@ -84,9 +100,12 @@ def send_questionnaire_invite_email(
     public_link: str,
     is_dynamic: bool = False,
     enable_clinical_intake: bool = True,
+    intake_only: bool = False,
 ):
     subject = build_questionnaire_invite_email_subject(
-        doctor_name, enable_clinical_intake=enable_clinical_intake
+        doctor_name,
+        enable_clinical_intake=enable_clinical_intake,
+        intake_only=intake_only,
     )
     html = build_questionnaire_invite_email_html(
         patient_name=patient_name,
@@ -94,5 +113,6 @@ def send_questionnaire_invite_email(
         public_link=public_link,
         is_dynamic=is_dynamic,
         enable_clinical_intake=enable_clinical_intake,
+        intake_only=intake_only,
     )
     return send_simple_html_email_ses(to_email, subject, html)

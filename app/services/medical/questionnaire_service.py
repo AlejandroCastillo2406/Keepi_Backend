@@ -309,7 +309,17 @@ class QuestionnaireService:
     def save_public_intake_section(
         self, raw_token: str, section_id: str, answers: dict
     ):
-        return self._repo.save_public_intake_section(raw_token, section_id, answers)
+        response, completed_inv = self._repo.save_public_intake_section(
+            raw_token, section_id, answers
+        )
+        if completed_inv is not None:
+            NotificationService(self._db).notify_questionnaire_completed_for_doctor(
+                completed_inv.doctor_id,
+                patient_name=completed_inv.patient_name_snapshot,
+                invitation_id=str(completed_inv.id),
+                patient_id=str(completed_inv.patient_id),
+            )
+        return response
 
     def create_dynamic_invitation_with_email(
         self,
@@ -363,6 +373,7 @@ class QuestionnaireService:
             enable_clinical_intake=bool(
                 getattr(payload, "enable_clinical_intake", True)
             ),
+            intake_only=bool(getattr(payload, "intake_only", False)),
         )
         if email_res.success:
             logger.info(
@@ -415,7 +426,7 @@ class QuestionnaireService:
         if inv.status != "completed":
             raise HTTPException(
                 status_code=400,
-                detail="Primero debes completar el cuestionario",
+                detail="Primero debes completar la ficha o el cuestionario",
             )
 
         content = await file.read()
