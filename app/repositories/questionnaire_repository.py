@@ -11,7 +11,9 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 from app.models.questionnaire_invitation import (
     DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
+    IntakeSectionView,
     InvitationQuestionView,
+    PublicIntakeSectionSubmitResponse,
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
@@ -20,6 +22,11 @@ from app.models.questionnaire_invitation import (
     QuestionnaireInvitationItem,
     QuestionnaireInvitationSummaryResponse,
     QuestionnaireSendInvitationRequest,
+)
+from app.services.medical.intake_sections import (
+    build_intake_sections_for_invitation,
+    intake_is_complete,
+    merge_intake_section,
 )
 from app.models.questionnaire import (
     DoctorQuestionOverride,
@@ -871,6 +878,88 @@ class QuestionnaireRepository:
     def _is_dynamic_invitation(data: QuestionnaireSendInvitationRequest) -> bool:
         return bool(getattr(data, "use_dynamic_questionnaire", False))
 
+    @staticmethod
+    def _intake_context_from_payload(data) -> Optional[dict]:
+        ctx: dict = {}
+        for key in (
+            "phone",
+            "birth_date",
+            "sex",
+            "consultation_reason",
+            "specialty",
+        ):
+            val = getattr(data, key, None)
+            if val is not None and str(val).strip():
+                ctx[key] = str(val).strip()
+        return ctx or None
+
+    @staticmethod
+    def _enable_clinical_intake_from_payload(data) -> bool:
+        flag = getattr(data, "enable_clinical_intake", True)
+        if flag in (False, 0, "0", "false", "False", "no", "off"):
+            return False
+        return True
+
+    def _apply_clinical_intake_to_invitation(
+        self, invitation: QuestionnaireInvitation, data
+    ) -> None:
+        invitation.enable_clinical_intake = self._enable_clinical_intake_from_payload(
+            data
+        )
+        invitation.intake_context = self._intake_context_from_payload(data)
+        invitation.intake_responses = {}
+
+    def _intake_meta_for_invitation(
+        self, inv: QuestionnaireInvitation
+    ) -> tuple[bool, bool, list, Optional[str], Optional[str]]:
+        enable = bool(getattr(inv, "enable_clinical_intake", False))
+        ctx = inv.intake_context if isinstance(inv.intake_context, dict) else {}
+        saved = inv.intake_responses if isinstance(inv.intake_responses, dict) else {}
+        sections_raw = (
+            build_intake_sections_for_invitation(ctx, saved) if enable else []
+        )
+        sections = [IntakeSectionView.model_validate(s) for s in sections_raw]
+        completed = inv.intake_completed_at is not None
+        if enable and not completed:
+            completed = intake_is_complete(sections_raw, saved)
+        specialty = ctx.get("specialty")
+        reason = ctx.get("consultation_reason")
+        return enable, completed, sections, specialty, reason
+
+    def save_public_intake_section(
+        self, raw_token: str, section_id: str, answers: dict
+    ) -> PublicIntakeSectionSubmitResponse:
+        inv = self._get_invitation_for_public_token(raw_token)
+        inv = self._mark_expired_if_needed(inv)
+        if inv.status != "pending":
+            raise HTTPException(
+                status_code=400, detail="Esta invitación ya no está disponible"
+            )
+        if not bool(getattr(inv, "enable_clinical_intake", False)):
+            raise HTTPException(
+                status_code=400,
+                detail="Esta invitación no incluye ficha clínica previa",
+            )
+
+        ctx = inv.intake_context if isinstance(inv.intake_context, dict) else {}
+        merged = merge_intake_section(
+            inv.intake_responses if isinstance(inv.intake_responses, dict) else {},
+            section_id.strip(),
+            answers or {},
+        )
+        inv.intake_responses = merged
+        sections_raw = build_intake_sections_for_invitation(ctx, merged)
+        sections = [IntakeSectionView.model_validate(s) for s in sections_raw]
+        if intake_is_complete(sections_raw, merged):
+            inv.intake_completed_at = datetime.now(timezone.utc)
+        self._db.commit()
+        self._db.refresh(inv)
+        completed = inv.intake_completed_at is not None
+        return PublicIntakeSectionSubmitResponse(
+            intake_completed=completed,
+            intake_sections=sections,
+        )
+
     def create_invitation_batch(
         self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
     ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
@@ -915,6 +1004,7 @@ class QuestionnaireRepository:
             expires_at=expires_at,
             collect_prior_documents=bool(data.collect_prior_documents),
         )
+        self._apply_clinical_intake_to_invitation(invitation, data)
         self._db.add(invitation)
         self._db.flush()
 
@@ -965,6 +1055,7 @@ class QuestionnaireRepository:
             collect_prior_documents=bool(data.collect_prior_documents),
             is_dynamic=True,
         )
+        self._apply_clinical_intake_to_invitation(invitation, data)
         self._db.add(invitation)
         self._db.flush()
 
@@ -1156,6 +1247,10 @@ class QuestionnaireRepository:
             self.count_answered_dynamic_items(inv.id) if is_dynamic else 0
         )
 
+        enable_intake, intake_done, intake_sections, specialty, reason = (
+            self._intake_meta_for_invitation(inv)
+        )
+
         if inv.status != "pending":
             return PublicInvitationViewResponse(
                 invitation_id=str(inv.id),
@@ -1170,6 +1265,32 @@ class QuestionnaireRepository:
                 is_dynamic=is_dynamic,
                 dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
                 dynamic_answered_count=answered_dynamic,
+                enable_clinical_intake=enable_intake,
+                intake_completed=intake_done,
+                intake_sections=intake_sections,
+                specialty=specialty,
+                consultation_reason=reason,
+            )
+
+        if enable_intake and not intake_done:
+            return PublicInvitationViewResponse(
+                invitation_id=str(inv.id),
+                patient_name=inv.patient_name_snapshot,
+                patient_email=inv.patient_email_snapshot,
+                status=inv.status,
+                expires_at=inv.expires_at,
+                questions=[],
+                collect_prior_documents=bool(
+                    getattr(inv, "collect_prior_documents", False)
+                ),
+                is_dynamic=is_dynamic,
+                dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
+                dynamic_answered_count=answered_dynamic,
+                enable_clinical_intake=True,
+                intake_completed=False,
+                intake_sections=intake_sections,
+                specialty=specialty,
+                consultation_reason=reason,
             )
 
         if is_dynamic:
@@ -1190,6 +1311,11 @@ class QuestionnaireRepository:
                 is_dynamic=True,
                 dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
                 dynamic_answered_count=answered_dynamic,
+                enable_clinical_intake=enable_intake,
+                intake_completed=intake_done,
+                intake_sections=intake_sections,
+                specialty=specialty,
+                consultation_reason=reason,
             )
 
         items = (
@@ -1210,6 +1336,11 @@ class QuestionnaireRepository:
             is_dynamic=False,
             dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
             dynamic_answered_count=0,
+            enable_clinical_intake=enable_intake,
+            intake_completed=intake_done,
+            intake_sections=intake_sections,
+            specialty=specialty,
+            consultation_reason=reason,
             questions=[
                 {
                     "item_id": str(i.id),
@@ -1236,6 +1367,16 @@ class QuestionnaireRepository:
             )
         if inv.status != "pending":
             raise HTTPException(status_code=400, detail="Invitación no disponible")
+        if bool(getattr(inv, "enable_clinical_intake", False)) and not inv.intake_completed_at:
+            raise HTTPException(
+                status_code=400,
+                detail="Completa primero tu ficha clínica antes del cuestionario",
+            )
+        if bool(getattr(inv, "is_dynamic", False)):
+            raise HTTPException(
+                status_code=400,
+                detail="Este cuestionario es dinámico; usa el flujo pregunta a pregunta",
+            )
 
         items = (
             self._db.query(QuestionnaireInvitationItem)

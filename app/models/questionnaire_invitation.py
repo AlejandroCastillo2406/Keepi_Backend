@@ -64,6 +64,12 @@ class QuestionnaireInvitation(Base):
     is_dynamic = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    enable_clinical_intake = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    intake_context = Column(JSONB, nullable=True)
+    intake_responses = Column(JSONB, nullable=True)
+    intake_completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -156,6 +162,33 @@ class InvitationQuestionView(BaseModel):
     template_name: Optional[str] = None
 
 
+class IntakeFieldView(BaseModel):
+    key: str
+    label: str
+    type: str = "long_text"
+    required: bool = False
+    options: Optional[List[str]] = None
+    placeholder: Optional[str] = None
+    value: Optional[Any] = None
+
+
+class IntakeSectionView(BaseModel):
+    id: str
+    title: str
+    subtitle: Optional[str] = None
+    fields: List[IntakeFieldView] = Field(default_factory=list)
+
+
+class PublicIntakeSectionSubmitRequest(BaseModel):
+    section_id: str
+    answers: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PublicIntakeSectionSubmitResponse(BaseModel):
+    intake_completed: bool
+    intake_sections: List[IntakeSectionView] = Field(default_factory=list)
+
+
 class PublicInvitationViewResponse(BaseModel):
     invitation_id: str
     patient_name: str
@@ -167,6 +200,11 @@ class PublicInvitationViewResponse(BaseModel):
     is_dynamic: bool = False
     dynamic_max_questions: int = 10
     dynamic_answered_count: int = 0
+    enable_clinical_intake: bool = False
+    intake_completed: bool = False
+    intake_sections: List[IntakeSectionView] = Field(default_factory=list)
+    specialty: Optional[str] = None
+    consultation_reason: Optional[str] = None
 
 
 class PublicInvitationAnswerIn(BaseModel):
@@ -193,6 +231,15 @@ class QuestionnaireSendInvitationRequest(BaseModel):
         default=False,
         description="Cuestionario adaptativo con IA (Bedrock). No compatible con plantillas.",
     )
+    enable_clinical_intake: bool = Field(
+        default=True,
+        description="Ficha clínica previa al cuestionario (mismo enlace web).",
+    )
+    phone: Optional[str] = None
+    birth_date: Optional[str] = None
+    sex: Optional[str] = None
+    consultation_reason: Optional[str] = None
+    specialty: Optional[str] = None
 
     @field_validator("use_dynamic_questionnaire", mode="before")
     @classmethod
@@ -210,6 +257,12 @@ class DynamicQuestionnaireInvitationRequest(BaseModel):
         default=False,
         description="Paso opcional de documentos previos al finalizar.",
     )
+    enable_clinical_intake: bool = True
+    phone: Optional[str] = None
+    birth_date: Optional[str] = None
+    sex: Optional[str] = None
+    consultation_reason: Optional[str] = None
+    specialty: Optional[str] = None
 
 
 DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS = 10

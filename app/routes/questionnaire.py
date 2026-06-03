@@ -29,6 +29,8 @@ from app.models.questionnaire_invitation import (
     DynamicQuestionnaireInvitationRequest,
     PublicDynamicAnswerRequest,
     PublicDynamicAnswerResponse,
+    PublicIntakeSectionSubmitRequest,
+    PublicIntakeSectionSubmitResponse,
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
@@ -307,6 +309,12 @@ def create_dynamic_invitation(
         current_user.id,
         payload.patient_id,
         collect_prior_documents=payload.collect_prior_documents,
+        enable_clinical_intake=payload.enable_clinical_intake,
+        phone=payload.phone,
+        birth_date=payload.birth_date,
+        sex=payload.sex,
+        consultation_reason=payload.consultation_reason,
+        specialty=payload.specialty,
     )
 
 
@@ -325,6 +333,12 @@ def create_invitation(
             current_user.id,
             payload.patient_id,
             collect_prior_documents=payload.collect_prior_documents,
+            enable_clinical_intake=payload.enable_clinical_intake,
+            phone=payload.phone,
+            birth_date=payload.birth_date,
+            sex=payload.sex,
+            consultation_reason=payload.consultation_reason,
+            specialty=payload.specialty,
         )
     return svc.create_invitation_with_email(current_user.id, payload)
 
@@ -353,6 +367,20 @@ async def get_public_invitation(
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
     return await svc.get_public_invitation_view(token)
+
+
+@router.post(
+    "/public/{token}/intake",
+    response_model=PublicIntakeSectionSubmitResponse,
+)
+def submit_public_intake_section(
+    token: str,
+    payload: PublicIntakeSectionSubmitRequest,
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.save_public_intake_section(
+        token, payload.section_id, payload.answers
+    )
 
 
 @router.post(

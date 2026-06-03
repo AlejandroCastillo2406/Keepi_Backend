@@ -126,6 +126,32 @@ class DatabaseConfig:
                         "BOOLEAN NOT NULL DEFAULT FALSE"
                     )
                 )
+                conn.execute(
+                    text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS enable_clinical_intake "
+                        "BOOLEAN NOT NULL DEFAULT FALSE"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS intake_context JSONB"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS intake_responses JSONB"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS intake_completed_at "
+                        "TIMESTAMP WITH TIME ZONE"
+                    )
+                )
                 conn.commit()
         except Exception as e:
             logger.warning("Schema patch questionnaire_invitations: %s", e)

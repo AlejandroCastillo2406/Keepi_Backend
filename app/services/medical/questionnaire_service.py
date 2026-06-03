@@ -177,6 +177,8 @@ class QuestionnaireService:
         view = self._repo.get_public_invitation_view(raw_token)
         if not view.is_dynamic or view.status != "pending" or view.questions:
             return view
+        if view.enable_clinical_intake and not view.intake_completed:
+            return view
 
         inv = self._repo._get_invitation_for_public_token(raw_token)
         if inv is None:
@@ -231,6 +233,11 @@ class QuestionnaireService:
             )
         if inv.status != "pending":
             raise HTTPException(status_code=400, detail="Invitación no disponible")
+        if bool(getattr(inv, "enable_clinical_intake", False)) and not inv.intake_completed_at:
+            raise HTTPException(
+                status_code=400,
+                detail="Completa primero tu ficha clínica antes del cuestionario",
+            )
 
         pending = self._repo.get_pending_dynamic_item(inv.id)
         if pending is None:
@@ -299,17 +306,34 @@ class QuestionnaireService:
             for r in rows
         ]
 
+    def save_public_intake_section(
+        self, raw_token: str, section_id: str, answers: dict
+    ):
+        return self._repo.save_public_intake_section(raw_token, section_id, answers)
+
     def create_dynamic_invitation_with_email(
         self,
         doctor_id: uuid.UUID,
         patient_id: str,
         *,
         collect_prior_documents: bool = False,
+        enable_clinical_intake: bool = True,
+        phone: str | None = None,
+        birth_date: str | None = None,
+        sex: str | None = None,
+        consultation_reason: str | None = None,
+        specialty: str | None = None,
     ) -> QuestionnaireInvitationSendResponse:
         payload = QuestionnaireSendInvitationRequest(
             patient_id=patient_id,
             collect_prior_documents=collect_prior_documents,
             use_dynamic_questionnaire=True,
+            enable_clinical_intake=enable_clinical_intake,
+            phone=phone,
+            birth_date=birth_date,
+            sex=sex,
+            consultation_reason=consultation_reason,
+            specialty=specialty,
         )
         return self.create_invitation_with_email(doctor_id, payload)
 
@@ -336,6 +360,9 @@ class QuestionnaireService:
             doctor_name=doctor_name,
             public_link=public_link,
             is_dynamic=bool(payload.use_dynamic_questionnaire),
+            enable_clinical_intake=bool(
+                getattr(payload, "enable_clinical_intake", True)
+            ),
         )
         if email_res.success:
             logger.info(
