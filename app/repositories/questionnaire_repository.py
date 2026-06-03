@@ -1007,6 +1007,9 @@ class QuestionnaireRepository:
 
         intake_only = self._intake_only_from_payload(data)
         has_questions = bool(data.template_ids or data.question_ids)
+        enable_intake = self._enable_clinical_intake_from_payload(data)
+        if not intake_only and not has_questions and enable_intake:
+            intake_only = True
         if intake_only:
             if has_questions:
                 raise HTTPException(
@@ -1018,7 +1021,7 @@ class QuestionnaireRepository:
                 status_code=400,
                 detail=(
                     "Indica plantillas, preguntas, cuestionario dinámico "
-                    "o activa solo ficha clínica (intake_only)"
+                    "o activa ficha clínica previa (intake_only)"
                 ),
             )
 
@@ -1027,25 +1030,30 @@ class QuestionnaireRepository:
             raise HTTPException(status_code=400, detail="patient_id inválido")
         patient = self._load_patient_owned_by_doctor(doctor_id, patient_id)
 
-        template_ids = []
-        for tid in data.template_ids:
-            uid = _as_uuid(tid)
-            if uid is None:
-                raise HTTPException(
-                    status_code=400, detail=f"template_id inválido: {tid}"
-                )
-            template_ids.append(uid)
+        if intake_only:
+            snapshot: List[dict] = []
+        else:
+            template_ids = []
+            for tid in data.template_ids:
+                uid = _as_uuid(tid)
+                if uid is None:
+                    raise HTTPException(
+                        status_code=400, detail=f"template_id inválido: {tid}"
+                    )
+                template_ids.append(uid)
 
-        question_ids = []
-        for qid in data.question_ids:
-            uid = _as_uuid(qid)
-            if uid is None:
-                raise HTTPException(
-                    status_code=400, detail=f"question_id inválido: {qid}"
-                )
-            question_ids.append(uid)
+            question_ids = []
+            for qid in data.question_ids:
+                uid = _as_uuid(qid)
+                if uid is None:
+                    raise HTTPException(
+                        status_code=400, detail=f"question_id inválido: {qid}"
+                    )
+                question_ids.append(uid)
 
-        snapshot = self._build_snapshot_questions(doctor_id, template_ids, question_ids)
+            snapshot = self._build_snapshot_questions(
+                doctor_id, template_ids, question_ids
+            )
 
         hours = 24
         expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
