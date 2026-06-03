@@ -424,10 +424,13 @@ class QuestionnaireService:
                 detail="Esta invitación no permite subir documentos previos",
             )
         if inv.status != "completed":
-            raise HTTPException(
-                status_code=400,
-                detail="Primero debes completar la ficha o el cuestionario",
-            )
+            intake_done = bool(getattr(inv, "intake_completed_at", None))
+            enable_intake = bool(getattr(inv, "enable_clinical_intake", False))
+            if not (enable_intake and intake_done):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Primero debes completar la ficha clínica",
+                )
 
         content = await file.read()
         if not content:
@@ -463,7 +466,7 @@ class QuestionnaireService:
             user_id=inv.doctor_id,
             name=storage_name,
             category=category,
-            description="Documento médico previo (cuestionario inicial)",
+            description="Documento médico previo (ficha clínica)",
             file_url=file_url,
             file_name=storage_name,
             file_size=len(content),

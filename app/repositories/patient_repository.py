@@ -313,8 +313,8 @@ class PatientRepository:
                         "event_type": EventType.PRIOR_DOCUMENTS,
                         "subtitle": label,
                         "description": (
-                            "Estudios o informes compartidos desde el enlace "
-                            "de alta clínica."
+                            "Estudios o informes compartidos al completar la "
+                            "ficha clínica."
                         ),
                         "raw_dt": when,
                         "action_patient_id": str(pid),

@@ -63,24 +63,23 @@ _SECTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "subtitle": "Medicamentos, alimentos u otras sustancias.",
         "fields": [
             {
-                "key": "allergies",
-                "label": "¿Tienes alergias conocidas?",
-                "type": "long_text",
+                "key": "allergy_items",
+                "label": "Alergias conocidas",
+                "type": "allergy_list",
                 "required": False,
-                "placeholder": "Escribe «Ninguna» si no aplica.",
+                "placeholder": "Ej. Penicilina, polen, mariscos…",
             },
         ],
     },
     "medications": {
         "title": "Medicamentos actuales",
-        "subtitle": "Incluye dosis si la recuerdas.",
+        "subtitle": "Agrega cada medicamento por separado.",
         "fields": [
             {
-                "key": "medications",
-                "label": "Medicamentos que tomas actualmente",
-                "type": "long_text",
+                "key": "medication_items",
+                "label": "Medicamentos que tomas",
+                "type": "medication_list",
                 "required": False,
-                "placeholder": "Escribe «Ninguno» si no aplica.",
             },
         ],
     },
@@ -141,6 +140,26 @@ def build_intake_sections_for_invitation(
     for sid in INTAKE_SECTION_IDS:
         tpl = deepcopy(_SECTION_TEMPLATES[sid])
         section_saved = saved.get(sid) if isinstance(saved.get(sid), dict) else {}
+        if sid == "allergies" and "allergy_items" not in section_saved:
+            legacy = section_saved.get("allergies")
+            if isinstance(legacy, str) and legacy.strip():
+                low = legacy.strip().lower()
+                section_saved = {
+                    **section_saved,
+                    "allergy_items": []
+                    if low in ("ninguna", "ninguno", "no", "n/a")
+                    else [legacy.strip()],
+                }
+        if sid == "medications" and "medication_items" not in section_saved:
+            legacy = section_saved.get("medications")
+            if isinstance(legacy, str) and legacy.strip():
+                low = legacy.strip().lower()
+                section_saved = {
+                    **section_saved,
+                    "medication_items": []
+                    if low in ("ninguno", "ninguna", "no", "n/a")
+                    else [{"name": legacy.strip(), "mg": ""}],
+                }
         fields_out = []
         for field in tpl["fields"]:
             key = field["key"]
@@ -176,9 +195,44 @@ def intake_is_complete(
                 continue
             key = field["key"]
             val = section_answers.get(key)
+            ftype = field.get("type") or ""
+            if ftype in ("allergy_list", "medication_list"):
+                if not isinstance(val, list):
+                    return False
+                non_empty = [
+                    v
+                    for v in val
+                    if (isinstance(v, str) and v.strip())
+                    or (isinstance(v, dict) and str(v.get("name") or "").strip())
+                ]
+                if not non_empty:
+                    return False
+                continue
             if val is None or (isinstance(val, str) and not val.strip()):
                 return False
     return True
+
+
+def _format_field_value_for_display(key: str, field_type: str, value: Any) -> str:
+    if key == "allergy_items" or field_type == "allergy_list":
+        if not isinstance(value, list):
+            return _field_value_to_str(value)
+        items = [str(v).strip() for v in value if str(v).strip()]
+        return ", ".join(items) if items else "Ninguna reportada"
+    if key == "medication_items" or field_type == "medication_list":
+        if not isinstance(value, list):
+            return _field_value_to_str(value)
+        parts: List[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+                mg = str(item.get("mg") or "").strip()
+                if name:
+                    parts.append(f"{name} {mg} mg".strip() if mg else name)
+            elif item:
+                parts.append(str(item).strip())
+        return ", ".join(parts) if parts else "Ninguno reportado"
+    return _field_value_to_str(value)
 
 
 def _field_value_to_str(value: Any) -> str:
@@ -197,16 +251,33 @@ def build_clinical_intake_detail_sections(
     sections_raw = build_intake_sections_for_invitation(
         intake_context, saved_responses
     )
+    saved = saved_responses or {}
     out: List[Dict[str, Any]] = []
     for section in sections_raw:
+        sid = section.get("id") or ""
+        section_saved = saved.get(sid) if isinstance(saved.get(sid), dict) else {}
         fields_out = []
         for field in section.get("fields") or []:
-            val = _field_value_to_str(field.get("value"))
+            key = field.get("key") or ""
+            ftype = field.get("type") or ""
+            raw = section_saved.get(key)
+            if raw is None:
+                raw = field.get("value")
+            val = _format_field_value_for_display(key, ftype, raw)
+            if ftype in ("allergy_list", "medication_list"):
+                fields_out.append(
+                    {
+                        "key": key,
+                        "label": field.get("label") or key,
+                        "value": val,
+                    }
+                )
+                continue
             if not val:
                 continue
             fields_out.append(
                 {
-                    "key": field.get("key") or "",
+                    "key": key,
                     "label": field.get("label") or field.get("key") or "",
                     "value": val,
                 }

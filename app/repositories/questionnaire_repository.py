@@ -994,6 +994,14 @@ class QuestionnaireRepository:
             ),
         ), inv if intake_only and completed else None
 
+    def _resolve_collect_prior_documents(self, data) -> bool:
+        enable = self._enable_clinical_intake_from_payload(data)
+        if self._intake_only_from_payload(data):
+            enable = True
+        if not enable:
+            return False
+        return bool(getattr(data, "collect_prior_documents", False))
+
     def create_invitation_batch(
         self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
     ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
@@ -1066,7 +1074,7 @@ class QuestionnaireRepository:
             token_hash="__pending__",
             status="pending",
             expires_at=expires_at,
-            collect_prior_documents=bool(data.collect_prior_documents),
+            collect_prior_documents=self._resolve_collect_prior_documents(data),
         )
         self._apply_clinical_intake_to_invitation(invitation, data)
         self._db.add(invitation)
@@ -1116,7 +1124,7 @@ class QuestionnaireRepository:
             token_hash="__pending__",
             status="pending",
             expires_at=expires_at,
-            collect_prior_documents=bool(data.collect_prior_documents),
+            collect_prior_documents=self._resolve_collect_prior_documents(data),
             is_dynamic=True,
         )
         self._apply_clinical_intake_to_invitation(invitation, data)
