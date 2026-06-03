@@ -12,6 +12,7 @@ class EventType(str, Enum):
     ANALYSIS_UPLOAD = "analysis_upload"
     REGISTRATION = "registration"
     QUESTIONNAIRE = "questionnaire"
+    CLINICAL_INTAKE = "clinical_intake"
     PRIOR_DOCUMENTS = "prior_documents"
 
 

@@ -181,6 +181,48 @@ def intake_is_complete(
     return True
 
 
+def _field_value_to_str(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value if v is not None)
+    return str(value).strip()
+
+
+def build_clinical_intake_detail_sections(
+    intake_context: Optional[Dict[str, Any]],
+    saved_responses: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Vista de solo lectura para el médico (timeline / detalle)."""
+    sections_raw = build_intake_sections_for_invitation(
+        intake_context, saved_responses
+    )
+    out: List[Dict[str, Any]] = []
+    for section in sections_raw:
+        fields_out = []
+        for field in section.get("fields") or []:
+            val = _field_value_to_str(field.get("value"))
+            if not val:
+                continue
+            fields_out.append(
+                {
+                    "key": field.get("key") or "",
+                    "label": field.get("label") or field.get("key") or "",
+                    "value": val,
+                }
+            )
+        if fields_out:
+            out.append(
+                {
+                    "id": section.get("id") or "",
+                    "title": section.get("title") or "",
+                    "subtitle": section.get("subtitle"),
+                    "fields": fields_out,
+                }
+            )
+    return out
+
+
 def merge_intake_section(
     saved: Optional[Dict[str, Any]],
     section_id: str,

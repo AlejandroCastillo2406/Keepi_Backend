@@ -6,7 +6,9 @@ from typing import List
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.dto.clinical_intake_dto import ClinicalIntakeDetailResponse
 from app.dto.timeline_dto import PriorDocumentItemResponse, TimelineEventResponse
+from app.repositories.questionnaire_repository import QuestionnaireRepository
 from app.repositories.patient_repository import PatientRepository
 from app.repositories.user_repository import UserRepository
 from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
@@ -71,6 +73,22 @@ class PatientTimelineService:
     def prior_documents_for_patient(self, patient_id: str) -> List[PriorDocumentItemResponse]:
         rows = self._patient.list_prior_documents_for_patient(self._db, patient_id)
         return [self._prior_doc_item(d) for d in rows]
+
+    def clinical_intake_detail_for_doctor_patient(
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> ClinicalIntakeDetailResponse:
+        patient = self._users.get_patient_owned_by_doctor(patient_id, doctor_id)
+        if not patient:
+            raise HTTPException(
+                status_code=404,
+                detail="Paciente no vinculado a su cuenta.",
+            )
+        return QuestionnaireRepository(self._db).get_clinical_intake_detail_for_doctor(
+            doctor_id, patient_id, invitation_id
+        )
 
     def prior_documents_for_doctor_patient(
         self, doctor_id: uuid.UUID, patient_id: uuid.UUID

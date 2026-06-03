@@ -1491,6 +1491,64 @@ class QuestionnaireRepository:
             inv,
         )
 
+    def get_clinical_intake_detail_for_doctor(
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ):
+        from app.dto.clinical_intake_dto import (
+            ClinicalIntakeDetailResponse,
+            ClinicalIntakeFieldDetail,
+            ClinicalIntakeSectionDetail,
+        )
+        from app.services.medical.intake_sections import (
+            build_clinical_intake_detail_sections,
+        )
+
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.id == invitation_id,
+                QuestionnaireInvitation.doctor_id == doctor_id,
+                QuestionnaireInvitation.patient_id == patient_id,
+            )
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        if not inv.intake_completed_at:
+            raise HTTPException(
+                status_code=404, detail="La ficha clínica aún no está completada"
+            )
+        ctx = inv.intake_context if isinstance(inv.intake_context, dict) else {}
+        saved = (
+            inv.intake_responses if isinstance(inv.intake_responses, dict) else {}
+        )
+        sections_raw = build_clinical_intake_detail_sections(ctx, saved)
+        sections = [
+            ClinicalIntakeSectionDetail(
+                id=s["id"],
+                title=s["title"],
+                subtitle=s.get("subtitle"),
+                fields=[
+                    ClinicalIntakeFieldDetail(
+                        key=f["key"],
+                        label=f["label"],
+                        value=f["value"],
+                    )
+                    for f in s.get("fields") or []
+                ],
+            )
+            for s in sections_raw
+        ]
+        return ClinicalIntakeDetailResponse(
+            invitation_id=str(inv.id),
+            patient_id=str(inv.patient_id),
+            completed_at=inv.intake_completed_at,
+            sections=sections,
+        )
+
     def list_patient_completed_response_rows(
         self, patient_id: uuid.UUID, doctor_id: uuid.UUID
     ):

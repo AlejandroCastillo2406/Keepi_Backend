@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.dto.clinical_intake_dto import ClinicalIntakeDetailResponse
 from app.dto.timeline_dto import PriorDocumentItemResponse, TimelineEventResponse
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
@@ -134,3 +135,18 @@ async def list_patient_prior_documents(
     timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
 ):
     return timeline_svc.prior_documents_for_doctor_patient(current_user.id, patient_id)
+
+
+@router.get(
+    "/patients/{patient_id}/clinical-intake/{invitation_id}",
+    response_model=ClinicalIntakeDetailResponse,
+)
+async def get_patient_clinical_intake_detail(
+    patient_id: UUID,
+    invitation_id: UUID,
+    current_user: User = Depends(require_no_temp_password_user),
+    timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
+):
+    return timeline_svc.clinical_intake_detail_for_doctor_patient(
+        current_user.id, patient_id, invitation_id
+    )

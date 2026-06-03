@@ -14,7 +14,10 @@ from app.models.appointment import Appointment
 from app.models.document import Document
 from app.models.prescription import Prescription
 from app.models.user import User as UserModel
-from app.models.questionnaire_invitation import QuestionnaireInvitation
+from app.models.questionnaire_invitation import (
+    QuestionnaireInvitation,
+    QuestionnaireInvitationItem,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,10 +205,41 @@ class PatientRepository:
                 if not when_sent:
                     continue
 
+                intake_done_at = _as_utc(getattr(inv, "intake_completed_at", None))
+                if intake_done_at and bool(
+                    getattr(inv, "enable_clinical_intake", False)
+                ):
+                    raw_events.append(
+                        {
+                            "id": f"intake_{inv.id}",
+                            "date": _fmt_date(intake_done_at),
+                            "time": _fmt_time(intake_done_at),
+                            "title": "Antecedentes completos",
+                            "actor": "Paciente",
+                            "event_type": EventType.CLINICAL_INTAKE,
+                            "subtitle": "Ficha clínica previa a la consulta",
+                            "description": (
+                                "El paciente completó su ficha clínica "
+                                "(datos, antecedentes, alergias y medicamentos)."
+                            ),
+                            "raw_dt": intake_done_at,
+                        }
+                    )
+
+                item_count = (
+                    db.query(QuestionnaireInvitationItem)
+                    .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+                    .count()
+                )
+                is_dynamic = bool(getattr(inv, "is_dynamic", False))
+                show_questionnaire_event = is_dynamic or item_count > 0
+                if not show_questionnaire_event:
+                    continue
+
                 q_status = None
                 completed_time = None
 
-                if inv.status == "complete":
+                if inv.status == "completed":
                     q_status = QuestionnaireStatus.COMPLETED
                     if inv.completed_at:
                         completed_time = _as_utc(inv.completed_at).isoformat()
@@ -216,17 +250,24 @@ class PatientRepository:
                     else:
                         q_status = QuestionnaireStatus.PENDING
 
+                q_when = (
+                    _as_utc(inv.completed_at) if inv.status == "completed" else when_sent
+                )
                 raw_events.append(
                     {
                         "id": f"quest_{inv.id}",
-                        "date": _fmt_date(when_sent),
-                        "time": _fmt_time(when_sent),
+                        "date": _fmt_date(q_when),
+                        "time": _fmt_time(q_when),
                         "title": "Cuestionario médico",
                         "actor": "Doctor",
                         "event_type": EventType.QUESTIONNAIRE,
-                        "subtitle": "Cuestionario de seguimiento",
+                        "subtitle": (
+                            "Cuestionario completado"
+                            if q_status == QuestionnaireStatus.COMPLETED
+                            else "Cuestionario de seguimiento"
+                        ),
                         "description": "Se te envió un cuestionario médico para contestar.",
-                        "raw_dt": when_sent,
+                        "raw_dt": q_when,
                         "questionnaire_status": q_status,
                         "completed_at": completed_time,
                     }
@@ -267,13 +308,13 @@ class PatientRepository:
                         "id": f"priordocs_{pid}",
                         "date": _fmt_date(when),
                         "time": _fmt_time(when),
-                        "title": "Documentos médicos previos",
+                        "title": "Documentos previos subidos",
                         "actor": "Paciente",
                         "event_type": EventType.PRIOR_DOCUMENTS,
                         "subtitle": label,
                         "description": (
-                            "Estudios o informes compartidos al completar el "
-                            "cuestionario inicial."
+                            "Estudios o informes compartidos desde el enlace "
+                            "de alta clínica."
                         ),
                         "raw_dt": when,
                         "action_patient_id": str(pid),
