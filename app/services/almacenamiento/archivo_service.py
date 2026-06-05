@@ -8,7 +8,7 @@ import boto3
 from app.core.config import settings
 from app.interfaces.archivo_repository_interface import IArchivoRepository
 from app.services.ocr.textract_service import extract_text_from_document
-from app.utils.prescription_cedula_parser import procesar_receta_con_seguridad
+from app.utils.parsers.prescription_cedula_parser import procesar_receta_con_seguridad
 
 
 class RecetaArchivoProcesamientoService:
