@@ -143,6 +143,16 @@ class DocumentResponse(DocumentBase):
 
     @classmethod
     def from_orm(cls, obj):
+        # Lógica defensiva para ai_analysis
+        ai_analysis_data = obj.ai_analysis
+        
+        if isinstance(ai_analysis_data, list):
+            # Si es una lista, tomamos el primer elemento (si existe) o un dict vacío
+            ai_analysis_data = ai_analysis_data[0] if ai_analysis_data else {}
+        elif not isinstance(ai_analysis_data, dict):
+            # Si no es ni lista ni dict, devolvemos dict vacío
+            ai_analysis_data = {}
+
         data = {
             "id": str(obj.id),
             "user_id": str(obj.user_id),
@@ -162,7 +172,7 @@ class DocumentResponse(DocumentBase):
             "cloud_provider": obj.cloud_provider,
             "s3_key": obj.s3_key,
             "extracted_text": obj.extracted_text,
-            "ai_analysis": obj.ai_analysis,
+            "ai_analysis": ai_analysis_data, # <--- Usamos el dato "limpiado"
             "is_archived": obj.is_archived,
             "is_favorite": obj.is_favorite,
             "created_at": obj.created_at,
