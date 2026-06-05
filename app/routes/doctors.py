@@ -23,6 +23,8 @@ from app.factories.user_factory import get_user_service
 from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.patient_timeline_service import PatientTimelineService
 from app.services.usuarios import UserService
+# --- NUEVA IMPORTACIÓN PARA PRIMERA CONSULTA ---
+from app.services.medical.questionnaire_service import QuestionnaireService
 
 router = APIRouter()
 
@@ -32,15 +34,28 @@ async def create_patient_account(
     body: DoctorCreatePatientRequest,
     current_user: User = Depends(require_no_temp_password_user),
     svc: UserService = Depends(get_user_service),
+    db: Session = Depends(get_db),  # <-- Agregamos la BD aquí para el QuestionnaireService
 ):
     if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
         raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
     try:
+        # 1. Creamos al paciente normalmente
         patient, _plain_password = await svc.create_patient_by_doctor(
             current_user,
             body.email.strip(),
             body.name.strip(),
         )
+
+        # 2. Lógica de Primera Consulta
+        if getattr(body, 'is_first_consultation', False):
+            q_svc = QuestionnaireService(db)
+            # Genera la invitación, activa la subida de previos y envía el email
+            q_svc.create_dynamic_invitation_with_email(
+                doctor_id=current_user.id,
+                patient_id=str(patient.id),
+                collect_prior_documents=True
+            )
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     return DoctorCreatePatientResponse(

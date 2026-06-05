@@ -7,7 +7,8 @@ import uuid
 from datetime import datetime
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+# ---> Importamos BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
 from fastapi import status as http_status
 from pydantic import BaseModel
 from app.core.security import require_doctor_user
@@ -43,6 +44,11 @@ from app.services.medical.questionnaire_service import QuestionnaireService
 from app.services.ocr.ocr_service import OCRService
 from app.services.aws.bedrock_service import BedrockService  # <-- Importamos tu servicio de IA
 
+# ---> Importaciones nuevas para el Background Task
+from app.core.database import get_db
+from app.models.document import Document
+from app.services.almacenamiento.archivo_service import RecetaArchivoProcesamientoService
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -54,6 +60,53 @@ def _parse_uuid(value: str, field: str = "id") -> uuid.UUID:
         return uuid.UUID(str(value))
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"{field} inválido") from exc
+
+
+# ==========================================
+# FUNCIÓN DE BACKGROUND PARA OCR (PRIMERA CONSULTA)
+# ==========================================
+async def procesar_ocr_en_background(
+    document_id: str,
+    file_bytes: bytes,
+    content_type: str,
+    filename: str
+):
+    # Abrimos la sesión de BD manualmente para la tarea en segundo plano
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        # Buscamos el documento recién creado en S3
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            return
+
+        doctor_email = doc.user.email if doc.user else "doctor@keepi.com"
+
+        # Disparamos Textract con el detalle completo ACTIVADO
+        ocr_svc = RecetaArchivoProcesamientoService()
+        resultados = await ocr_svc.extraer_texto_y_receta(
+            file_bytes=file_bytes,
+            content_type=content_type,
+            filename=filename,
+            doctor_email=doctor_email,
+            mantener_detalle_completo=True
+        )
+
+        # Preparamos la etiqueta PENDING_REVIEW para la bandeja del doctor
+        meta = doc.document_metadata or {}
+        meta["status"] = "PENDING_REVIEW"
+        doc.document_metadata = meta
+
+        # Guardamos el JSON de los medicamentos en el análisis
+        doc.ai_analysis = resultados.get("recordatorios", [])
+
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error procesando OCR en background para doc {document_id}: {e}")
+        db.rollback()
+    finally:
+        # Cerramos correctamente el generador de la BD
+        db_gen.close()
 
 
 @router.get("/specialties", response_model=List[SpecialtySummary])
@@ -385,10 +438,29 @@ def submit_public_invitation(
 )
 async def upload_public_prior_document(
     token: str,
+    background_tasks: BackgroundTasks,  # <--- Inyectamos BackgroundTasks
     file: UploadFile = File(...),
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return await svc.upload_public_prior_document(token, file)
+    # 1. Leemos el archivo en la memoria del servidor de forma asíncrona
+    file_bytes = await file.read()
+    
+    # 2. Regresamos el cursor del archivo a 0 para que tu servicio actual pueda subirlo a S3
+    await file.seek(0)
+    
+    # 3. Se sube a S3 y se guarda en la tabla Documentos (flujo original)
+    response = await svc.upload_public_prior_document(token, file)
+    
+    # 4. Disparamos la extracción en segundo plano
+    background_tasks.add_task(
+        procesar_ocr_en_background,
+        document_id=response.document_id,
+        file_bytes=file_bytes,
+        content_type=file.content_type or "application/octet-stream",
+        filename=file.filename or "documento_previo"
+    )
+    
+    return response
 
 
 @router.get(
