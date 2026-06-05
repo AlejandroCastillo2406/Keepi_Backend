@@ -14,6 +14,7 @@ from app.core.database import Base
 AppointmentStatus = Literal[
     "pending_doctor_proposal",
     "pending_patient_approval",
+    "pending_doctor_approval",
     "scheduled",
     "canceled",
 ]

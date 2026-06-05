@@ -33,19 +33,53 @@ async def create_patient_account(
     body: DoctorCreatePatientRequest,
     current_user: User = Depends(require_no_temp_password_user),
     svc: UserService = Depends(get_user_service),
+    db: Session = Depends(get_db),
 ):
     if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
         raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
     try:
-        patient, _plain_password = await svc.create_patient_by_doctor(
+        patient, plain_password = await svc.create_patient_by_doctor(
             current_user,
             body.email.strip(),
             body.name.strip(),
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    from app.services.medical.doctor_availability_service import (
+        DoctorAvailabilityService,
+    )
+    from app.services.notificaciones.patient_invite_email_service import (
+        build_public_scheduling_link,
+        send_patient_invite_email,
+    )
+
+    raw_token = DoctorAvailabilityService.create_patient_scheduling_token(
+        db, patient.id, current_user.id
+    )
+    scheduling_link = build_public_scheduling_link(raw_token)
+    email_result = send_patient_invite_email(
+        to_email=patient.email,
+        patient_name=patient.name or "",
+        temporary_password=plain_password,
+        doctor_name=current_user.name,
+        scheduling_link=scheduling_link,
+    )
+
+    message = "Paciente creado correctamente."
+    if not email_result.success:
+        message = (
+            "Paciente creado, pero no se pudo enviar el correo de bienvenida. "
+            f"{email_result.error or ''}".strip()
+        )
+
     return DoctorCreatePatientResponse(
-        id=str(patient.id), email=patient.email, name=patient.name
+        id=str(patient.id),
+        email=patient.email,
+        name=patient.name,
+        message=message,
+        email_sent=email_result.success,
+        email_error=email_result.error,
     )
 
 

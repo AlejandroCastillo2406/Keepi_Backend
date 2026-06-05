@@ -91,6 +91,8 @@ class DoctorCreatePatientResponse(BaseModel):
     email: EmailStr
     name: str
     message: str = "Paciente creado correctamente."
+    email_sent: bool = True
+    email_error: Optional[str] = None
 
 
 class UserResponse(UserBase):

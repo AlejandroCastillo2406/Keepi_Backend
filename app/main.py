@@ -22,6 +22,7 @@ from app.routes import (
     appointments,
     auth,
     cloud_storage,
+    doctor_scheduling,
     doctors,
     documents,
     notifications,
@@ -113,6 +114,16 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(doctors.router, prefix="/api/v1/doctors", tags=["Doctors"])
+app.include_router(
+    doctor_scheduling.router,
+    prefix="/api/v1/doctors/scheduling",
+    tags=["Doctor Scheduling"],
+)
+app.include_router(
+    doctor_scheduling.public_router,
+    prefix="/api/v1/scheduling/public",
+    tags=["Public Scheduling"],
+)
 app.include_router(patient.router, prefix="/api/v1/patient", tags=["Patient"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
 app.include_router(

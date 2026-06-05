@@ -1,6 +1,11 @@
 from .analysis_request import AnalysisRequest
 from .analysis_request_invitation import AnalysisRequestUploadInvitation
 from .plans import Plan
+from .doctor_scheduling import (
+    DoctorAvailabilityRule,
+    DoctorSchedulingSettings,
+    PatientSchedulingToken,
+)
 from .appointment import Appointment
 from .document import Document
 from .folder import Folder
@@ -37,6 +42,9 @@ __all__ = [
     "UserDeviceToken",
     "Plan",
     "Appointment",
+    "DoctorAvailabilityRule",
+    "DoctorSchedulingSettings",
+    "PatientSchedulingToken",
     "AnalysisRequest",
     "AnalysisRequestUploadInvitation",
 ]

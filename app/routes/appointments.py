@@ -93,3 +93,31 @@ async def cancel_doctor_appointment(
     return AppointmentService.cancel_doctor_appointment(
         db, appointment_id, current_user.id
     )
+
+
+@router.post("/{appointment_id}/doctor/approve", response_model=AppointmentResponse)
+async def doctor_approve_appointment(
+    appointment_id: UUID,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    return AppointmentService.approve_doctor_approval(
+        db,
+        appointment_id,
+        current_user.id,
+        current_user.name or "",
+    )
+
+
+@router.post("/{appointment_id}/doctor/reject", response_model=AppointmentResponse)
+async def doctor_reject_appointment(
+    appointment_id: UUID,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    return AppointmentService.reject_doctor_approval(
+        db,
+        appointment_id,
+        current_user.id,
+        current_user.name or "",
+    )

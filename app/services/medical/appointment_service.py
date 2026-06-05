@@ -206,3 +206,71 @@ class AppointmentService:
 
         appointment.status = "canceled"
         return repo.save(appointment)
+
+    @staticmethod
+    def approve_doctor_approval(
+        db: Session,
+        appointment_id: UUID,
+        doctor_id: UUID,
+        doctor_name: str,
+    ) -> Appointment:
+        from app.services.notificaciones.notification_service import NotificationService
+
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None or row.doctor_id != doctor_id:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+        if row.status != "pending_doctor_approval":
+            raise HTTPException(
+                status_code=400,
+                detail="Esta cita no está pendiente de tu confirmación.",
+            )
+        row.status = "scheduled"
+        repo.save(row)
+
+        NotificationService(db).notify_user_push_in_app(
+            row.patient_id,
+            title="Cita confirmada",
+            message=f"El Dr. {doctor_name} confirmó tu cita.",
+            notification_type="appointment_confirmed",
+            payload={"appointment_id": str(row.id)},
+            push_data={
+                "type": "appointment_confirmed",
+                "appointment_id": str(row.id),
+            },
+        )
+        return row
+
+    @staticmethod
+    def reject_doctor_approval(
+        db: Session,
+        appointment_id: UUID,
+        doctor_id: UUID,
+        doctor_name: str,
+    ) -> Appointment:
+        from app.services.notificaciones.notification_service import NotificationService
+
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None or row.doctor_id != doctor_id:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+        if row.status != "pending_doctor_approval":
+            raise HTTPException(
+                status_code=400,
+                detail="Esta cita no está pendiente de tu confirmación.",
+            )
+        row.status = "canceled"
+        repo.save(row)
+
+        NotificationService(db).notify_user_push_in_app(
+            row.patient_id,
+            title="Cita no confirmada",
+            message=f"El Dr. {doctor_name} no pudo confirmar la cita solicitada.",
+            notification_type="appointment_rejected",
+            payload={"appointment_id": str(row.id)},
+            push_data={
+                "type": "appointment_rejected",
+                "appointment_id": str(row.id),
+            },
+        )
+        return row

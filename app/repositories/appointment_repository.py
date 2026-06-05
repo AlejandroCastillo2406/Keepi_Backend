@@ -59,3 +59,22 @@ class AppointmentRepository:
             .order_by(Appointment.created_at.desc())
             .all()
         )
+
+    _BLOCKING_STATUSES = (
+        "scheduled",
+        "pending_patient_approval",
+        "pending_doctor_approval",
+    )
+
+    def list_blocking_in_range(
+        self, doctor_id: uuid.UUID, start_at: datetime, end_at: datetime
+    ) -> List[Appointment]:
+        return (
+            self._db.query(Appointment)
+            .filter(Appointment.doctor_id == doctor_id)
+            .filter(Appointment.status.in_(self._BLOCKING_STATUSES))
+            .filter(Appointment.appointment_date.isnot(None))
+            .filter(Appointment.appointment_date < end_at)
+            .filter(Appointment.end_date > start_at)
+            .all()
+        )

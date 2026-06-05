@@ -21,11 +21,46 @@ class PatientInviteEmailResult:
     ses_message_id: str | None = None
 
 
+def build_public_scheduling_link(raw_token: str) -> str:
+    base = (settings.public_questionnaire_base_url or "").strip().rstrip("/")
+    if not base:
+        return raw_token
+    return f"{base}/book/{raw_token}"
+
+
+def _scheduling_block(scheduling_link: str) -> str:
+    safe_link = escape(scheduling_link, quote=True)
+    return f"""
+      <div style="margin:24px 0 0;padding:18px;border-radius:12px;background:#F0F9FF;
+        border:1px solid #BAE6FD;">
+        <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0C4A6E;">
+          Agendar citas en línea
+        </p>
+        <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#0369A1;">
+          Este enlace es personal, no caduca y puedes usarlo cuando quieras solicitar
+          una nueva cita con tu médico.
+        </p>
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+          <tr>
+            <td align="center">
+              <a href="{safe_link}" target="_blank"
+                style="display:inline-block;background:#0284C7;color:#ffffff;
+                  text-decoration:none;font-size:14px;font-weight:600;
+                  padding:12px 24px;border-radius:50px;text-align:center;">
+                Agendar una cita
+              </a>
+            </td>
+          </tr>
+        </table>
+      </div>"""
+
+
 def _html(
     patient_name: str,
     email: str,
     temporary_password: str,
     doctor_name: str | None,
+    scheduling_link: str | None = None,
 ) -> str:
     doctor = _format_doctor_display(doctor_name or "Tu médico")
     cred_block = f"""
@@ -40,6 +75,11 @@ def _html(
       <p style="margin:0;font-size:14px;color:#6B7280;">
         Por seguridad, deberás elegir una nueva contraseña la primera vez que entres a la app.
       </p>"""
+    scheduling_html = (
+        _scheduling_block(scheduling_link)
+        if scheduling_link and scheduling_link.startswith("http")
+        else ""
+    )
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name or "Tu médico",
@@ -50,7 +90,7 @@ def _html(
         cta_label="Ir a Keepi",
         cta_href=(settings.email_link_account or "https://keepi.onrender.com").strip(),
         footer_note="No compartas tu contraseña temporal con nadie.",
-        highlight_box_html=cred_block,
+        highlight_box_html=cred_block + scheduling_html,
         badge_subtitle="Invitación de tu médico",
     )
 
@@ -61,11 +101,18 @@ def send_patient_invite_email(
     temporary_password: str,
     *,
     doctor_name: str | None = None,
+    scheduling_link: str | None = None,
 ) -> PatientInviteEmailResult:
     brand = _brand()
     doctor = _format_doctor_display(doctor_name or "Tu médico")
     subject = f"{brand} – {doctor} te dio acceso a la app"
-    html = _html(patient_name, to_email, temporary_password, doctor_name)
+    html = _html(
+        patient_name,
+        to_email,
+        temporary_password,
+        doctor_name,
+        scheduling_link=scheduling_link,
+    )
 
     source_email = settings.ses_from_email
     source_name = settings.ses_from_name
