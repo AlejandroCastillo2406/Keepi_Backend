@@ -44,7 +44,7 @@ class Document(Base):
     expiry_date = Column(DateTime(timezone=True), nullable=True)
     document_metadata = Column(JSON, nullable=True, default=dict)
     
-    # Campo nuevo para el estado del flujo de trabajo
+    # Campo para el estado del flujo de trabajo
     status = Column(String(50), default=DocumentStatus.PENDING_REVIEW.value, nullable=False, index=True)
     
     tags = Column(ARRAY(String), nullable=True, default=list)
@@ -140,17 +140,15 @@ class DocumentResponse(DocumentBase):
 
     class Config:
         from_attributes = True
+        use_enum_values = True  # Asegura que el Enum se serialice como string
 
     @classmethod
     def from_orm(cls, obj):
         # Lógica defensiva para ai_analysis
         ai_analysis_data = obj.ai_analysis
-        
         if isinstance(ai_analysis_data, list):
-            # Si es una lista, tomamos el primer elemento (si existe) o un dict vacío
             ai_analysis_data = ai_analysis_data[0] if ai_analysis_data else {}
         elif not isinstance(ai_analysis_data, dict):
-            # Si no es ni lista ni dict, devolvemos dict vacío
             ai_analysis_data = {}
 
         data = {
@@ -165,14 +163,14 @@ class DocumentResponse(DocumentBase):
             "file_type": obj.file_type,
             "expiry_date": obj.expiry_date,
             "document_metadata": obj.document_metadata,
-            "status": obj.status,
+            "status": DocumentStatus(obj.status) if obj.status else DocumentStatus.PENDING_REVIEW,
             "tags": obj.tags,
             "drive_file_id": obj.drive_file_id,
             "drive_folder_id": obj.folder.drive_folder_id if obj.folder else None,
             "cloud_provider": obj.cloud_provider,
             "s3_key": obj.s3_key,
             "extracted_text": obj.extracted_text,
-            "ai_analysis": ai_analysis_data, # <--- Usamos el dato "limpiado"
+            "ai_analysis": ai_analysis_data,
             "is_archived": obj.is_archived,
             "is_favorite": obj.is_favorite,
             "created_at": obj.created_at,
