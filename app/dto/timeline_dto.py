@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -58,3 +58,8 @@ class PriorDocumentItemResponse(BaseModel):
     file_size: Optional[int] = None
     file_type: Optional[str] = None
     created_at: Optional[str] = None
+    document_metadata: Optional[Dict[str, Any]] = None
+    ai_analysis: Optional[Any] = None
+
+    class Config:
+        from_attributes = True
