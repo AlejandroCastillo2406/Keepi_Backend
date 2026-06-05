@@ -1,8 +1,10 @@
 import logging
+import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, TypedDict
 
+from jose import jwt
 from pydantic import BaseModel, Field
 from fastapi import (
     APIRouter,
@@ -29,7 +31,6 @@ from app.services.documento.document_api_service import (
     decode_uid_from_request_safe,
 )
 from app.services.documento import DocumentService
-# Nuevas importaciones para los endpoints de validación
 from app.models.document import Document, DocumentStatus, DocumentResponse
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,53 @@ class MobileDocumentMetadataUpdate(BaseModel):
     )
     document_number: Optional[str] = None
     organization: Optional[str] = None
+
+
+class PatientLinkRequest(BaseModel):
+    patient_name: str
+    patient_email: Optional[str] = None
+
+
+# ==========================================
+# ENDPOINTS DE INVITACIÓN A PACIENTES
+# ==========================================
+
+@router.post("/generate-patient-link")
+async def generate_patient_upload_link(
+    body: PatientLinkRequest,
+    user_token: TokenPayload = Depends(require_no_temp_password_token)
+):
+    """
+    Genera un link temporal (24h) para que el paciente suba su expediente
+    sin necesidad de iniciar sesión.
+    """
+    doctor_id = user_token["uid"]
+    
+    # Llave secreta (Asegúrate de tener SECRET_KEY en tu archivo .env)
+    SECRET_KEY = os.getenv("SECRET_KEY", "keepi_super_secret_key_123")
+    
+    # Crear el contenido del token (Caduca en 24 horas)
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    payload = {
+        "type": "patient_upload_pass",
+        "doctor_id": doctor_id,
+        "patient_name": body.patient_name,
+        "exp": expire
+    }
+    
+    # Firmar el token
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    
+    # Construir el link para tu Frontend
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000") 
+    link = f"{frontend_url}/patient/upload?token={token}"
+    
+    return {
+        "message": "Link temporal generado con éxito",
+        "patient_name": body.patient_name,
+        "link": link,
+        "expires_at": expire
+    }
 
 
 # ==========================================
