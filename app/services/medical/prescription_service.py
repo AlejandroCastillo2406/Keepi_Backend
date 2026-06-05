@@ -20,7 +20,7 @@ from app.models.prescription import (
 )
 from app.repositories.prescription_repository import PrescriptionRepository
 from app.repositories.user_repository import UserRepository
-from app.utils.prescription_cedula_parser import procesar_receta_con_seguridad
+from app.utils.parsers.prescription_cedula_parser import procesar_receta_con_seguridad
 from app.services.notificaciones.fcm_push_service import build_reminder_prompt_payload
 from app.services.notificaciones.notification_service import NotificationService
 from app.services.ocr.textract_service import extract_text_from_document
