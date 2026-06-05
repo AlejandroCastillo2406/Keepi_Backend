@@ -60,7 +60,7 @@ class MobileDocumentMetadataUpdate(BaseModel):
 # ENDPOINTS DE VALIDACIÓN (Human-in-the-loop)
 # ==========================================
 
-@router.get("/documents/{document_id}", response_model=DocumentResponse)
+@router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document_details(
     document_id: uuid.UUID,
     user_token: TokenPayload = Depends(require_no_temp_password_token),
@@ -80,7 +80,7 @@ async def get_document_details(
     return DocumentResponse.from_orm(doc)
 
 
-@router.patch("/documents/{document_id}/status", response_model=DocumentResponse)
+@router.patch("/{document_id}/status", response_model=DocumentResponse)
 async def update_document_status(
     document_id: uuid.UUID,
     status: DocumentStatus,
