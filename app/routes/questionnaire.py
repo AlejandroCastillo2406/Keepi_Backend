@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime
 from typing import List, Literal
 
-# ---> Importamos BackgroundTasks
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
 from fastapi import status as http_status
 from pydantic import BaseModel
@@ -42,12 +41,12 @@ from app.models.user import User
 from app.factories.medical_factory import get_questionnaire_service
 from app.services.medical.questionnaire_service import QuestionnaireService
 from app.services.ocr.ocr_service import OCRService
-from app.services.aws.bedrock_service import BedrockService  # <-- Importamos tu servicio de IA
+from app.services.aws.bedrock_service import BedrockService
+from app.services.ocr.procesador_universal import ProcesadorUniversal # <-- NUEVO: Importación del cerebro
 
-# ---> Importaciones nuevas para el Background Task
+# ---> Importamos BackgroundTasks
 from app.core.database import get_db
 from app.models.document import Document
-from app.services.almacenamiento.archivo_service import RecetaArchivoProcesamientoService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -63,7 +62,7 @@ def _parse_uuid(value: str, field: str = "id") -> uuid.UUID:
 
 
 # ==========================================
-# FUNCIÓN DE BACKGROUND PARA OCR (PRIMERA CONSULTA)
+# FUNCIÓN DE BACKGROUND: PROCESADOR UNIVERSAL
 # ==========================================
 async def procesar_ocr_en_background(
     document_id: str,
@@ -80,32 +79,38 @@ async def procesar_ocr_en_background(
         if not doc:
             return
 
-        doctor_email = doc.user.email if doc.user else "doctor@keepi.com"
+        # Obtenemos la extensión
+        extension = filename.split(".")[-1].lower()
 
-        # Disparamos Textract con el detalle completo ACTIVADO
-        ocr_svc = RecetaArchivoProcesamientoService()
-        resultados = await ocr_svc.extraer_texto_y_receta(
-            file_bytes=file_bytes,
-            content_type=content_type,
-            filename=filename,
-            doctor_email=doctor_email,
-            mantener_detalle_completo=True
-        )
+        # Usamos nuestro nuevo Procesador Universal
+        procesador = ProcesadorUniversal()
+        
+        # Guardamos temporalmente para que el procesador pueda leer el archivo (o ajusta tu ProcesadorUniversal si prefieres pasar bytes directamente)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
 
-        # Preparamos la etiqueta PENDING_REVIEW para la bandeja del doctor
+        try:
+            # Procesamos con IA y lógica inteligente
+            resultado = await procesador.procesar(tmp_path, extension, filename)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        # Actualizamos metadatos con el tipo detectado
         meta = doc.document_metadata or {}
         meta["status"] = "PENDING_REVIEW"
+        meta["tipo"] = resultado.get("tipo_detectado", "documento_general")
         doc.document_metadata = meta
 
-        # Guardamos el JSON de los medicamentos en el análisis
-        doc.ai_analysis = resultados.get("recordatorios", [])
+        # Guardamos el JSON enriquecido por la IA
+        doc.ai_analysis = resultado.get("datos_extraidos", {})
 
         db.commit()
     except Exception as e:
-        logger.error(f"Error procesando OCR en background para doc {document_id}: {e}")
+        logger.error(f"Error procesando OCR universal en background para doc {document_id}: {e}")
         db.rollback()
     finally:
-        # Cerramos correctamente el generador de la BD
         db_gen.close()
 
 
@@ -235,7 +240,7 @@ async def extract_ocr_questions(
     y luego usa Claude para limpiar y estructurar las preguntas.
     """
     ocr_service = OCRService()
-    bedrock_service = BedrockService()  # Instanciamos tu servicio
+    bedrock_service = BedrockService()
     preguntas_extraidas = []
 
     if not imagenes:
@@ -438,20 +443,20 @@ def submit_public_invitation(
 )
 async def upload_public_prior_document(
     token: str,
-    background_tasks: BackgroundTasks,  # <--- Inyectamos BackgroundTasks
+    background_tasks: BackgroundTasks, 
     file: UploadFile = File(...),
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
     # 1. Leemos el archivo en la memoria del servidor de forma asíncrona
     file_bytes = await file.read()
     
-    # 2. Regresamos el cursor del archivo a 0 para que tu servicio actual pueda subirlo a S3
+    # 2. Regresamos el cursor del archivo a 0
     await file.seek(0)
     
-    # 3. Se sube a S3 y se guarda en la tabla Documentos (flujo original)
+    # 3. Se sube a S3 y se guarda en la tabla Documentos
     response = await svc.upload_public_prior_document(token, file)
     
-    # 4. Disparamos la extracción en segundo plano
+    # 4. Disparamos la extracción en segundo plano usando el nuevo procesador
     background_tasks.add_task(
         procesar_ocr_en_background,
         document_id=response.document_id,

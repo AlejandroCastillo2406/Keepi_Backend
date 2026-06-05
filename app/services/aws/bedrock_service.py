@@ -22,6 +22,37 @@ class BedrockService:
             logger.error(f"Error inicializando Bedrock: {e}")
             self.bedrock_client = None
 
+    async def detectar_tipo_documento(self, texto: str) -> str:
+        """
+        Clasifica el documento para saber qué parser usar.
+        Retorna: "RECETA", "LABORATORIO", "IDENTIFICACION" o "OTRO".
+        """
+        if not self.bedrock_client:
+            return "OTRO"
+        
+        prompt = f"""
+        Analiza el siguiente texto extraído de un documento médico o administrativo.
+        Clasifícalo estrictamente en UNA de estas categorías: "RECETA", "LABORATORIO", "IDENTIFICACION", "OTRO".
+        
+        Reglas:
+        - Si ves medicamentos, indicaciones de dosis o folios de receta -> RECETA.
+        - Si ves valores, unidades de medida, estudios clínicos o diagnósticos -> LABORATORIO.
+        - Si ves datos personales (CURP, INE, RFC, PASAPORTE) -> IDENTIFICACION.
+        - Si no encaja en ninguna -> OTRO.
+        
+        Responde ÚNICAMENTE la palabra de la categoría, sin explicaciones ni formato adicional.
+        
+        TEXTO:
+        {texto[:1500]}
+        """
+        try:
+            respuesta = await self._call_claude(prompt)
+            # Limpiamos posibles comillas o espacios extra
+            return respuesta.strip().replace('"', '').upper()
+        except Exception as e:
+            logger.error(f"Error clasificando documento: {e}")
+            return "OTRO"
+
     async def analyze_document_content(
         self,
         text: str,
@@ -362,12 +393,12 @@ TEXTO DEL DOCUMENTO:
         2. CERO ALUCINACIONES: Si hay texto basura, garabatos, manchas o letras sueltas al final (ej. "O M", "w6", números aleatorios), IGNÓRALOS por completo. NO inventes preguntas que no estén claramente escritas en el texto.
         3. DIVIDIR PREGUNTAS MÚLTIPLES: Si una misma oración pide DOS datos numéricos o medidas distintas (por ejemplo: "¿Cuál es su peso y estatura?"), DIVÍDELA obligatoriamente en dos preguntas separadas (ej. "¿Cuál es su peso?" y "¿Cuál es su estatura?").
         4. CLASIFICAR EL TIPO DE RESPUESTA. Tus únicas opciones son:
-           - "single_choice": Tiene opciones explícitas y se elige una.
-           - "multi_choice": Tiene opciones explícitas y se eligen varias.
-           - "yes_no": Pregunta de Sí o No.
-           - "numeric": Pregunta de peso, estatura, edad, cantidad, etc.
-           - "short_text": Respuestas cortas o nombres.
-           - "long_text": Explicaciones detalladas.
+            - "single_choice": Tiene opciones explícitas y se elige una.
+            - "multi_choice": Tiene opciones explícitas y se eligen varias.
+            - "yes_no": Pregunta de Sí o No.
+            - "numeric": Pregunta de peso, estatura, edad, cantidad, etc.
+            - "short_text": Respuestas cortas o nombres.
+            - "long_text": Explicaciones detalladas.
         5. Extraer las OPCIONES si el tipo es single_choice o multi_choice (sino, pon null).
         
         Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto extra ni markdown:
@@ -428,7 +459,7 @@ TEXTO DEL DOCUMENTO:
                 a_text = ", ".join(str(x) for x in a)
             else:
                 a_text = str(a) if a is not None else ""
-            history_lines.append(f"{idx}. P: {q}\n   R: {a_text}")
+            history_lines.append(f"{idx}. P: {q}\n  R: {a_text}")
 
         history_block = (
             "\n".join(history_lines) if history_lines else "(sin respuestas previas)"

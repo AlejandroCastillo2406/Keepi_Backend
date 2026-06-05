@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
@@ -20,6 +21,12 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 
+class DocumentStatus(str, Enum):
+    PENDING_REVIEW = "PENDING_REVIEW"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -36,6 +43,10 @@ class Document(Base):
     file_type = Column(String(100), nullable=True)
     expiry_date = Column(DateTime(timezone=True), nullable=True)
     document_metadata = Column(JSON, nullable=True, default=dict)
+    
+    # Campo nuevo para el estado del flujo de trabajo
+    status = Column(String(50), default=DocumentStatus.PENDING_REVIEW.value, nullable=False, index=True)
+    
     tags = Column(ARRAY(String), nullable=True, default=list)
     drive_file_id = Column(String(255), nullable=True)
     cloud_provider = Column(String(50), nullable=True)
@@ -61,7 +72,7 @@ class Document(Base):
     folder = relationship("Folder", back_populates="documents")
 
     def __repr__(self):
-        return f"<Document(id={self.id}, name={self.name}, category={self.category})>"
+        return f"<Document(id={self.id}, name={self.name}, status={self.status})>"
 
 
 class DocumentBase(BaseModel):
@@ -85,6 +96,7 @@ class DocumentCreate(DocumentBase):
     s3_key: Optional[str] = None
     extracted_text: Optional[str] = None
     ai_analysis: Optional[Dict[str, Any]] = None
+    status: Optional[DocumentStatus] = DocumentStatus.PENDING_REVIEW
 
 
 class DocumentUpdate(BaseModel):
@@ -102,6 +114,7 @@ class DocumentUpdate(BaseModel):
     ai_analysis: Optional[Dict[str, Any]] = None
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
+    status: Optional[DocumentStatus] = None
 
 
 class DocumentResponse(DocumentBase):
@@ -119,6 +132,7 @@ class DocumentResponse(DocumentBase):
     s3_key: Optional[str] = None
     extracted_text: Optional[str] = None
     ai_analysis: Optional[Dict[str, Any]] = None
+    status: DocumentStatus
     is_archived: bool = False
     is_favorite: bool = False
     created_at: datetime
@@ -141,6 +155,7 @@ class DocumentResponse(DocumentBase):
             "file_type": obj.file_type,
             "expiry_date": obj.expiry_date,
             "document_metadata": obj.document_metadata,
+            "status": obj.status,
             "tags": obj.tags,
             "drive_file_id": obj.drive_file_id,
             "drive_folder_id": obj.folder.drive_folder_id if obj.folder else None,

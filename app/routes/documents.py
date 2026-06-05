@@ -1,10 +1,9 @@
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 from pydantic import BaseModel, Field
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -15,7 +14,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import JSONResponse, Response, RedirectResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -30,6 +29,8 @@ from app.services.documento.document_api_service import (
     decode_uid_from_request_safe,
 )
 from app.services.documento import DocumentService
+# Nuevas importaciones para los endpoints de validación
+from app.models.document import Document, DocumentStatus, DocumentResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +55,58 @@ class MobileDocumentMetadataUpdate(BaseModel):
     document_number: Optional[str] = None
     organization: Optional[str] = None
 
+
+# ==========================================
+# ENDPOINTS DE VALIDACIÓN (Human-in-the-loop)
+# ==========================================
+
+@router.get("/documents/{document_id}", response_model=DocumentResponse)
+async def get_document_details(
+    document_id: uuid.UUID,
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene los detalles del documento para revisión médica.
+    """
+    doc = db.query(Document).filter(
+        Document.id == document_id, 
+        Document.user_id == user_token["uid"]
+    ).first()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+        
+    return DocumentResponse.from_orm(doc)
+
+
+@router.patch("/documents/{document_id}/status", response_model=DocumentResponse)
+async def update_document_status(
+    document_id: uuid.UUID,
+    status: DocumentStatus,
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza el estado del documento (PENDING_REVIEW, APPROVED, REJECTED).
+    """
+    doc = db.query(Document).filter(
+        Document.id == document_id, 
+        Document.user_id == user_token["uid"]
+    ).first()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    doc.status = status.value
+    db.commit()
+    db.refresh(doc)
+    return DocumentResponse.from_orm(doc)
+
+
+# ==========================================
+# ENDPOINTS EXISTENTES
+# ==========================================
 
 @router.get("/s3/folders/contents")
 async def get_s3_folder_contents(
