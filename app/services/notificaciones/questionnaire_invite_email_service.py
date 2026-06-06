@@ -33,7 +33,6 @@ def build_questionnaire_invite_email_html(
     doctor = _format_doctor_display(doctor_name)
     paragraphs = []
 
-    # 1. TEXTO DEL CUESTIONARIO
     if is_dynamic:
         paragraphs.extend([
             f"{doctor} te invitó a un cuestionario de salud personalizado con IA. "
@@ -49,16 +48,16 @@ def build_questionnaire_invite_email_html(
         headline = "Preparación para tu consulta" if first_appointment_link else "Cuestionario de salud"
         badge = "Cuestionario de salud"
 
-    # 2. INYECCIÓN DEL LINK DE PRIMERA CITA (Si existe)
+    # Texto directo, al grano y SIN código HTML
     if first_appointment_link:
-        paragraphs.extend([
-            "<br><b>📄 Subida de Documentos Previos:</b>",
-            "Además del cuestionario, tu médico ha habilitado un espacio seguro para que subas tus recetas, estudios o documentos médicos previos antes de tu cita.",
-            f"<a href='{first_appointment_link}' style='color: #ea580c; font-weight: bold; text-decoration: underline;'>Haz clic aquí para subir tus documentos previos</a><br>"
-        ])
+        paragraphs.append(
+            "Además del cuestionario, tu médico ha habilitado un espacio seguro "
+            "para que subas tus recetas o documentos médicos previos antes de tu cita."
+        )
 
-    paragraphs.append("Para contestar el cuestionario de salud, haz clic en el botón inferior desde tu celular o computadora.")
+    paragraphs.append("Usa los botones inferiores para completar tu preparación desde tu celular o computadora.")
 
+    # Pasamos los dos enlaces a la plantilla maestra para que ella dibuje los botones
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
@@ -66,6 +65,8 @@ def build_questionnaire_invite_email_html(
         body_paragraphs=paragraphs,
         cta_label="Completar cuestionario",
         cta_href=public_link,
+        secondary_cta_label="Subir documentos previos" if first_appointment_link else "",
+        secondary_cta_href=first_appointment_link or "",
         footer_note="Si el enlace expiró, solicita uno nuevo a tu médico.",
         badge_subtitle=badge,
     )
