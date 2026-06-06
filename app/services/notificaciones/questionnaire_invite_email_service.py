@@ -1,3 +1,4 @@
+from typing import Optional
 from app.core.config import settings
 from app.services.notificaciones.clinical_email_layout import (
     _brand,
@@ -14,8 +15,11 @@ def build_public_questionnaire_link(raw_token: str) -> str:
     return f"{base}/q/{raw_token}"
 
 
-def build_questionnaire_invite_email_subject(doctor_name: str) -> str:
-    return f"{_brand()} – {_format_doctor_display(doctor_name)} te envió un cuestionario"
+def build_questionnaire_invite_email_subject(doctor_name: str, has_first_appointment: bool = False) -> str:
+    doctor = _format_doctor_display(doctor_name)
+    if has_first_appointment:
+        return f"{_brand()} – Preparación para tu consulta con {doctor}"
+    return f"{_brand()} – {doctor} te envió un cuestionario"
 
 
 def build_questionnaire_invite_email_html(
@@ -24,24 +28,37 @@ def build_questionnaire_invite_email_html(
     doctor_name: str,
     public_link: str,
     is_dynamic: bool = False,
+    first_appointment_link: Optional[str] = None,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
+    paragraphs = []
+
+    # 1. TEXTO DEL CUESTIONARIO
     if is_dynamic:
-        paragraphs = [
+        paragraphs.extend([
             f"{doctor} te invitó a un cuestionario de salud personalizado con IA. "
             "Cada pregunta se adapta a tus respuestas anteriores (máximo 10 preguntas).",
-            "El enlace es personal y puedes contestarlo desde el celular o la computadora.",
-        ]
-        headline = "Cuestionario dinámico de salud"
+        ])
+        headline = "Preparación y Cuestionario" if first_appointment_link else "Cuestionario dinámico de salud"
         badge = "Cuestionario con IA"
     else:
-        paragraphs = [
+        paragraphs.extend([
             f"{doctor} te invitó a completar un cuestionario de salud. "
             "Tus respuestas ayudan a preparar mejor tu atención médica.",
-            "El enlace es personal y puedes contestarlo desde el celular o la computadora.",
-        ]
-        headline = "Cuestionario de salud"
+        ])
+        headline = "Preparación para tu consulta" if first_appointment_link else "Cuestionario de salud"
         badge = "Cuestionario de salud"
+
+    # 2. INYECCIÓN DEL LINK DE PRIMERA CITA (Si existe)
+    if first_appointment_link:
+        paragraphs.extend([
+            "<br><b>📄 Subida de Documentos Previos:</b>",
+            "Además del cuestionario, tu médico ha habilitado un espacio seguro para que subas tus recetas, estudios o documentos médicos previos antes de tu cita.",
+            f"<a href='{first_appointment_link}' style='color: #ea580c; font-weight: bold; text-decoration: underline;'>Haz clic aquí para subir tus documentos previos</a><br>"
+        ])
+
+    paragraphs.append("Para contestar el cuestionario de salud, haz clic en el botón inferior desde tu celular o computadora.")
+
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
@@ -61,12 +78,18 @@ def send_questionnaire_invite_email(
     doctor_name: str,
     public_link: str,
     is_dynamic: bool = False,
+    first_appointment_link: Optional[str] = None,
 ):
-    subject = build_questionnaire_invite_email_subject(doctor_name)
+    subject = build_questionnaire_invite_email_subject(
+        doctor_name, 
+        has_first_appointment=bool(first_appointment_link)
+    )
+    
     html = build_questionnaire_invite_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
         public_link=public_link,
         is_dynamic=is_dynamic,
+        first_appointment_link=first_appointment_link,
     )
     return send_simple_html_email_ses(to_email, subject, html)

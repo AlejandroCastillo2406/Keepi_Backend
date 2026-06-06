@@ -1,9 +1,6 @@
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel
-from typing import Any
-from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import (
     Boolean,
@@ -193,6 +190,10 @@ class QuestionnaireSendInvitationRequest(BaseModel):
         default=False,
         description="Cuestionario adaptativo con IA (Bedrock). No compatible con plantillas.",
     )
+    first_appointment_link: Optional[str] = Field(
+        default=None,
+        description="Link temporal generado para la subida de documentos previos a la primera cita.",
+    )
 
     @field_validator("use_dynamic_questionnaire", mode="before")
     @classmethod
@@ -209,6 +210,10 @@ class DynamicQuestionnaireInvitationRequest(BaseModel):
     collect_prior_documents: bool = Field(
         default=False,
         description="Paso opcional de documentos previos al finalizar.",
+    )
+    first_appointment_link: Optional[str] = Field(
+        default=None,
+        description="Link temporal generado para la subida de documentos previos a la primera cita.",
     )
 
 

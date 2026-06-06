@@ -305,11 +305,13 @@ class QuestionnaireService:
         patient_id: str,
         *,
         collect_prior_documents: bool = False,
+        first_appointment_link: Optional[str] = None, # <-- NUEVO: Recibe el link
     ) -> QuestionnaireInvitationSendResponse:
         payload = QuestionnaireSendInvitationRequest(
             patient_id=patient_id,
             collect_prior_documents=collect_prior_documents,
             use_dynamic_questionnaire=True,
+            first_appointment_link=first_appointment_link, # <-- NUEVO: Se lo pasa al payload
         )
         return self.create_invitation_with_email(doctor_id, payload)
 
@@ -330,12 +332,15 @@ class QuestionnaireService:
                 summary.id,
                 (public_link or "")[:80],
             )
+        
+        # AQUÍ ES LA MAGIA: Le inyectamos el first_appointment_link al servicio de SES
         email_res = send_questionnaire_invite_email(
             to_email=summary.patient_email,
             patient_name=summary.patient_name,
             doctor_name=doctor_name,
             public_link=public_link,
             is_dynamic=bool(payload.use_dynamic_questionnaire),
+            first_appointment_link=payload.first_appointment_link, # <-- NUEVO: Pasa el link a AWS SES
         )
         if email_res.success:
             logger.info(
