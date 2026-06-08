@@ -84,7 +84,7 @@ class DoctorCreatePatientRequest(BaseModel):
 
     email: EmailStr
     name: str
-
+    is_first_consultation: bool = False
 
 class DoctorCreatePatientResponse(BaseModel):
     id: str

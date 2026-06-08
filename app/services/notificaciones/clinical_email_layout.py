@@ -72,6 +72,8 @@ def build_clinical_action_email_html(
     footer_note: str,
     highlight_box_html: str = "",
     badge_subtitle: str = "Solicitud de tu médico",
+    secondary_cta_label: str = "", # <-- NUEVO PARÁMETRO
+    secondary_cta_href: str = "",  # <-- NUEVO PARÁMETRO
 ) -> str:
     """
     Correo de acción del paciente (cuestionario, análisis, etc.) con nombre del doctor visible.
@@ -81,27 +83,57 @@ def build_clinical_action_email_html(
     safe_doctor = html_escape(_format_doctor_display(doctor_name), quote=True)
     safe_headline = html_escape(headline.strip(), quote=True)
     safe_badge = html_escape(badge_subtitle.strip(), quote=True)
+    
     href = (cta_href or "").strip()
     label = (cta_label or "").strip()
     show_cta = href.startswith("http") and bool(label)
     safe_href = html_escape(href, quote=True)
     safe_cta = html_escape(label, quote=True)
+    
+    # Procesamiento del segundo botón
+    sec_href = (secondary_cta_href or "").strip()
+    sec_label = (secondary_cta_label or "").strip()
+    show_sec_cta = sec_href.startswith("http") and bool(sec_label)
+    safe_sec_href = html_escape(sec_href, quote=True)
+    safe_sec_cta = html_escape(sec_label, quote=True)
+    
     safe_footer = html_escape(footer_note.strip(), quote=True)
 
     cta_block = ""
-    if show_cta:
+    if show_cta or show_sec_cta:
+        buttons_html = ""
+        # Botón Principal
+        if show_cta:
+            buttons_html += f"""
+              <a href="{safe_href}" target="_blank"
+                style="display:inline-block;background:{_ACCENT};color:#ffffff;
+                  text-decoration:none;font-size:15px;font-weight:600;
+                  padding:14px 32px;border-radius:50px;min-width:200px;
+                  text-align:center;box-shadow:0 4px 14px rgba(242,109,45,0.35);">
+                {safe_cta}
+              </a>
+            """
+        # Botón Secundario
+        if show_sec_cta:
+            margin_top = "margin-top: 14px;" if show_cta else ""
+            buttons_html += f"""
+              <div style="{margin_top}">
+                  <a href="{safe_sec_href}" target="_blank"
+                    style="display:inline-block;background:#FFF7ED;color:{_ACCENT_DARK};
+                      text-decoration:none;font-size:15px;font-weight:600;
+                      padding:14px 32px;border-radius:50px;min-width:200px;
+                      text-align:center;border: 1px solid #FED7AA;">
+                    {safe_sec_cta}
+                  </a>
+              </div>
+            """
+
         cta_block = f"""
             <table role="presentation" border="0" cellpadding="0" cellspacing="0"
               style="margin:26px 0 8px;" width="100%">
               <tr>
                 <td align="center">
-                  <a href="{safe_href}" target="_blank"
-                    style="display:inline-block;background:{_ACCENT};color:#ffffff;
-                      text-decoration:none;font-size:15px;font-weight:600;
-                      padding:14px 32px;border-radius:50px;min-width:200px;
-                      text-align:center;box-shadow:0 4px 14px rgba(242,109,45,0.35);">
-                    {safe_cta}
-                  </a>
+                  {buttons_html}
                 </td>
               </tr>
             </table>"""

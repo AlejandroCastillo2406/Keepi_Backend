@@ -2,7 +2,9 @@ import re
 from typing import Any, List, Optional
 
 
-def procesar_receta_con_seguridad(texto: str) -> Optional[List[dict[str, Any]]]:
+def procesar_receta_con_seguridad(
+    texto: str, mantener_detalle_completo: bool = False
+) -> Optional[List[dict[str, Any]]]:
     texto_min = texto.lower()
 
     tiene_palabra_cedula = re.search(r"c[eé]dula", texto_min)
@@ -86,35 +88,39 @@ def procesar_receta_con_seguridad(texto: str) -> Optional[List[dict[str, Any]]]:
                     flags=re.IGNORECASE,
                 ).strip()
 
-                nombre_corto = frase_sin_clave.split(".")[0].strip()
+                if mantener_detalle_completo:
+                    # NUEVO FLUJO: Para la bandeja de revisión (primera consulta), guarda el detalle completo
+                    nombre_med = frase_sin_clave.strip(" -.").upper()
+                else:
+                    # FLUJO ORIGINAL: Para "enviar receta al paciente", recorta en base a las palabras clave
+                    nombre_corto = frase_sin_clave.split(".")[0].strip()
 
-                palabras_corte = [
-                    "GRAGEA",
-                    "TABLETA",
-                    "COMPRIMIDO",
-                    "SOLUCION",
-                    "CAPSULA",
-                    "ENVASE",
-                    "MG",
-                    "ML",
-                    "UI",
-                    "SUSPENSION",
-                    "JARABE",
-                    "AMPOLLETA",
-                ]
-                patron_corte = r"\b(?:" + "|".join(palabras_corte) + r")\b"
-                match_corte = re.search(patron_corte, nombre_corto, flags=re.IGNORECASE)
+                    palabras_corte = [
+                        "GRAGEA",
+                        "TABLETA",
+                        "COMPRIMIDO",
+                        "SOLUCION",
+                        "CAPSULA",
+                        "ENVASE",
+                        "MG",
+                        "ML",
+                        "UI",
+                        "SUSPENSION",
+                        "JARABE",
+                        "AMPOLLETA",
+                    ]
+                    patron_corte = r"\b(?:" + "|".join(palabras_corte) + r")\b"
+                    match_corte = re.search(patron_corte, nombre_corto, flags=re.IGNORECASE)
 
-                if match_corte:
-                    nombre_corto = nombre_corto[: match_corte.start()].strip()
+                    if match_corte:
+                        nombre_corto = nombre_corto[: match_corte.start()].strip()
 
-                nombre_med = (
-                    nombre_corto.upper()
-                    if nombre_corto
-                    else frase_sin_clave.split()[0].upper()
-                )
-
-                nombre_med = nombre_med.strip(" -")
+                    nombre_med = (
+                        nombre_corto.upper()
+                        if nombre_corto
+                        else frase_sin_clave.split()[0].upper()
+                    )
+                    nombre_med = nombre_med.strip(" -")
 
             medicamentos_encontrados.append(
                 {

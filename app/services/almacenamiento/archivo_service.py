@@ -8,7 +8,7 @@ import boto3
 from app.core.config import settings
 from app.interfaces.archivo_repository_interface import IArchivoRepository
 from app.services.ocr.textract_service import extract_text_from_document
-from app.utils.prescription_cedula_parser import procesar_receta_con_seguridad
+from app.utils.parsers.prescription_cedula_parser import procesar_receta_con_seguridad
 
 
 class RecetaArchivoProcesamientoService:
@@ -28,6 +28,7 @@ class RecetaArchivoProcesamientoService:
         content_type: Optional[str],
         filename: Optional[str],
         doctor_email: str,
+        mantener_detalle_completo: bool = False,
     ) -> Dict[str, Any]:
         texto_raw = ""
         if content_type in ("image/jpeg", "image/png"):
@@ -46,7 +47,9 @@ class RecetaArchivoProcesamientoService:
             self._s3.delete_object(Bucket=settings.aws_s3_bucket, Key=temp_key)
         else:
             raise ValueError("Formato no soportado.")
-        resultados = procesar_receta_con_seguridad(texto_raw)
+            
+        resultados = procesar_receta_con_seguridad(texto_raw, mantener_detalle_completo)
+        
         if resultados is None:
             raise PermissionError("RECETA_NO_VALIDA")
         return {

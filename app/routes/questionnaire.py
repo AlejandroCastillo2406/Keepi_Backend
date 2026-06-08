@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
 from fastapi import status as http_status
 from pydantic import BaseModel
 from app.core.security import require_doctor_user
@@ -43,7 +43,12 @@ from app.models.user import User
 from app.factories.medical_factory import get_questionnaire_service
 from app.services.medical.questionnaire_service import QuestionnaireService
 from app.services.ocr.ocr_service import OCRService
-from app.services.aws.bedrock_service import BedrockService  # <-- Importamos tu servicio de IA
+from app.services.aws.bedrock_service import BedrockService
+from app.services.ocr.procesador_universal import ProcesadorUniversal # <-- NUEVO: Importación del cerebro
+
+# ---> Importamos BackgroundTasks
+from app.core.database import get_db
+from app.models.document import Document
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,6 +61,59 @@ def _parse_uuid(value: str, field: str = "id") -> uuid.UUID:
         return uuid.UUID(str(value))
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"{field} inválido") from exc
+
+
+# ==========================================
+# FUNCIÓN DE BACKGROUND: PROCESADOR UNIVERSAL
+# ==========================================
+async def procesar_ocr_en_background(
+    document_id: str,
+    file_bytes: bytes,
+    content_type: str,
+    filename: str
+):
+    # Abrimos la sesión de BD manualmente para la tarea en segundo plano
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        # Buscamos el documento recién creado en S3
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            return
+
+        # Obtenemos la extensión
+        extension = filename.split(".")[-1].lower()
+
+        # Usamos nuestro nuevo Procesador Universal
+        procesador = ProcesadorUniversal()
+        
+        # Guardamos temporalmente para que el procesador pueda leer el archivo (o ajusta tu ProcesadorUniversal si prefieres pasar bytes directamente)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        try:
+            # Procesamos con IA y lógica inteligente
+            resultado = await procesador.procesar(tmp_path, extension, filename)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        # Actualizamos metadatos con el tipo detectado
+        meta = doc.document_metadata or {}
+        meta["status"] = "PENDING_REVIEW"
+        meta["tipo"] = resultado.get("tipo_detectado", "documento_general")
+        doc.document_metadata = meta
+
+        # Guardamos el JSON enriquecido por la IA
+        doc.ai_analysis = resultado.get("datos_extraidos", {})
+
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error procesando OCR universal en background para doc {document_id}: {e}")
+        db.rollback()
+    finally:
+        db_gen.close()
 
 
 @router.get("/specialties", response_model=List[SpecialtySummary])
@@ -184,7 +242,7 @@ async def extract_ocr_questions(
     y luego usa Claude para limpiar y estructurar las preguntas.
     """
     ocr_service = OCRService()
-    bedrock_service = BedrockService()  # Instanciamos tu servicio
+    bedrock_service = BedrockService()
     preguntas_extraidas = []
 
     if not imagenes:
@@ -413,10 +471,29 @@ def submit_public_invitation(
 )
 async def upload_public_prior_document(
     token: str,
+    background_tasks: BackgroundTasks, 
     file: UploadFile = File(...),
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return await svc.upload_public_prior_document(token, file)
+    # 1. Leemos el archivo en la memoria del servidor de forma asíncrona
+    file_bytes = await file.read()
+    
+    # 2. Regresamos el cursor del archivo a 0
+    await file.seek(0)
+    
+    # 3. Se sube a S3 y se guarda en la tabla Documentos
+    response = await svc.upload_public_prior_document(token, file)
+    
+    # 4. Disparamos la extracción en segundo plano usando el nuevo procesador
+    background_tasks.add_task(
+        procesar_ocr_en_background,
+        document_id=response.document_id,
+        file_bytes=file_bytes,
+        content_type=file.content_type or "application/octet-stream",
+        filename=file.filename or "documento_previo"
+    )
+    
+    return response
 
 
 @router.get(

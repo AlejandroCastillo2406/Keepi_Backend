@@ -1,10 +1,11 @@
 import logging
+import os
 import uuid
-from datetime import datetime, timezone
-from typing import Optional, TypedDict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, TypedDict
 
+from jose import jwt
 from pydantic import BaseModel, Field
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -15,7 +16,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import JSONResponse, Response, RedirectResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -30,6 +31,7 @@ from app.services.documento.document_api_service import (
     decode_uid_from_request_safe,
 )
 from app.services.documento import DocumentService
+from app.models.document import Document, DocumentStatus, DocumentResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +56,105 @@ class MobileDocumentMetadataUpdate(BaseModel):
     document_number: Optional[str] = None
     organization: Optional[str] = None
 
+
+class PatientLinkRequest(BaseModel):
+    patient_name: str
+    patient_email: Optional[str] = None
+
+
+# ==========================================
+# ENDPOINTS DE INVITACIÓN A PACIENTES
+# ==========================================
+
+@router.post("/generate-patient-link")
+async def generate_patient_upload_link(
+    body: PatientLinkRequest,
+    user_token: TokenPayload = Depends(require_no_temp_password_token)
+):
+    """
+    Genera un link temporal (24h) para que el paciente suba su expediente
+    sin necesidad de iniciar sesión.
+    """
+    doctor_id = user_token["uid"]
+    
+    # Llave secreta (Asegúrate de tener SECRET_KEY en tu archivo .env)
+    SECRET_KEY = os.getenv("SECRET_KEY", "keepi_super_secret_key_123")
+    
+    # Crear el contenido del token (Caduca en 24 horas)
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    payload = {
+        "type": "patient_upload_pass",
+        "doctor_id": doctor_id,
+        "patient_name": body.patient_name,
+        "exp": expire
+    }
+    
+    # Firmar el token
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    
+    # Construir el link para tu Frontend
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000") 
+    link = f"{frontend_url}/patient/upload?token={token}"
+    
+    return {
+        "message": "Link temporal generado con éxito",
+        "patient_name": body.patient_name,
+        "link": link,
+        "expires_at": expire
+    }
+
+
+# ==========================================
+# ENDPOINTS DE VALIDACIÓN (Human-in-the-loop)
+# ==========================================
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+async def get_document_details(
+    document_id: uuid.UUID,
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene los detalles del documento para revisión médica.
+    """
+    doc = db.query(Document).filter(
+        Document.id == document_id, 
+        Document.user_id == user_token["uid"]
+    ).first()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+        
+    return DocumentResponse.from_orm(doc)
+
+
+@router.patch("/{document_id}/status", response_model=DocumentResponse)
+async def update_document_status(
+    document_id: uuid.UUID,
+    status: DocumentStatus,
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza el estado del documento (PENDING_REVIEW, APPROVED, REJECTED).
+    """
+    doc = db.query(Document).filter(
+        Document.id == document_id, 
+        Document.user_id == user_token["uid"]
+    ).first()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    doc.status = status.value
+    db.commit()
+    db.refresh(doc)
+    return DocumentResponse.from_orm(doc)
+
+
+# ==========================================
+# ENDPOINTS EXISTENTES
+# ==========================================
 
 @router.get("/s3/folders/contents")
 async def get_s3_folder_contents(
