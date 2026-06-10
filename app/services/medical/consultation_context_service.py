@@ -79,6 +79,18 @@ def _allergies_from_intake(saved: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _phone_sex_from_intake(saved: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    personal = saved.get("personal_data")
+    if not isinstance(personal, dict):
+        personal = {}
+    phone = personal.get("phone")
+    sex = personal.get("sex")
+    return {
+        "phone": str(phone).strip() if phone else None,
+        "sex": str(sex).strip() if sex else None,
+    }
+
+
 def _extract_intake_fields(
     ctx: Dict[str, Any], saved: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -200,11 +212,12 @@ class ConsultationContextService:
     def get_context(
         self, doctor_id: uuid.UUID, patient_id: uuid.UUID
     ) -> ConsultationContextResponse:
-        self._ensure_patient(doctor_id, patient_id)
+        patient = self._ensure_patient(doctor_id, patient_id)
         profile = self._profile_row(doctor_id, patient_id)
         intake = self._latest_intake(doctor_id, patient_id)
 
         intake_fields: Dict[str, Any] = {}
+        contact_fields: Dict[str, Optional[str]] = {"phone": None, "sex": None}
         has_intake = intake is not None
         if intake is not None:
             ctx = (
@@ -218,6 +231,7 @@ class ConsultationContextService:
                 else {}
             )
             intake_fields = _extract_intake_fields(ctx, saved)
+            contact_fields = _phone_sex_from_intake(saved)
 
         q_rows = QuestionnaireRepository(self._db).list_patient_completed_response_rows(
             patient_id, doctor_id
@@ -244,8 +258,22 @@ class ConsultationContextService:
             intake_fields.get("allergies"),
             None,
         )
+        phone = _pick(
+            profile.phone if profile else None,
+            contact_fields.get("phone"),
+            None,
+        )
+        sex = _pick(
+            profile.sex if profile else None,
+            contact_fields.get("sex"),
+            None,
+        )
 
         return ConsultationContextResponse(
+            patient_name=patient.name if patient else None,
+            patient_email=patient.email if patient else None,
+            phone=str(phone).strip() if phone else None,
+            sex=str(sex).strip() if sex else None,
             age_years=int(age) if age is not None else None,
             blood_type=str(blood).strip() if blood else None,
             weight_kg=float(weight) if weight is not None else None,
@@ -260,7 +288,7 @@ class ConsultationContextService:
         patient_id: uuid.UUID,
         payload: ClinicalProfileUpdateRequest,
     ) -> ConsultationContextResponse:
-        self._ensure_patient(doctor_id, patient_id)
+        patient = self._ensure_patient(doctor_id, patient_id)
         row = self._profile_row(doctor_id, patient_id)
         if row is None:
             row = DoctorPatientClinicalProfile(
@@ -270,6 +298,27 @@ class ConsultationContextService:
             self._db.add(row)
 
         data = payload.model_dump(exclude_unset=True)
+        user_fields = {}
+        if "name" in data:
+            user_fields["name"] = data.pop("name")
+        if "email" in data:
+            user_fields["email"] = data.pop("email")
+
+        if user_fields.get("name") is not None:
+            name = str(user_fields["name"]).strip()
+            if name:
+                patient.name = name
+
+        if user_fields.get("email") is not None:
+            email = str(user_fields["email"]).strip().lower()
+            if email and email != patient.email:
+                if self._users.email_exists(email):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Ese correo ya está registrado.",
+                    )
+                patient.email = email
+
         for key, value in data.items():
             if value is None:
                 continue

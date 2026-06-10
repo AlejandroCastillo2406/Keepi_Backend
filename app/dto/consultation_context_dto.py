@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class ConsultationStatsDto(BaseModel):
@@ -11,6 +11,10 @@ class ConsultationStatsDto(BaseModel):
 
 
 class ConsultationContextResponse(BaseModel):
+    patient_name: Optional[str] = None
+    patient_email: Optional[str] = None
+    phone: Optional[str] = None
+    sex: Optional[str] = None
     age_years: Optional[int] = None
     blood_type: Optional[str] = None
     weight_kg: Optional[float] = None
@@ -20,6 +24,10 @@ class ConsultationContextResponse(BaseModel):
 
 
 class ClinicalProfileUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, max_length=32)
+    sex: Optional[str] = Field(None, max_length=32)
     age_years: Optional[int] = Field(None, ge=0, le=130)
     blood_type: Optional[str] = Field(None, max_length=16)
     weight_kg: Optional[float] = Field(None, ge=0, le=500)

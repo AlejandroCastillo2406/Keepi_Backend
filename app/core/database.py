@@ -156,6 +156,24 @@ class DatabaseConfig:
                         "TIMESTAMP WITH TIME ZONE"
                     )
                 )
+                conn.execute(
+                    text(
+                        "ALTER TABLE doctor_patient_clinical_profiles "
+                        "ADD COLUMN IF NOT EXISTS phone VARCHAR(32)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE doctor_patient_clinical_profiles "
+                        "ADD COLUMN IF NOT EXISTS sex VARCHAR(32)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE doctor_patient_clinical_profiles "
+                        "ADD COLUMN IF NOT EXISTS weight_kg DOUBLE PRECISION"
+                    )
+                )
                 conn.commit()
         except Exception as e:
             logger.warning("Schema patch questionnaire_invitations: %s", e)

@@ -29,6 +29,8 @@ class DoctorPatientClinicalProfile(Base):
         nullable=False,
         index=True,
     )
+    phone = Column(String(32), nullable=True)
+    sex = Column(String(32), nullable=True)
     age_years = Column(Integer, nullable=True)
     blood_type = Column(String(16), nullable=True)
     weight_kg = Column(Float, nullable=True)
