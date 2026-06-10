@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.dto.clinical_intake_dto import ClinicalIntakeDetailResponse
+from app.dto.consultation_context_dto import (
+    ClinicalProfileUpdateRequest,
+    ConsultationContextResponse,
+)
 from app.dto.timeline_dto import PriorDocumentItemResponse, TimelineEventResponse
 from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
 from app.core.security import require_no_temp_password_user
@@ -22,6 +26,9 @@ from app.models.appointment import AppointmentDoctorProposeRequest, AppointmentR
 from app.factories.medical_factory import get_patient_timeline_service
 from app.factories.user_factory import get_user_service
 from app.services.medical.appointment_service import AppointmentService
+from app.services.medical.consultation_context_service import (
+    ConsultationContextService,
+)
 from app.services.medical.patient_timeline_service import PatientTimelineService
 from app.services.usuarios import UserService
 
@@ -169,6 +176,37 @@ async def list_patient_prior_documents(
     timeline_svc: PatientTimelineService = Depends(get_patient_timeline_service),
 ):
     return timeline_svc.prior_documents_for_doctor_patient(current_user.id, patient_id)
+
+
+@router.get(
+    "/patients/{patient_id}/consultation-context",
+    response_model=ConsultationContextResponse,
+)
+async def get_patient_consultation_context(
+    patient_id: UUID,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    return ConsultationContextService(db).get_context(current_user.id, patient_id)
+
+
+@router.put(
+    "/patients/{patient_id}/clinical-profile",
+    response_model=ConsultationContextResponse,
+)
+async def upsert_patient_clinical_profile(
+    patient_id: UUID,
+    body: ClinicalProfileUpdateRequest,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    return ConsultationContextService(db).upsert_profile(
+        current_user.id, patient_id, body
+    )
 
 
 @router.get(

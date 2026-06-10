@@ -44,6 +44,30 @@ _SECTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 ],
                 "required": False,
             },
+            {
+                "key": "weight_kg",
+                "label": "Peso (kg)",
+                "type": "short_text",
+                "required": False,
+                "placeholder": "Ej. 64",
+            },
+            {
+                "key": "blood_type",
+                "label": "Tipo de sangre",
+                "type": "single_choice",
+                "options": [
+                    "O+",
+                    "O-",
+                    "A+",
+                    "A-",
+                    "B+",
+                    "B-",
+                    "AB+",
+                    "AB-",
+                    "Desconocido",
+                ],
+                "required": False,
+            },
         ],
     },
     "consultation_reason": {
@@ -126,6 +150,8 @@ _CONTEXT_PREFILL_MAP = {
     "phone": "phone",
     "birth_date": "birth_date",
     "sex": "sex",
+    "weight_kg": "weight_kg",
+    "blood_type": "blood_type",
     "reason": "consultation_reason",
 }
 
