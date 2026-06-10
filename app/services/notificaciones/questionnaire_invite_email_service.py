@@ -1,4 +1,3 @@
-from typing import Optional
 from app.core.config import settings
 from app.services.notificaciones.clinical_email_layout import (
     _brand,
@@ -53,16 +52,16 @@ def build_questionnaire_invite_email_html(
         paragraphs = [
             f"{doctor} te invitó a un cuestionario de salud personalizado con IA. "
             "Cada pregunta se adapta a tus respuestas anteriores (máximo 10 preguntas).",
-        ])
-        headline = "Preparación y Cuestionario" if first_appointment_link else "Cuestionario dinámico de salud"
+        ]
+        headline = "Cuestionario dinámico de salud"
         badge = "Cuestionario con IA"
         cta = "Completar cuestionario"
     else:
-        paragraphs.extend([
+        paragraphs = [
             f"{doctor} te invitó a completar un cuestionario de salud. "
             "Tus respuestas ayudan a preparar mejor tu atención médica.",
-        ])
-        headline = "Preparación para tu consulta" if first_appointment_link else "Cuestionario de salud"
+        ]
+        headline = "Cuestionario de salud"
         badge = "Cuestionario de salud"
         cta = "Completar cuestionario"
     return build_clinical_action_email_html(
@@ -72,8 +71,6 @@ def build_questionnaire_invite_email_html(
         body_paragraphs=paragraphs,
         cta_label=cta,
         cta_href=public_link,
-        secondary_cta_label="Subir documentos previos" if first_appointment_link else "",
-        secondary_cta_href=first_appointment_link or "",
         footer_note="Si el enlace expiró, solicita uno nuevo a tu médico.",
         badge_subtitle=badge,
     )

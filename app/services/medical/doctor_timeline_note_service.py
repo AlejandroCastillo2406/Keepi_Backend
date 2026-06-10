@@ -40,16 +40,16 @@ class DoctorTimelineNoteService:
             region_name=settings.aws_region,
         )
 
-  @staticmethod
-  def _preview(text: str) -> str:
-    t = (text or "").strip()
-    if "--- KEEPIMETRICAS ---" in t:
-      t = t.split("--- KEEPIMETRICAS ---", 1)[0].strip()
-    if len(t) <= _PREVIEW_MAX:
-      return t
-    return t[: _PREVIEW_MAX - 1].rstrip() + "…"
+    @staticmethod
+    def _preview(text: str) -> str:
+        t = (text or "").strip()
+        if "--- KEEPIMETRICAS ---" in t:
+            t = t.split("--- KEEPIMETRICAS ---", 1)[0].strip()
+        if len(t) <= _PREVIEW_MAX:
+            return t
+        return t[: _PREVIEW_MAX - 1].rstrip() + "…"
 
-  def attach_notes_to_timeline(
+    def attach_notes_to_timeline(
         self, patient_id: uuid.UUID, events: List[TimelineEventResponse]
     ) -> List[TimelineEventResponse]:
         if not events:
