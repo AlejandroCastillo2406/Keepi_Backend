@@ -122,14 +122,13 @@ _SECTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "surgeries": {
         "title": "Cirugías previas",
-        "subtitle": "Operaciones o procedimientos quirúrgicos.",
+        "subtitle": "Agrega cada cirugía u hospitalización por separado.",
         "fields": [
             {
-                "key": "surgeries",
+                "key": "surgery_items",
                 "label": "Cirugías o hospitalizaciones previas",
-                "type": "long_text",
+                "type": "surgery_list",
                 "required": False,
-                "placeholder": "Escribe «Ninguna» si no aplica.",
             },
         ],
     },
@@ -197,6 +196,16 @@ def build_intake_sections_for_invitation(
                     if low in ("ninguno", "ninguna", "no", "n/a", "ninguna reportada")
                     else [{"condition": legacy.strip(), "relative": ""}],
                 }
+        if sid == "surgeries" and "surgery_items" not in section_saved:
+            legacy = section_saved.get("surgeries")
+            if isinstance(legacy, str) and legacy.strip():
+                low = legacy.strip().lower()
+                section_saved = {
+                    **section_saved,
+                    "surgery_items": []
+                    if low in ("ninguno", "ninguna", "no", "n/a", "ninguna")
+                    else [{"procedure": legacy.strip(), "date": ""}],
+                }
         fields_out = []
         for field in tpl["fields"]:
             key = field["key"]
@@ -233,7 +242,12 @@ def intake_is_complete(
             key = field["key"]
             val = section_answers.get(key)
             ftype = field.get("type") or ""
-            if ftype in ("allergy_list", "medication_list", "family_history_list"):
+            if ftype in (
+                "allergy_list",
+                "medication_list",
+                "family_history_list",
+                "surgery_list",
+            ):
                 if not isinstance(val, list):
                     return False
                 non_empty = [
@@ -245,6 +259,7 @@ def intake_is_complete(
                         and (
                             str(v.get("name") or "").strip()
                             or str(v.get("condition") or "").strip()
+                            or str(v.get("procedure") or "").strip()
                         )
                     )
                 ]
@@ -297,6 +312,19 @@ def _format_field_value_for_display(key: str, field_type: str, value: Any) -> st
             elif item:
                 parts.append(str(item).strip())
         return ", ".join(parts) if parts else "Ninguno reportado"
+    if key == "surgery_items" or field_type == "surgery_list":
+        if not isinstance(value, list):
+            return _field_value_to_str(value)
+        parts: List[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                procedure = str(item.get("procedure") or "").strip()
+                date = str(item.get("date") or "").strip()
+                if procedure:
+                    parts.append(f"{procedure} ({date})".strip() if date else procedure)
+            elif item:
+                parts.append(str(item).strip())
+        return ", ".join(parts) if parts else "Ninguna reportada"
     return _field_value_to_str(value)
 
 
@@ -329,7 +357,12 @@ def build_clinical_intake_detail_sections(
             if raw is None:
                 raw = field.get("value")
             val = _format_field_value_for_display(key, ftype, raw)
-            if ftype in ("allergy_list", "medication_list", "family_history_list"):
+            if ftype in (
+                "allergy_list",
+                "medication_list",
+                "family_history_list",
+                "surgery_list",
+            ):
                 fields_out.append(
                     {
                         "key": key,
