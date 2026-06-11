@@ -12,7 +12,6 @@ INTAKE_SECTION_IDS = [
     "medications",
     "family_history",
     "surgeries",
-    "current_illness",
 ]
 
 _SECTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
@@ -73,13 +72,14 @@ _SECTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "consultation_reason": {
         "title": "Motivo de consulta",
-        "subtitle": "Cuéntanos por qué acudes a consulta.",
+        "subtitle": "Explica qué síntomas tienes o cómo te sientes.",
         "fields": [
             {
                 "key": "reason",
                 "label": "Motivo de consulta",
                 "type": "long_text",
                 "required": True,
+                "placeholder": "Ej. Dolor de cabeza desde hace 3 días, mareo, cansancio…",
             },
         ],
     },
@@ -166,6 +166,12 @@ def build_intake_sections_for_invitation(
     for sid in INTAKE_SECTION_IDS:
         tpl = deepcopy(_SECTION_TEMPLATES[sid])
         section_saved = saved.get(sid) if isinstance(saved.get(sid), dict) else {}
+        if sid == "consultation_reason":
+            illness_block = saved.get("current_illness")
+            if isinstance(illness_block, dict):
+                legacy_illness = illness_block.get("current_illness")
+                if legacy_illness and not section_saved.get("reason"):
+                    section_saved = {**section_saved, "reason": legacy_illness}
         if sid == "allergies" and "allergy_items" not in section_saved:
             legacy = section_saved.get("allergies")
             if isinstance(legacy, str) and legacy.strip():
