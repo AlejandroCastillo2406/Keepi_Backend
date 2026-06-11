@@ -23,13 +23,14 @@ _SECTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
             {
                 "key": "phone",
                 "label": "Teléfono",
-                "type": "short_text",
+                "type": "phone",
                 "required": True,
+                "placeholder": "10 dígitos",
             },
             {
                 "key": "birth_date",
-                "label": "Fecha de nacimiento (AAAA-MM-DD)",
-                "type": "short_text",
+                "label": "Fecha de nacimiento",
+                "type": "date",
                 "required": False,
             },
             {
@@ -109,12 +110,12 @@ _SECTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "family_history": {
         "title": "Antecedentes familiares",
-        "subtitle": "Enfermedades relevantes en padres, hermanos o abuelos.",
+        "subtitle": "Agrega cada antecedente por separado.",
         "fields": [
             {
-                "key": "family_history",
+                "key": "family_history_items",
                 "label": "Antecedentes familiares",
-                "type": "long_text",
+                "type": "family_history_list",
                 "required": False,
             },
         ],
@@ -186,6 +187,16 @@ def build_intake_sections_for_invitation(
                     if low in ("ninguno", "ninguna", "no", "n/a")
                     else [{"name": legacy.strip(), "mg": ""}],
                 }
+        if sid == "family_history" and "family_history_items" not in section_saved:
+            legacy = section_saved.get("family_history")
+            if isinstance(legacy, str) and legacy.strip():
+                low = legacy.strip().lower()
+                section_saved = {
+                    **section_saved,
+                    "family_history_items": []
+                    if low in ("ninguno", "ninguna", "no", "n/a", "ninguna reportada")
+                    else [{"condition": legacy.strip(), "relative": ""}],
+                }
         fields_out = []
         for field in tpl["fields"]:
             key = field["key"]
@@ -222,16 +233,27 @@ def intake_is_complete(
             key = field["key"]
             val = section_answers.get(key)
             ftype = field.get("type") or ""
-            if ftype in ("allergy_list", "medication_list"):
+            if ftype in ("allergy_list", "medication_list", "family_history_list"):
                 if not isinstance(val, list):
                     return False
                 non_empty = [
                     v
                     for v in val
                     if (isinstance(v, str) and v.strip())
-                    or (isinstance(v, dict) and str(v.get("name") or "").strip())
+                    or (
+                        isinstance(v, dict)
+                        and (
+                            str(v.get("name") or "").strip()
+                            or str(v.get("condition") or "").strip()
+                        )
+                    )
                 ]
                 if not non_empty:
+                    return False
+                continue
+            if ftype == "phone" or key == "phone":
+                digits = "".join(c for c in str(val or "") if c.isdigit())
+                if len(digits) != 10:
                     return False
                 continue
             if val is None or (isinstance(val, str) and not val.strip()):
@@ -255,6 +277,23 @@ def _format_field_value_for_display(key: str, field_type: str, value: Any) -> st
                 mg = str(item.get("mg") or "").strip()
                 if name:
                     parts.append(f"{name} {mg} mg".strip() if mg else name)
+            elif item:
+                parts.append(str(item).strip())
+        return ", ".join(parts) if parts else "Ninguno reportado"
+    if key == "family_history_items" or field_type == "family_history_list":
+        if not isinstance(value, list):
+            return _field_value_to_str(value)
+        parts: List[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                condition = str(item.get("condition") or "").strip()
+                relative = str(item.get("relative") or "").strip()
+                if condition:
+                    parts.append(
+                        f"{condition} ({relative})".strip()
+                        if relative
+                        else condition
+                    )
             elif item:
                 parts.append(str(item).strip())
         return ", ".join(parts) if parts else "Ninguno reportado"
@@ -290,7 +329,7 @@ def build_clinical_intake_detail_sections(
             if raw is None:
                 raw = field.get("value")
             val = _format_field_value_for_display(key, ftype, raw)
-            if ftype in ("allergy_list", "medication_list"):
+            if ftype in ("allergy_list", "medication_list", "family_history_list"):
                 fields_out.append(
                     {
                         "key": key,
