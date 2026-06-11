@@ -90,5 +90,24 @@ class AppointmentResponse(BaseModel):
     appointment_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     created_at: datetime
+    patient_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+
+    @classmethod
+    def from_entity(cls, appt: Appointment) -> "AppointmentResponse":
+        patient_name = None
+        patient = getattr(appt, "patient", None)
+        if patient is not None:
+            patient_name = (patient.name or "").strip() or "Paciente"
+        return cls(
+            id=appt.id,
+            doctor_id=appt.doctor_id,
+            patient_id=appt.patient_id,
+            status=appt.status,
+            reason=appt.reason or "",
+            appointment_date=appt.appointment_date,
+            end_date=appt.end_date,
+            created_at=appt.created_at,
+            patient_name=patient_name,
+        )

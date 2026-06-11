@@ -44,9 +44,10 @@ async def get_doctor_calendar(
     current_user: User = Depends(require_doctor_user),
     db: Session = Depends(get_db),
 ):
-    return AppointmentService.list_doctor_calendar(
+    rows = AppointmentService.list_doctor_calendar(
         db, current_user.id, start_at, end_at
     )
+    return [AppointmentResponse.from_entity(r) for r in rows]
 
 
 @router.get("/mine", response_model=list[AppointmentResponse])

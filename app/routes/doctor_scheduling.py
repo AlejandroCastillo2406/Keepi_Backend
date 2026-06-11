@@ -69,6 +69,21 @@ async def replace_availability_rules(
     return DoctorAvailabilityService.replace_rules(db, current_user.id, body.rules)
 
 
+@router.get("/available-slots", response_model=PublicAvailabilityResponse)
+async def get_doctor_available_slots(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    slots, message = DoctorAvailabilityService.compute_available_slots(
+        db, current_user.id, from_date, to_date
+    )
+    return PublicAvailabilityResponse(slots=slots, message=message)
+
+
 public_router = APIRouter()
 
 

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.appointment import Appointment
 
@@ -49,6 +49,7 @@ class AppointmentRepository:
     ) -> List[Appointment]:
         return (
             self._db.query(Appointment)
+            .options(joinedload(Appointment.patient))
             .filter(Appointment.doctor_id == doctor_id)
             .filter(
                 or_(
