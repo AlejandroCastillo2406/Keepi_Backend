@@ -216,6 +216,21 @@ async def get_s3_file_view_url(
         raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
 
 
+@router.get("/s3/files/content")
+async def get_s3_file_content(
+    path: str = Query(..., description="Ruta S3 del archivo (users/{uid}/...)"),
+    user_token: TokenPayload = Depends(require_no_temp_password_token),
+    api: DocumentApiService = Depends(get_document_api_service),
+):
+    try:
+        return await api.get_s3_file_content_response(user_token["uid"], path)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error descargando archivo S3")
+        raise HTTPException(status_code=500, detail=MSG_ERROR_INTERNO)
+
+
 @router.get("/drive/files/{file_id}/view-url")
 async def get_drive_file_view_url(
     file_id: str,

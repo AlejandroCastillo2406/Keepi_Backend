@@ -489,6 +489,24 @@ class DocumentApiService:
             "mime_type": mime_type or "application/octet-stream",
         }
 
+    async def get_s3_file_content_response(self, uid: str, path: str) -> Response:
+        if not path or not path.startswith(f"users/{uid}/"):
+            raise HTTPException(status_code=403, detail="Ruta no permitida")
+        s3_service = S3Service()
+        try:
+            body, content_type, file_name = s3_service.get_file_bytes(path)
+        except Exception as exc:
+            logger.exception("Error descargando archivo S3 %s", path)
+            raise HTTPException(
+                status_code=404,
+                detail="No se pudo descargar este archivo.",
+            ) from exc
+        return Response(
+            content=body,
+            media_type=content_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        )
+
     async def get_drive_file_view_url(self, uid: str, file_id: str) -> dict:
         drive_service = await _get_drive_service_or_raise(uid, self._db)
         info = await drive_service.get_file_view_info(file_id)
