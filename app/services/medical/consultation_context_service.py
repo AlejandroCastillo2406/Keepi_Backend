@@ -210,7 +210,10 @@ class ConsultationContextService:
         )
 
     def get_context(
-        self, doctor_id: uuid.UUID, patient_id: uuid.UUID
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        stats: ConsultationStatsDto | None = None,
     ) -> ConsultationContextResponse:
         patient = self._ensure_patient(doctor_id, patient_id)
         profile = self._profile_row(doctor_id, patient_id)
@@ -279,7 +282,7 @@ class ConsultationContextService:
             weight_kg=float(weight) if weight is not None else None,
             allergies=str(allergies).strip() if allergies else None,
             has_clinical_intake=has_intake,
-            stats=self._stats(doctor_id, patient_id),
+            stats=stats if stats is not None else self._stats(doctor_id, patient_id),
         )
 
     def upsert_profile(
