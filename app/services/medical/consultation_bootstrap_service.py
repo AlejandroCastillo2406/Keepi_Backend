@@ -137,8 +137,9 @@ class ConsultationBootstrapService:
         appointment_event = self._find_timeline_event(timeline, event_id)
         if appointment_event is None:
             appt = AppointmentRepository(self._db).get_by_id(appointment_id)
-            if appt is None or appt.patient_id != patient_id or appt.doctor_id != doctor_id:
+            if appt is None or appt.patient_id != patient_id:
                 raise HTTPException(status_code=404, detail="Cita no encontrada.")
+            ConsultationContextService(self._db)._ensure_patient(doctor_id, patient_id)
             appointment_event = self._appointment_fallback(appt)
 
         doctor_note_content: Optional[str] = None

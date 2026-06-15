@@ -1570,6 +1570,10 @@ class QuestionnaireRepository:
     ):
         return (
             self._db.query(
+                QuestionnaireInvitation.id.label("invitation_id"),
+                QuestionnaireInvitationItem.template_name_snapshot.label(
+                    "questionnaire_name"
+                ),
                 QuestionnaireInvitationItem.question_text_snapshot.label(
                     "question_text"
                 ),

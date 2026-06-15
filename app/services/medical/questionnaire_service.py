@@ -302,6 +302,8 @@ class QuestionnaireService:
                 question_text=r.question_text,
                 answer_value=r.answer_value,
                 answered_at=r.answered_at,
+                invitation_id=str(r.invitation_id) if r.invitation_id else None,
+                questionnaire_name=(r.questionnaire_name or "").strip() or None,
             )
             for r in rows
         ]
