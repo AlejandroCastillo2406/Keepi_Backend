@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.dto.clinical_intake_dto import ClinicalIntakeDetailResponse
 from app.dto.consultation_bootstrap_dto import ConsultationBootstrapResponse
+from app.dto.patient_profile_bootstrap_dto import PatientProfileBootstrapResponse
 from app.dto.consultation_context_dto import (
     ClinicalProfileUpdateRequest,
     ConsultationContextResponse,
@@ -29,6 +30,9 @@ from app.factories.user_factory import get_user_service
 from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.consultation_bootstrap_service import (
     ConsultationBootstrapService,
+)
+from app.services.medical.patient_profile_bootstrap_service import (
+    PatientProfileBootstrapService,
 )
 from app.services.medical.consultation_context_service import (
     ConsultationContextService,
@@ -194,6 +198,22 @@ async def get_patient_consultation_context(
     if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
         raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
     return ConsultationContextService(db).get_context(current_user.id, patient_id)
+
+
+@router.get(
+    "/patients/{patient_id}/profile-bootstrap",
+    response_model=PatientProfileBootstrapResponse,
+)
+async def get_patient_profile_bootstrap(
+    patient_id: UUID,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    return PatientProfileBootstrapService(db).get_bootstrap(
+        current_user.id, patient_id
+    )
 
 
 @router.get(
