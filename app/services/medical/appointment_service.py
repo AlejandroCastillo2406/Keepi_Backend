@@ -138,6 +138,69 @@ class AppointmentService:
         return row
 
     @staticmethod
+    def get_appointment_for_user(
+        db: Session, appointment_id: UUID, user_id: UUID, role_name: str | None
+    ) -> Appointment:
+        from app.core.roles import ROLE_DOCTOR, ROLE_PATIENT
+
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+
+        if role_name == ROLE_PATIENT and row.patient_id == user_id:
+            return row
+        if role_name == ROLE_DOCTOR and row.doctor_id == user_id:
+            return row
+
+        raise HTTPException(status_code=404, detail="Cita no encontrada.")
+
+    @staticmethod
+    def record_attendance(
+        db: Session,
+        appointment_id: UUID,
+        doctor_id: UUID,
+        status: str,
+    ) -> Appointment:
+        from datetime import timezone
+
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None or row.doctor_id != doctor_id:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+        if row.status != "scheduled":
+            raise HTTPException(
+                status_code=400,
+                detail="Solo se puede registrar asistencia en citas confirmadas.",
+            )
+        if row.attendance_status:
+            raise HTTPException(
+                status_code=400,
+                detail="La asistencia de esta cita ya fue registrada.",
+            )
+        start = row.appointment_date
+        if start is None:
+            raise HTTPException(status_code=400, detail="La cita no tiene fecha.")
+        end = row.end_date
+        if end is None:
+            settings = DoctorAvailabilityService.get_settings(db, doctor_id)
+            end = start + timedelta(minutes=settings.slot_duration_minutes)
+        now = datetime.now(timezone.utc)
+        if now < end:
+            raise HTTPException(
+                status_code=400,
+                detail="Aún no ha terminado el horario de la cita.",
+            )
+        if status not in ("attended", "no_show"):
+            raise HTTPException(status_code=400, detail="Estado de asistencia inválido.")
+        row.attendance_status = status
+        return repo.save(row)
+
+    @staticmethod
     def doctor_propose_and_notify(
         db: Session,
         appointment_id: UUID,

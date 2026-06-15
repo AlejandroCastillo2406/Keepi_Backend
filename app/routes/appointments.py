@@ -5,8 +5,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import require_doctor_user, require_patient_user
+from app.core.security import (
+    require_doctor_user,
+    require_no_temp_password_user,
+    require_patient_user,
+)
 from app.models.appointment import (
+    AppointmentAttendanceRequest,
     AppointmentCreateRequest,
     AppointmentDoctorProposeRequest,
     AppointmentResponse,
@@ -61,12 +66,29 @@ async def get_patient_appointments(
 @router.get("/{appointment_id}", response_model=AppointmentResponse)
 async def get_appointment_detail(
     appointment_id: UUID,
-    current_user: User = Depends(require_patient_user),
+    current_user: User = Depends(require_no_temp_password_user),
     db: Session = Depends(get_db),
 ):
-    return AppointmentService.get_appointment_for_patient(
-        db, appointment_id, current_user.id
+    role_name = current_user.role.name if current_user.role else None
+    return AppointmentService.get_appointment_for_user(
+        db, appointment_id, current_user.id, role_name
     )
+
+
+@router.post("/{appointment_id}/attendance", response_model=AppointmentResponse)
+async def record_appointment_attendance(
+    appointment_id: UUID,
+    body: AppointmentAttendanceRequest,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    row = AppointmentService.record_attendance(
+        db,
+        appointment_id,
+        current_user.id,
+        body.status,
+    )
+    return AppointmentResponse.from_entity(row)
 
 
 @router.post("/{appointment_id}/doctor/propose", response_model=AppointmentResponse)

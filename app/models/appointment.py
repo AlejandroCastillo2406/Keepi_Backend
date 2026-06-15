@@ -45,6 +45,7 @@ class Appointment(Base):
         String(50), nullable=False, default="pending_doctor_proposal", index=True
     )
     reason = Column(Text, nullable=False, default="")
+    attendance_status = Column(String(20), nullable=True, index=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -80,6 +81,12 @@ class AppointmentPatientRespondRequest(BaseModel):
     )
 
 
+class AppointmentAttendanceRequest(BaseModel):
+    status: Literal["attended", "no_show"] = Field(
+        ..., description="Confirmación de asistencia del paciente"
+    )
+
+
 class AppointmentResponse(BaseModel):
 
     id: PyUUID
@@ -89,6 +96,7 @@ class AppointmentResponse(BaseModel):
     reason: str
     appointment_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    attendance_status: Optional[str] = None
     created_at: datetime
     patient_name: Optional[str] = None
 
@@ -108,6 +116,7 @@ class AppointmentResponse(BaseModel):
             reason=appt.reason or "",
             appointment_date=appt.appointment_date,
             end_date=appt.end_date,
+            attendance_status=getattr(appt, "attendance_status", None),
             created_at=appt.created_at,
             patient_name=patient_name,
         )

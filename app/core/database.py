@@ -174,6 +174,12 @@ class DatabaseConfig:
                         "ADD COLUMN IF NOT EXISTS weight_kg DOUBLE PRECISION"
                     )
                 )
+                conn.execute(
+                    text(
+                        "ALTER TABLE appointments "
+                        "ADD COLUMN IF NOT EXISTS attendance_status VARCHAR(20)"
+                    )
+                )
                 conn.commit()
         except Exception as e:
             logger.warning("Schema patch questionnaire_invitations: %s", e)
