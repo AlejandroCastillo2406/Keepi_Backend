@@ -5,6 +5,7 @@ from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
+from app.core.config import settings
 from app.services.notificaciones.clinical_email_layout import (
     _format_doctor_display,
     build_clinical_action_email_html,
@@ -46,12 +47,21 @@ def build_doctor_scheduled_appointment_email_subject(*, doctor_name: str) -> str
     return f"Cita confirmada con {doctor}"
 
 
+def build_public_appointment_response_link(raw_token: str, action: str) -> str:
+    base = (settings.public_questionnaire_base_url or "").strip().rstrip("/")
+    if not base:
+        return raw_token
+    safe_action = "confirmar" if action == "accept" else "cancelar"
+    return f"{base}/cita/{raw_token}?accion={safe_action}"
+
+
 def build_doctor_scheduled_appointment_email_html(
     *,
     patient_name: str,
     doctor_name: str,
     reason: str,
     when_label: str,
+    confirmed_from_web: bool = False,
 ) -> str:
     safe_reason = escape((reason or "Consulta médica").strip(), quote=True)
     safe_when = escape(when_label.strip(), quote=True)
@@ -71,12 +81,18 @@ def build_doctor_scheduled_appointment_email_html(
         </p>
       </div>"""
 
+    intro = (
+        f"{_format_doctor_display(doctor_name)} confirmó tu cita."
+        if confirmed_from_web
+        else f"{_format_doctor_display(doctor_name)} programó una consulta contigo."
+    )
+
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
         headline="Tu cita está confirmada",
         body_paragraphs=[
-            f"{_format_doctor_display(doctor_name)} programó una consulta contigo.",
+            intro,
             "Guarda estos datos. Este mensaje es solo informativo; no necesitas confirmar ni cancelar desde el correo.",
         ],
         cta_label="",
@@ -89,6 +105,48 @@ def build_doctor_scheduled_appointment_email_html(
     )
 
 
+def build_appointment_proposal_email_html(
+    *,
+    patient_name: str,
+    doctor_name: str,
+    reason: str,
+    when_label: str,
+    confirm_link: str,
+    reject_link: str,
+) -> str:
+    safe_reason = escape((reason or "Consulta médica").strip(), quote=True)
+    safe_when = escape(when_label.strip(), quote=True)
+    highlight = f"""
+      <div style="margin:0 0 4px;padding:16px;border-radius:12px;background:#F8FAFC;
+        border:1px solid #E2E8F0;">
+        <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:0.05em;
+          text-transform:uppercase;color:#64748B;">Nueva propuesta</p>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Fecha y hora:</strong> {safe_when}
+        </p>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Motivo:</strong> {safe_reason}
+        </p>
+      </div>"""
+
+    return build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        headline="Confirma tu nueva cita",
+        body_paragraphs=[
+            f"{_format_doctor_display(doctor_name)} te propone un nuevo horario para tu consulta.",
+            "Responde con uno de los botones de abajo. Una vez confirmada o rechazada, los botones dejarán de estar disponibles.",
+        ],
+        cta_label="Confirmar cita",
+        cta_href=confirm_link,
+        secondary_cta_label="Rechazar cita",
+        secondary_cta_href=reject_link,
+        footer_note="Si el enlace no funciona, abre la app Keepi para gestionar la cita.",
+        highlight_box_html=highlight,
+        badge_subtitle="Propuesta de cita",
+    )
+
+
 def send_doctor_scheduled_appointment_email(
     *,
     to_email: str,
@@ -96,6 +154,7 @@ def send_doctor_scheduled_appointment_email(
     doctor_name: str,
     reason: str,
     when_label: str,
+    confirmed_from_web: bool = False,
 ) -> AppointmentEmailResult:
     email = (to_email or "").strip()
     if not email:
@@ -107,6 +166,38 @@ def send_doctor_scheduled_appointment_email(
         doctor_name=doctor_name,
         reason=reason,
         when_label=when_label,
+        confirmed_from_web=confirmed_from_web,
+    )
+    result = send_simple_html_email_ses(email, subject, html)
+    return AppointmentEmailResult(
+        success=result.success,
+        error=result.error,
+        ses_message_id=result.ses_message_id,
+    )
+
+
+def send_appointment_proposal_email(
+    *,
+    to_email: str,
+    patient_name: str,
+    doctor_name: str,
+    reason: str,
+    when_label: str,
+    confirm_link: str,
+    reject_link: str,
+) -> AppointmentEmailResult:
+    email = (to_email or "").strip()
+    if not email:
+        return AppointmentEmailResult(success=False, error="Paciente sin correo")
+
+    subject = f"Confirma tu cita con {_format_doctor_display(doctor_name)}"
+    html = build_appointment_proposal_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        reason=reason,
+        when_label=when_label,
+        confirm_link=confirm_link,
+        reject_link=reject_link,
     )
     result = send_simple_html_email_ses(email, subject, html)
     return AppointmentEmailResult(

@@ -81,6 +81,32 @@ class AppointmentPatientRespondRequest(BaseModel):
     )
 
 
+class AppointmentDoctorRescheduleRequest(BaseModel):
+    proposed_start_at: datetime = Field(
+        ..., description="Nueva fecha y hora propuesta por el doctor"
+    )
+    duration_minutes: int = Field(default=30, ge=15, le=240)
+
+
+class PublicAppointmentMetaResponse(BaseModel):
+    patient_name: str
+    doctor_name: str
+    reason: str
+    when_label: str
+    status: str
+    already_responded: bool = False
+    response_action: Optional[str] = None
+
+
+class PublicAppointmentRespondRequest(BaseModel):
+    action: Literal["accept", "reject"]
+
+
+class PublicAppointmentRespondResponse(BaseModel):
+    status: str
+    message: str
+
+
 class AppointmentAttendanceRequest(BaseModel):
     status: Literal["attended", "no_show"] = Field(
         ..., description="Confirmación de asistencia del paciente"

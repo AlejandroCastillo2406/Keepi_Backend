@@ -14,7 +14,11 @@ from app.models.appointment import (
     AppointmentAttendanceRequest,
     AppointmentCreateRequest,
     AppointmentDoctorProposeRequest,
+    AppointmentDoctorRescheduleRequest,
     AppointmentResponse,
+    PublicAppointmentMetaResponse,
+    PublicAppointmentRespondRequest,
+    PublicAppointmentRespondResponse,
 )
 from app.models.user import User
 from app.dto.timeline_dto import EventType
@@ -149,3 +153,40 @@ async def doctor_reject_appointment(
         current_user.id,
         current_user.name or "",
     )
+
+
+@router.post("/{appointment_id}/doctor/reschedule", response_model=AppointmentResponse)
+async def doctor_reschedule_web_appointment(
+    appointment_id: UUID,
+    body: AppointmentDoctorRescheduleRequest,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    row = AppointmentService.doctor_reschedule_web_request(
+        db,
+        appointment_id,
+        current_user.id,
+        current_user.name or "",
+        body,
+    )
+    return AppointmentResponse.from_entity(row)
+
+
+public_router = APIRouter()
+
+
+@public_router.get("/{token}", response_model=PublicAppointmentMetaResponse)
+async def get_public_appointment_meta(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    return AppointmentService.get_public_appointment_meta(db, token)
+
+
+@public_router.post("/{token}/respond", response_model=PublicAppointmentRespondResponse)
+async def respond_public_appointment(
+    token: str,
+    body: PublicAppointmentRespondRequest,
+    db: Session = Depends(get_db),
+):
+    return AppointmentService.respond_public_appointment(db, token, body)

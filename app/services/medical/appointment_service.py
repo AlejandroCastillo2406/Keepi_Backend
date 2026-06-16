@@ -8,8 +8,12 @@ from app.models.appointment import (
     Appointment,
     AppointmentCreateRequest,
     AppointmentDoctorProposeRequest,
+    AppointmentDoctorRescheduleRequest,
     AppointmentPatientCreateRequest,
     AppointmentPatientRespondRequest,
+    PublicAppointmentMetaResponse,
+    PublicAppointmentRespondRequest,
+    PublicAppointmentRespondResponse,
 )
 from app.repositories.appointment_repository import AppointmentRepository
 
@@ -91,7 +95,19 @@ class AppointmentService:
         elif response_data.action == "reject":
             appointment.status = "canceled"
 
-        return repo.save(appointment)
+        saved = repo.save(appointment)
+        if response_data.action == "accept":
+            from app.repositories.user_repository import UserRepository
+
+            doctor = UserRepository(db).get_by_id_with_role(appointment.doctor_id)
+            doctor_name = (doctor.name or "").strip() if doctor else "Tu médico"
+            AppointmentService._send_confirmed_email_to_patient(
+                db,
+                saved,
+                doctor_name=doctor_name,
+                confirmed_from_web=False,
+            )
+        return saved
 
     @staticmethod
     def get_appointments_by_patient(db: Session, patient_id: str):
@@ -172,6 +188,112 @@ class AppointmentService:
                 doctor_name=doctor_name,
                 reason=reason,
                 when_label=when_label,
+                confirmed_from_web=False,
+            )
+
+    @staticmethod
+    def _send_confirmed_email_to_patient(
+        db: Session,
+        appointment: Appointment,
+        *,
+        doctor_name: str,
+        confirmed_from_web: bool = False,
+    ) -> None:
+        from app.repositories.user_repository import UserRepository
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+        from app.services.notificaciones.appointment_email_service import (
+            _format_slot_range,
+            send_doctor_scheduled_appointment_email,
+        )
+
+        patient = UserRepository(db).get_by_id_with_role(appointment.patient_id)
+        if patient is None:
+            return
+        settings = DoctorAvailabilityService.get_settings(db, appointment.doctor_id)
+        when_label = _format_slot_range(
+            appointment.appointment_date,
+            appointment.end_date,
+            timezone=settings.timezone,
+        )
+        patient_name = (patient.name or "").strip() or "Paciente"
+        reason = (appointment.reason or "").strip() or "Consulta médica"
+        email = (patient.email or "").strip()
+        if not email:
+            return
+        send_doctor_scheduled_appointment_email(
+            to_email=email,
+            patient_name=patient_name,
+            doctor_name=doctor_name,
+            reason=reason,
+            when_label=when_label,
+            confirmed_from_web=confirmed_from_web,
+        )
+
+    @staticmethod
+    def _notify_patient_proposal(
+        db: Session,
+        appointment: Appointment,
+        *,
+        doctor_name: str,
+        raw_token: str,
+    ) -> None:
+        from app.repositories.user_repository import UserRepository
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+        from app.services.notificaciones.appointment_email_service import (
+            _format_slot_range,
+            build_public_appointment_response_link,
+            send_appointment_proposal_email,
+        )
+        from app.services.notificaciones.notification_service import NotificationService
+
+        patient = UserRepository(db).get_by_id_with_role(appointment.patient_id)
+        if patient is None:
+            return
+
+        settings = DoctorAvailabilityService.get_settings(db, appointment.doctor_id)
+        when_label = _format_slot_range(
+            appointment.appointment_date,
+            appointment.end_date,
+            timezone=settings.timezone,
+        )
+        patient_name = (patient.name or "").strip() or "Paciente"
+        reason = (appointment.reason or "").strip() or "Consulta médica"
+
+        NotificationService(db).notify_user_push_in_app(
+            appointment.patient_id,
+            title="Propuesta de cita",
+            message=(
+                f"El Dr. {(doctor_name or '').strip() or 'tu médico'} "
+                f"te propone una cita para {when_label}."
+            ),
+            notification_type="appointment_proposed",
+            payload={
+                "type": "appointment_proposed",
+                "appointment_id": str(appointment.id),
+                "action": "patient_decision",
+            },
+            push_data={
+                "type": "appointment_proposed",
+                "appointment_id": str(appointment.id),
+            },
+        )
+
+        email = (patient.email or "").strip()
+        if email:
+            confirm_link = build_public_appointment_response_link(raw_token, "accept")
+            reject_link = build_public_appointment_response_link(raw_token, "reject")
+            send_appointment_proposal_email(
+                to_email=email,
+                patient_name=patient_name,
+                doctor_name=doctor_name,
+                reason=reason,
+                when_label=when_label,
+                confirm_link=confirm_link,
+                reject_link=reject_link,
             )
 
     @staticmethod
@@ -361,6 +483,12 @@ class AppointmentService:
                 "appointment_id": str(row.id),
             },
         )
+        AppointmentService._send_confirmed_email_to_patient(
+            db,
+            row,
+            doctor_name=doctor_name,
+            confirmed_from_web=True,
+        )
         return row
 
     @staticmethod
@@ -396,3 +524,125 @@ class AppointmentService:
             },
         )
         return row
+
+    @staticmethod
+    def doctor_reschedule_web_request(
+        db: Session,
+        appointment_id: UUID,
+        doctor_id: UUID,
+        doctor_name: str,
+        body: AppointmentDoctorRescheduleRequest,
+    ) -> Appointment:
+        from app.repositories.appointment_response_token_repository import (
+            AppointmentResponseTokenRepository,
+        )
+
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None or row.doctor_id != doctor_id:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+        if row.status != "pending_doctor_approval":
+            raise HTTPException(
+                status_code=400,
+                detail="Solo puedes reprogramar solicitudes web pendientes de confirmación.",
+            )
+
+        start_at = body.proposed_start_at
+        end_at = start_at + timedelta(minutes=body.duration_minutes)
+        row.appointment_date = start_at
+        row.end_date = end_at
+        row.status = "pending_patient_approval"
+        repo.save(row)
+
+        _, raw_token = AppointmentResponseTokenRepository(db).create_or_rotate(row.id)
+        AppointmentService._notify_patient_proposal(
+            db,
+            row,
+            doctor_name=doctor_name,
+            raw_token=raw_token,
+        )
+        return row
+
+    @staticmethod
+    def get_public_appointment_meta(
+        db: Session, raw_token: str
+    ) -> PublicAppointmentMetaResponse:
+        from app.repositories.appointment_response_token_repository import (
+            AppointmentResponseTokenRepository,
+        )
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+        from app.services.notificaciones.appointment_email_service import (
+            _format_slot_range,
+        )
+
+        token_row, appt = AppointmentResponseTokenRepository(db).resolve(raw_token)
+        settings = DoctorAvailabilityService.get_settings(db, appt.doctor_id)
+        when_label = _format_slot_range(
+            appt.appointment_date,
+            appt.end_date,
+            timezone=settings.timezone,
+        )
+        patient = appt.patient
+        doctor = appt.doctor
+        return PublicAppointmentMetaResponse(
+            patient_name=(patient.name or "").strip() if patient else "Paciente",
+            doctor_name=(doctor.name or "").strip() if doctor else "Tu médico",
+            reason=(appt.reason or "").strip() or "Consulta médica",
+            when_label=when_label,
+            status=appt.status,
+            already_responded=token_row.response_action is not None,
+            response_action=token_row.response_action,
+        )
+
+    @staticmethod
+    def respond_public_appointment(
+        db: Session,
+        raw_token: str,
+        body: PublicAppointmentRespondRequest,
+    ) -> PublicAppointmentRespondResponse:
+        from app.repositories.appointment_response_token_repository import (
+            AppointmentResponseTokenRepository,
+        )
+        from app.repositories.user_repository import UserRepository
+
+        token_repo = AppointmentResponseTokenRepository(db)
+        token_row, appt = token_repo.resolve(raw_token)
+
+        if token_row.response_action is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Esta cita ya fue respondida.",
+            )
+        if appt.status != "pending_patient_approval":
+            raise HTTPException(
+                status_code=400,
+                detail="Esta cita ya no está pendiente de respuesta.",
+            )
+
+        doctor = UserRepository(db).get_by_id_with_role(appt.doctor_id)
+        doctor_name = (doctor.name or "").strip() if doctor else "Tu médico"
+
+        if body.action == "accept":
+            appt.status = "scheduled"
+            AppointmentService._repo(db).save(appt)
+            token_repo.mark_responded(token_row, "accept")
+            AppointmentService._send_confirmed_email_to_patient(
+                db,
+                appt,
+                doctor_name=doctor_name,
+                confirmed_from_web=True,
+            )
+            return PublicAppointmentRespondResponse(
+                status=appt.status,
+                message="Cita confirmada. Revisa tu correo con los detalles.",
+            )
+
+        appt.status = "canceled"
+        AppointmentService._repo(db).save(appt)
+        token_repo.mark_responded(token_row, "reject")
+        return PublicAppointmentRespondResponse(
+            status=appt.status,
+            message="Cita rechazada.",
+        )

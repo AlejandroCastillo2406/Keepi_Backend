@@ -4,6 +4,8 @@ from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
+from sqlalchemy.orm import relationship
+
 from app.core.database import Base
 
 
@@ -33,3 +35,5 @@ class AppointmentPatientResponseToken(Base):
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    appointment = relationship("Appointment", backref="patient_response_tokens")
