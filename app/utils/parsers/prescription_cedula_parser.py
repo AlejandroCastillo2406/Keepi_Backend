@@ -89,10 +89,9 @@ def procesar_receta_con_seguridad(
                 ).strip()
 
                 if mantener_detalle_completo:
-                    # NUEVO FLUJO: Para la bandeja de revisión (primera consulta), guarda el detalle completo
+
                     nombre_med = frase_sin_clave.strip(" -.").upper()
                 else:
-                    # FLUJO ORIGINAL: Para "enviar receta al paciente", recorta en base a las palabras clave
                     nombre_corto = frase_sin_clave.split(".")[0].strip()
 
                     palabras_corte = [

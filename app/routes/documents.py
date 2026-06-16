@@ -62,9 +62,7 @@ class PatientLinkRequest(BaseModel):
     patient_email: Optional[str] = None
 
 
-# ==========================================
 # ENDPOINTS DE INVITACIÓN A PACIENTES
-# ==========================================
 
 @router.post("/generate-patient-link")
 async def generate_patient_upload_link(
@@ -104,9 +102,7 @@ async def generate_patient_upload_link(
     }
 
 
-# ==========================================
 # ENDPOINTS DE VALIDACIÓN (Human-in-the-loop)
-# ==========================================
 
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document_details(
@@ -152,9 +148,7 @@ async def update_document_status(
     return DocumentResponse.from_orm(doc)
 
 
-# ==========================================
 # ENDPOINTS EXISTENTES
-# ==========================================
 
 @router.get("/s3/folders/contents")
 async def get_s3_folder_contents(

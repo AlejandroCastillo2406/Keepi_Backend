@@ -44,9 +44,8 @@ from app.factories.medical_factory import get_questionnaire_service
 from app.services.medical.questionnaire_service import QuestionnaireService
 from app.services.ocr.ocr_service import OCRService
 from app.services.aws.bedrock_service import BedrockService
-from app.services.ocr.procesador_universal import ProcesadorUniversal # <-- NUEVO: Importación del cerebro
+from app.services.ocr.procesador_universal import ProcesadorUniversal
 
-# ---> Importamos BackgroundTasks
 from app.core.database import get_db
 from app.models.document import Document
 
@@ -63,9 +62,7 @@ def _parse_uuid(value: str, field: str = "id") -> uuid.UUID:
         raise HTTPException(status_code=400, detail=f"{field} inválido") from exc
 
 
-# ==========================================
 # FUNCIÓN DE BACKGROUND: PROCESADOR UNIVERSAL
-# ==========================================
 async def procesar_ocr_en_background(
     document_id: str,
     file_bytes: bytes,
@@ -229,9 +226,6 @@ def override_question(
     )
 
 
-# ==========================================
-# ENDPOINT DE EXTRACCIÓN OCR CON IA
-# ==========================================
 @router.post("/extract-ocr", status_code=http_status.HTTP_200_OK)
 async def extract_ocr_questions(
     imagenes: List[UploadFile] = File(...),

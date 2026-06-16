@@ -104,7 +104,6 @@ class PatientTimelineService:
     @staticmethod
     def _prior_doc_item(doc) -> PriorDocumentItemResponse:
         created = getattr(doc, "created_at", None)
-        # --- AQUÍ AGREGAMOS LA LECTURA DE LOS NUEVOS CAMPOS ---
         return PriorDocumentItemResponse(
             id=str(doc.id),
             name=(doc.name or doc.file_name or "Documento"),

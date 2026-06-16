@@ -175,7 +175,6 @@ def _build_html(
                 {subtitle}
               </p>
 
-              <!-- ─── ORDER SUMMARY ─── -->
               <table role="presentation" cellspacing="0" cellpadding="0"
                      border="0" width="100%">
 
@@ -281,7 +280,6 @@ def _build_html(
                 </tr>
 
               </table>
-              <!-- ─── END ORDER SUMMARY ─── -->
 
               <!-- button -->
               <div style="margin-top:28px;">

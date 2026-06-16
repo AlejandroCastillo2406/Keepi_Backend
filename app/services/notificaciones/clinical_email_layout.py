@@ -72,8 +72,8 @@ def build_clinical_action_email_html(
     footer_note: str,
     highlight_box_html: str = "",
     badge_subtitle: str = "Solicitud de tu médico",
-    secondary_cta_label: str = "", # <-- NUEVO PARÁMETRO
-    secondary_cta_href: str = "",  # <-- NUEVO PARÁMETRO
+    secondary_cta_label: str = "",
+    secondary_cta_href: str = "",
 ) -> str:
     """
     Correo de acción del paciente (cuestionario, análisis, etc.) con nombre del doctor visible.
