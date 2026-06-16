@@ -15,6 +15,9 @@ from app.models.appointment import (
     AppointmentCreateRequest,
     AppointmentDoctorProposeRequest,
     AppointmentResponse,
+    PublicAppointmentMetaResponse,
+    PublicAppointmentRespondRequest,
+    PublicAppointmentRespondResponse,
 )
 from app.models.user import User
 from app.dto.timeline_dto import EventType
@@ -31,6 +34,9 @@ async def create_appointment(
     db: Session = Depends(get_db),
 ):
     appt = AppointmentService.create_doctor_appointment(db, current_user.id, body)
+    AppointmentService.notify_patient_appointment_proposal(
+        db, appt.id, current_user.name or ""
+    )
     if body.notes and body.notes.strip():
         DoctorTimelineNoteService(db).save_note_for_event(
             doctor_id=current_user.id,
@@ -144,3 +150,23 @@ async def doctor_reject_appointment(
         current_user.id,
         current_user.name or "",
     )
+
+
+public_router = APIRouter()
+
+
+@public_router.get("/{token}", response_model=PublicAppointmentMetaResponse)
+async def get_public_appointment_meta(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    return AppointmentService.get_public_appointment_meta(db, token)
+
+
+@public_router.post("/{token}/respond", response_model=PublicAppointmentRespondResponse)
+async def respond_public_appointment(
+    token: str,
+    body: PublicAppointmentRespondRequest,
+    db: Session = Depends(get_db),
+):
+    return AppointmentService.respond_public_appointment(db, token, body.action)

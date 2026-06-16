@@ -147,6 +147,11 @@ app.include_router(
     appointments.router, prefix="/api/v1/appointments", tags=["Appointments"]
 )
 app.include_router(
+    appointments.public_router,
+    prefix="/api/v1/appointments/public",
+    tags=["Appointments Public"],
+)
+app.include_router(
     questionnaire.router, prefix="/api/v1/questionnaire", tags=["Questionnaire"]
 )
 app.include_router(
