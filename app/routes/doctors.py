@@ -19,6 +19,7 @@ from app.models.doctor_timeline_note import (
     DoctorTimelineNoteCreate,
     DoctorTimelineNoteResponse,
 )
+from app.models.doctor_scheduling import PatientSchedulingLinkResponse
 from app.models.user import (
     DoctorCreatePatientRequest,
     DoctorCreatePatientResponse,
@@ -28,6 +29,7 @@ from app.models.appointment import AppointmentDoctorProposeRequest, AppointmentR
 from app.factories.medical_factory import get_patient_timeline_service
 from app.factories.user_factory import get_user_service
 from app.services.medical.appointment_service import AppointmentService
+from app.services.medical.doctor_availability_service import DoctorAvailabilityService
 from app.services.medical.consultation_bootstrap_service import (
     ConsultationBootstrapService,
 )
@@ -213,6 +215,31 @@ async def get_patient_profile_bootstrap(
         raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
     return PatientProfileBootstrapService(db).get_bootstrap(
         current_user.id, patient_id
+    )
+
+
+@router.post(
+    "/patients/{patient_id}/scheduling-link",
+    response_model=PatientSchedulingLinkResponse,
+)
+async def generate_patient_scheduling_link(
+    patient_id: UUID,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+    user_svc: UserService = Depends(get_user_service),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+
+    patient = user_svc.get_patient_if_owned_by_doctor(patient_id, current_user.id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+
+    return DoctorAvailabilityService.build_patient_scheduling_link(
+        db,
+        current_user.id,
+        patient_id,
+        patient_name=patient.name or "",
     )
 
 

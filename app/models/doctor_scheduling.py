@@ -181,6 +181,12 @@ class PublicBookAppointmentResponse(BaseModel):
     message: str
 
 
+class PatientSchedulingLinkResponse(BaseModel):
+    scheduling_link: str
+    patient_name: str
+    message: str = ""
+
+
 def parse_time_str(value: str) -> time:
     parts = value.strip().split(":")
     return time(hour=int(parts[0]), minute=int(parts[1]))

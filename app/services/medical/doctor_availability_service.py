@@ -14,6 +14,7 @@ from app.models.doctor_scheduling import (
     AvailabilityRuleResponse,
     AvailabilitySlotResponse,
     DoctorAvailabilityRule,
+    PatientSchedulingLinkResponse,
     PublicAvailabilityResponse,
     PublicBookAppointmentRequest,
     PublicBookAppointmentResponse,
@@ -308,3 +309,26 @@ class DoctorAvailabilityService:
             patient_id, doctor_id
         )
         return raw
+
+    @staticmethod
+    def build_patient_scheduling_link(
+        db: Session, doctor_id: UUID, patient_id: UUID, *, patient_name: str
+    ) -> PatientSchedulingLinkResponse:
+        from app.services.notificaciones.patient_invite_email_service import (
+            build_public_scheduling_link,
+        )
+
+        raw = DoctorAvailabilityService.create_patient_scheduling_token(
+            db, patient_id, doctor_id
+        )
+        link = build_public_scheduling_link(raw)
+        message = (
+            "Comparte este enlace con el paciente para que agende citas en la web."
+            if link.startswith("http")
+            else "Configura PUBLIC_QUESTIONNAIRE_BASE_URL en el servidor para obtener un enlace web completo."
+        )
+        return PatientSchedulingLinkResponse(
+            scheduling_link=link,
+            patient_name=patient_name,
+            message=message,
+        )
