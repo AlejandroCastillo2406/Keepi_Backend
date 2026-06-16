@@ -120,25 +120,3 @@ class AppointmentResponse(BaseModel):
             created_at=appt.created_at,
             patient_name=patient_name,
         )
-
-
-class PublicAppointmentRespondRequest(BaseModel):
-    action: Literal["accept", "reject"]
-
-
-class PublicAppointmentMetaResponse(BaseModel):
-    doctor_name: str
-    patient_name: str
-    reason: str
-    appointment_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    status: str
-    response_action: Optional[str] = None
-    can_respond: bool
-    message: Optional[str] = None
-
-
-class PublicAppointmentRespondResponse(BaseModel):
-    status: str
-    action: str
-    message: str

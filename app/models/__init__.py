@@ -1,6 +1,5 @@
 from .analysis_request import AnalysisRequest
 from .analysis_request_invitation import AnalysisRequestUploadInvitation
-from .appointment_response_token import AppointmentPatientResponseToken
 from .plans import Plan
 from .doctor_patient_clinical_profile import DoctorPatientClinicalProfile
 from .doctor_scheduling import (
@@ -50,5 +49,4 @@ __all__ = [
     "PatientSchedulingToken",
     "AnalysisRequest",
     "AnalysisRequestUploadInvitation",
-    "AppointmentPatientResponseToken",
 ]
