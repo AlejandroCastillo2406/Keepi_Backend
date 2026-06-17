@@ -297,6 +297,56 @@ class AppointmentService:
             )
 
     @staticmethod
+    def _send_rejection_email_to_patient(
+        db: Session,
+        appointment: Appointment,
+        *,
+        doctor_name: str,
+    ) -> None:
+        from app.repositories.user_repository import UserRepository
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+        from app.services.notificaciones.appointment_email_service import (
+            _format_slot_range,
+            send_appointment_rejection_email,
+        )
+        from app.services.notificaciones.patient_invite_email_service import (
+            build_public_scheduling_link,
+        )
+
+        patient = UserRepository(db).get_by_id_with_role(appointment.patient_id)
+        if patient is None:
+            return
+
+        settings = DoctorAvailabilityService.get_settings(db, appointment.doctor_id)
+        when_label = _format_slot_range(
+            appointment.appointment_date,
+            appointment.end_date,
+            timezone=settings.timezone,
+        )
+        patient_name = (patient.name or "").strip() or "Paciente"
+        reason = (appointment.reason or "").strip() or "Consulta médica"
+        email = (patient.email or "").strip()
+        if not email:
+            return
+
+        raw_token = DoctorAvailabilityService.create_patient_scheduling_token(
+            db,
+            appointment.patient_id,
+            appointment.doctor_id,
+        )
+        scheduling_link = build_public_scheduling_link(raw_token)
+        send_appointment_rejection_email(
+            to_email=email,
+            patient_name=patient_name,
+            doctor_name=doctor_name,
+            reason=reason,
+            when_label=when_label,
+            scheduling_link=scheduling_link,
+        )
+
+    @staticmethod
     def list_doctor_calendar(
         db: Session, doctor_id: UUID, start_at: datetime, end_at: datetime
     ):
@@ -522,6 +572,11 @@ class AppointmentService:
                 "type": "appointment_rejected",
                 "appointment_id": str(row.id),
             },
+        )
+        AppointmentService._send_rejection_email_to_patient(
+            db,
+            row,
+            doctor_name=doctor_name,
         )
         return row
 

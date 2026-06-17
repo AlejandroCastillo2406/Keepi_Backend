@@ -147,6 +147,76 @@ def build_appointment_proposal_email_html(
     )
 
 
+def build_appointment_rejection_email_html(
+    *,
+    patient_name: str,
+    doctor_name: str,
+    reason: str,
+    when_label: str,
+    scheduling_link: str,
+) -> str:
+    safe_reason = escape((reason or "Consulta médica").strip(), quote=True)
+    safe_when = escape(when_label.strip(), quote=True)
+    safe_link = escape(scheduling_link, quote=True)
+    highlight = f"""
+      <div style="margin:0 0 4px;padding:16px;border-radius:12px;background:#F8FAFC;
+        border:1px solid #E2E8F0;">
+        <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:0.05em;
+          text-transform:uppercase;color:#64748B;">Solicitud no confirmada</p>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Fecha solicitada:</strong> {safe_when}
+        </p>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Motivo:</strong> {safe_reason}
+        </p>
+      </div>"""
+
+    scheduling_block = ""
+    if scheduling_link.startswith("http"):
+        scheduling_block = f"""
+      <div style="margin:24px 0 0;padding:18px;border-radius:12px;background:#F0F9FF;
+        border:1px solid #BAE6FD;">
+        <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0C4A6E;">
+          Agenda cuando quieras
+        </p>
+        <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#0369A1;">
+          Este enlace es personal y puedes usarlo cuando desees solicitar una nueva cita.
+        </p>
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+          <tr>
+            <td align="center">
+              <a href="{safe_link}" target="_blank"
+                style="display:inline-block;background:#0284C7;color:#ffffff;
+                  text-decoration:none;font-size:14px;font-weight:600;
+                  padding:12px 24px;border-radius:50px;text-align:center;">
+                Agendar una cita
+              </a>
+            </td>
+          </tr>
+        </table>
+      </div>"""
+
+    html = build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        headline="Tu solicitud de cita no fue confirmada",
+        body_paragraphs=[
+            f"{_format_doctor_display(doctor_name)} no pudo confirmar la cita que solicitaste.",
+            "Puedes elegir otro horario cuando lo desees usando el enlace de abajo.",
+        ],
+        cta_label=(
+            "Agendar una cita" if scheduling_link.startswith("http") else ""
+        ),
+        cta_href=scheduling_link if scheduling_link.startswith("http") else "",
+        footer_note=(
+            "Si tienes dudas, contacta directamente a tu médico."
+        ),
+        highlight_box_html=highlight + scheduling_block,
+        badge_subtitle="Solicitud de cita",
+    )
+    return html
+
+
 def send_doctor_scheduled_appointment_email(
     *,
     to_email: str,
@@ -198,6 +268,38 @@ def send_appointment_proposal_email(
         when_label=when_label,
         confirm_link=confirm_link,
         reject_link=reject_link,
+    )
+    result = send_simple_html_email_ses(email, subject, html)
+    return AppointmentEmailResult(
+        success=result.success,
+        error=result.error,
+        ses_message_id=result.ses_message_id,
+    )
+
+
+def send_appointment_rejection_email(
+    *,
+    to_email: str,
+    patient_name: str,
+    doctor_name: str,
+    reason: str,
+    when_label: str,
+    scheduling_link: str,
+) -> AppointmentEmailResult:
+    email = (to_email or "").strip()
+    if not email:
+        return AppointmentEmailResult(success=False, error="Paciente sin correo")
+
+    subject = (
+        f"Tu solicitud de cita con {_format_doctor_display(doctor_name)} "
+        "no fue confirmada"
+    )
+    html = build_appointment_rejection_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        reason=reason,
+        when_label=when_label,
+        scheduling_link=scheduling_link,
     )
     result = send_simple_html_email_ses(email, subject, html)
     return AppointmentEmailResult(
