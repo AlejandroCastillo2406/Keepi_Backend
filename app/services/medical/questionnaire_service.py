@@ -229,12 +229,13 @@ class QuestionnaireService:
             doctor_name=doctor_name,
             public_link=public_link,
             enable_clinical_intake=bool(
-                getattr(payload, "enable_clinical_intake", True)
+                getattr(payload, "enable_clinical_intake", False)
             ),
-            intake_only=bool(getattr(payload, "intake_only", True)),
+            intake_only=bool(getattr(payload, "intake_only", False)),
             collect_prior_documents=bool(
                 getattr(payload, "collect_prior_documents", False)
             ),
+            has_questionnaire=bool(getattr(payload, "template_ids", None) or []),
         )
         if email_res.success:
             logger.info(
@@ -271,6 +272,16 @@ class QuestionnaireService:
             patient_id=str(invitation.patient_id),
         )
         return response
+
+    def complete_public_invitation_flow(self, token: str) -> QuestionnaireInvitation:
+        inv = self._repo.complete_public_invitation(token)
+        NotificationService(self._db).notify_questionnaire_completed_for_doctor(
+            inv.doctor_id,
+            patient_name=inv.patient_name_snapshot,
+            invitation_id=str(inv.id),
+            patient_id=str(inv.patient_id),
+        )
+        return inv
 
     async def upload_public_prior_document(
         self, token: str, file: UploadFile

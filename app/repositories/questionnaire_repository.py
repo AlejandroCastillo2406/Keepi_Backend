@@ -897,14 +897,12 @@ class QuestionnaireRepository:
     def _apply_clinical_intake_to_invitation(
         self, invitation: QuestionnaireInvitation, data
     ) -> None:
-        intake_only = self._intake_only_from_payload(data)
-        invitation.enable_clinical_intake = (
-            True
-            if intake_only
-            else self._enable_clinical_intake_from_payload(data)
+        enable = self._enable_clinical_intake_from_payload(data)
+        invitation.enable_clinical_intake = enable
+        invitation.intake_context = (
+            self._intake_context_from_payload(data) if enable else None
         )
-        invitation.intake_context = self._intake_context_from_payload(data)
-        invitation.intake_responses = {}
+        invitation.intake_responses = {} if enable else None
 
     def _intake_meta_for_invitation(
         self, inv: QuestionnaireInvitation
@@ -948,9 +946,11 @@ class QuestionnaireRepository:
         sections_raw = build_intake_sections_for_invitation(ctx, merged)
         sections = [IntakeSectionView.model_validate(s) for s in sections_raw]
         intake_only = self._is_intake_only_invitation(inv)
+        has_questions = self._invitation_item_count(inv.id) > 0
+        collect_prior = bool(getattr(inv, "collect_prior_documents", False))
         if intake_is_complete(sections_raw, merged):
             inv.intake_completed_at = datetime.now(timezone.utc)
-            if intake_only:
+            if not has_questions and not collect_prior:
                 now = datetime.now(timezone.utc)
                 inv.status = "completed"
                 inv.used_at = now
@@ -965,23 +965,51 @@ class QuestionnaireRepository:
             collect_prior_documents=bool(
                 getattr(inv, "collect_prior_documents", False)
             ),
-        ), inv if intake_only and completed else None
+        ), inv if intake_only and completed and not collect_prior and not has_questions else None
 
     def _resolve_collect_prior_documents(self, data) -> bool:
-        enable = self._enable_clinical_intake_from_payload(data)
-        if self._intake_only_from_payload(data):
-            enable = True
-        if not enable:
-            return False
         return bool(getattr(data, "collect_prior_documents", False))
+
+    def _invitation_has_pending_steps(self, inv: QuestionnaireInvitation) -> bool:
+        if bool(getattr(inv, "enable_clinical_intake", False)) and not inv.intake_completed_at:
+            return True
+        if self._invitation_item_count(inv.id) > 0:
+            return True
+        return False
+
+    def complete_public_invitation(
+        self, raw_token: str
+    ) -> QuestionnaireInvitation:
+        inv = self._get_invitation_for_public_token(raw_token)
+        inv = self._mark_expired_if_needed(inv)
+        if inv.status == "completed":
+            return inv
+        if inv.status != "pending":
+            raise HTTPException(status_code=400, detail="Invitación no disponible")
+        if self._invitation_has_pending_steps(inv):
+            raise HTTPException(
+                status_code=400,
+                detail="Aún hay pasos pendientes en esta invitación",
+            )
+        now = datetime.now(timezone.utc)
+        inv.status = "completed"
+        inv.used_at = now
+        inv.completed_at = now
+        self._db.commit()
+        self._db.refresh(inv)
+        return inv
 
     def create_invitation_batch(
         self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
     ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
-        if not self._enable_clinical_intake_from_payload(data):
+        enable_intake = self._enable_clinical_intake_from_payload(data)
+        template_ids = self._template_ids_from_payload(data)
+        collect_docs = self._resolve_collect_prior_documents(data)
+
+        if not enable_intake and not collect_docs and not template_ids:
             raise HTTPException(
                 status_code=400,
-                detail="Las invitaciones requieren ficha clínica previa.",
+                detail="Activa al menos una opción: ficha clínica, documentos o cuestionario",
             )
 
         patient_id = _as_uuid(data.patient_id)
@@ -989,7 +1017,6 @@ class QuestionnaireRepository:
             raise HTTPException(status_code=400, detail="patient_id inválido")
         patient = self._load_patient_owned_by_doctor(doctor_id, patient_id)
 
-        template_ids = self._template_ids_from_payload(data)
         snapshot_rows: List[dict] = []
         if template_ids:
             snapshot_rows = self._build_snapshot_questions(doctor_id, template_ids)

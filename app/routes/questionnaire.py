@@ -409,6 +409,15 @@ def submit_public_invitation(
     return svc.submit_public_invitation_with_notify(token, payload)
 
 
+@router.post("/public/{token}/finish")
+def finish_public_invitation(
+    token: str,
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    inv = svc.complete_public_invitation_flow(token)
+    return {"invitation_id": str(inv.id), "status": inv.status}
+
+
 @router.post(
     "/public/{token}/prior-documents",
     response_model=PublicPriorDocumentUploadResponse,

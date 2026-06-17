@@ -217,25 +217,32 @@ class QuestionnaireSendInvitationRequest(BaseModel):
     patient_id: str
     template_ids: List[str] = Field(
         default_factory=list,
-        description="Plantillas de cuestionario a incluir tras la ficha clínica.",
+        description="Una plantilla de cuestionario (opcional).",
     )
     collect_prior_documents: bool = Field(
         default=False,
-        description="Tras la ficha clínica, el paciente puede subir estudios previos (opcional).",
+        description="El paciente puede subir estudios previos (opcional).",
     )
     enable_clinical_intake: bool = Field(
-        default=True,
+        default=False,
         description="Ficha clínica previa (mismo enlace web /q/{token}).",
     )
     intake_only: bool = Field(
-        default=True,
-        description="Solo ficha clínica en el enlace web.",
+        default=False,
+        description="Solo ficha clínica, sin cuestionario.",
     )
     phone: Optional[str] = None
     birth_date: Optional[str] = None
     sex: Optional[str] = None
     consultation_reason: Optional[str] = None
     specialty: Optional[str] = None
+
+    @field_validator("template_ids")
+    @classmethod
+    def at_most_one_template(cls, value: List[str]) -> List[str]:
+        if len(value) > 1:
+            raise ValueError("Solo puedes enviar una plantilla por invitación")
+        return value
 
 
 class PublicInvitationAnswerIn(BaseModel):

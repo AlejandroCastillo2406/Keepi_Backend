@@ -19,47 +19,57 @@ def build_questionnaire_invite_email_html(
     patient_name: str,
     doctor_name: str,
     public_link: str,
-    enable_clinical_intake: bool = True,
-    intake_only: bool = True,
+    enable_clinical_intake: bool = False,
+    intake_only: bool = False,
     collect_prior_documents: bool = False,
+    has_questionnaire: bool = False,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
-    paragraphs = [
-        f"{doctor} te invitó a completar tu ficha clínica antes de la consulta.",
-        "En un solo enlace podrás registrar datos personales, antecedentes familiares, "
-        "alergias, medicamentos y motivo de consulta.",
-    ]
-    if not intake_only:
-        paragraphs.append(
-            "Después de la ficha, responderás un cuestionario médico preparado por tu doctor."
-        )
+    parts: list[str] = []
+    if enable_clinical_intake:
+        parts.append("ficha clínica")
+    if has_questionnaire:
+        parts.append("cuestionario médico")
     if collect_prior_documents:
-        paragraphs.append(
-            "También podrás subir estudios o informes médicos previos (opcional)."
-        )
+        parts.append("subida de documentos previos")
+    steps_label = ", ".join(parts) if parts else "información clínica"
+
+    paragraphs = [
+        f"{doctor} te invitó a completar {steps_label} antes de tu consulta.",
+        f"En un solo enlace podrás realizar: {steps_label}.",
+    ]
     paragraphs.append(
         "No necesitas crear cuenta: el enlace es personal y funciona en celular o computadora."
     )
+
+    headline = "Completa tu información clínica"
+    if enable_clinical_intake and not has_questionnaire and not collect_prior_documents:
+        headline = "Completa tu ficha clínica"
+    elif has_questionnaire and not enable_clinical_intake and not collect_prior_documents:
+        headline = "Responde tu cuestionario médico"
+
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
-        headline="Completa tu ficha clínica",
+        headline=headline,
         body_paragraphs=paragraphs,
-        cta_label="Completar mi ficha",
+        cta_label="Abrir enlace",
         cta_href=public_link,
         footer_note="Si el enlace expiró, solicita uno nuevo a tu médico.",
-        badge_subtitle="Ficha clínica · Keepi",
+        badge_subtitle="Keepi · Solicitud de tu médico",
     )
 
 
 def build_questionnaire_invite_email_subject(
     doctor_name: str,
     *,
-    enable_clinical_intake: bool = True,
-    intake_only: bool = True,
+    enable_clinical_intake: bool = False,
+    has_questionnaire: bool = False,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
-    return f"{_brand()} – {doctor} te invitó a completar tu ficha clínica"
+    if has_questionnaire and not enable_clinical_intake:
+        return f"{_brand()} – {doctor} te envió un cuestionario"
+    return f"{_brand()} – {doctor} te invitó a completar información clínica"
 
 
 def send_questionnaire_invite_email(
@@ -68,14 +78,15 @@ def send_questionnaire_invite_email(
     patient_name: str,
     doctor_name: str,
     public_link: str,
-    enable_clinical_intake: bool = True,
-    intake_only: bool = True,
+    enable_clinical_intake: bool = False,
+    intake_only: bool = False,
     collect_prior_documents: bool = False,
+    has_questionnaire: bool = False,
 ):
     subject = build_questionnaire_invite_email_subject(
         doctor_name,
         enable_clinical_intake=enable_clinical_intake,
-        intake_only=intake_only,
+        has_questionnaire=has_questionnaire,
     )
     html = build_questionnaire_invite_email_html(
         patient_name=patient_name,
@@ -84,5 +95,6 @@ def send_questionnaire_invite_email(
         enable_clinical_intake=enable_clinical_intake,
         intake_only=intake_only,
         collect_prior_documents=collect_prior_documents,
+        has_questionnaire=has_questionnaire,
     )
     return send_simple_html_email_ses(to_email, subject, html)
