@@ -228,7 +228,7 @@ class QuestionnaireSendInvitationRequest(BaseModel):
     question_ids: List[str] = Field(default_factory=list)
     collect_prior_documents: bool = Field(
         default=False,
-        description="Si true, tras el cuestionario el paciente puede subir estudios previos (alta de paciente).",
+        description="Tras la ficha clínica, el paciente puede subir estudios previos (opcional) antes del cuestionario.",
     )
     use_dynamic_questionnaire: bool = Field(
         default=False,
@@ -262,7 +262,7 @@ class DynamicQuestionnaireInvitationRequest(BaseModel):
     patient_id: str
     collect_prior_documents: bool = Field(
         default=False,
-        description="Paso opcional de documentos previos al finalizar.",
+        description="Tras la ficha clínica, paso opcional de documentos previos antes del cuestionario.",
     )
     enable_clinical_intake: bool = True
     phone: Optional[str] = None

@@ -22,32 +22,48 @@ def build_questionnaire_invite_email_html(
     is_dynamic: bool = False,
     enable_clinical_intake: bool = True,
     intake_only: bool = False,
+    collect_prior_documents: bool = False,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
     if intake_only:
         paragraphs = [
             f"{doctor} te invitó a completar tu ficha clínica antes de la consulta.",
-            "Podrás registrar datos personales, antecedentes, alergias, medicamentos "
-            "y motivo de consulta en un solo enlace.",
-            "No necesitas crear cuenta: el enlace es personal y funciona en celular o computadora.",
+            "En un solo enlace podrás registrar datos personales, antecedentes familiares, "
+            "alergias, medicamentos y motivo de consulta.",
         ]
+        if collect_prior_documents:
+            paragraphs.append(
+                "También podrás subir estudios o informes médicos previos (opcional)."
+            )
+        paragraphs.append(
+            "No necesitas crear cuenta: el enlace es personal y funciona en celular o computadora."
+        )
         headline = "Completa tu ficha clínica"
         badge = "Ficha clínica · Keepi"
         cta = "Completar mi ficha"
     elif enable_clinical_intake:
+        steps = ["ficha clínica (datos y antecedentes)"]
+        if collect_prior_documents:
+            steps.append("documentos médicos previos (opcional)")
+        steps.append("cuestionario de salud")
+        if len(steps) == 1:
+            steps_text = steps[0]
+        else:
+            steps_text = ", ".join(steps[:-1]) + f" y {steps[-1]}"
         paragraphs = [
             f"{doctor} te invitó a completar tu información clínica antes de la consulta.",
-            "En el mismo enlace podrás llenar tu ficha (datos, antecedentes, alergias, medicamentos) "
-            "y después el cuestionario de salud.",
-            "No necesitas crear cuenta: el enlace es personal y funciona en celular o computadora.",
+            f"En un solo enlace, sin crear cuenta, completarás: {steps_text}.",
         ]
         if is_dynamic:
             paragraphs.append(
                 "El cuestionario incluye preguntas adaptadas con IA según tus respuestas (máximo 10)."
             )
+        paragraphs.append(
+            "Todo ocurre en la misma página; no recibirás enlaces separados."
+        )
         headline = "Completa tu información para la consulta"
-        badge = "Alta clínica · Keepi"
-        cta = "Completar mi información"
+        badge = "Formulario clínico · Keepi"
+        cta = "Completar todo en un solo enlace"
     elif is_dynamic:
         paragraphs = [
             f"{doctor} te invitó a un cuestionario de salud personalizado con IA. "
@@ -99,6 +115,7 @@ def send_questionnaire_invite_email(
     is_dynamic: bool = False,
     enable_clinical_intake: bool = True,
     intake_only: bool = False,
+    collect_prior_documents: bool = False,
 ):
     subject = build_questionnaire_invite_email_subject(
         doctor_name,
@@ -112,5 +129,6 @@ def send_questionnaire_invite_email(
         is_dynamic=is_dynamic,
         enable_clinical_intake=enable_clinical_intake,
         intake_only=intake_only,
+        collect_prior_documents=collect_prior_documents,
     )
     return send_simple_html_email_ses(to_email, subject, html)

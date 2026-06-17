@@ -160,6 +160,11 @@ def get_current_user(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado"
             )
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario desactivado",
+            )
         return user
     except JWTError:
         raise HTTPException(

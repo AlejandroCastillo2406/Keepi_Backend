@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import secrets
 import uuid
 from typing import List, Optional, Tuple
@@ -27,6 +29,17 @@ class DoctorSchedulingRepository:
     @staticmethod
     def generate_raw_token() -> str:
         return secrets.token_urlsafe(32)
+
+    @staticmethod
+    def raw_token_for_pair(patient_id: uuid.UUID, doctor_id: uuid.UUID) -> str:
+        from app.core.config import settings
+
+        key = settings.jwt_secret_key.encode("utf-8")
+        message = f"keepi-patient-scheduling-v1:{patient_id}:{doctor_id}".encode(
+            "utf-8"
+        )
+        digest = hmac.new(key, message, hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
     def get_or_create_settings(self, doctor_id: uuid.UUID) -> DoctorSchedulingSettings:
         row = (
@@ -123,12 +136,14 @@ class DoctorSchedulingRepository:
     def create_or_get_scheduling_token(
         self, patient_id: uuid.UUID, doctor_id: uuid.UUID
     ) -> Tuple[PatientSchedulingToken, str]:
-        existing = self.get_token_for_pair(patient_id, doctor_id)
-        raw = self.generate_raw_token()
+        raw = self.raw_token_for_pair(patient_id, doctor_id)
         token_hash = self._hash_token(raw)
+        existing = self.get_token_for_pair(patient_id, doctor_id)
         if existing is not None:
-            existing.token_hash = token_hash
-            existing.is_active = True
+            if existing.token_hash != token_hash:
+                existing.token_hash = token_hash
+            if not existing.is_active:
+                existing.is_active = True
             self._db.commit()
             self._db.refresh(existing)
             return existing, raw

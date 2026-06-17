@@ -138,6 +138,8 @@ class UserService:
                 return None
             if not verify_password(password, user.hashed_password):
                 return None
+            if not user.is_active:
+                return None
             return user
         except Exception as e:
             print(f"Error autenticando usuario: {e}")
@@ -253,7 +255,7 @@ class UserService:
     async def delete_patient_by_doctor(self, doctor: User, patient_id) -> None:
         if doctor.role is None or doctor.role.name != ROLE_DOCTOR:
             raise PermissionError(
-                "Solo un usuario con rol DOCTOR puede eliminar pacientes"
+                "Solo un usuario con rol DOCTOR puede desactivar pacientes"
             )
 
         try:
@@ -263,7 +265,9 @@ class UserService:
         except (ValueError, TypeError) as exc:
             raise ValueError("Paciente no válido") from exc
 
-        patient = self._users.get_patient_owned_by_doctor(pid, doctor.id)
+        patient = self._users.get_patient_owned_by_doctor(
+            pid, doctor.id, active_only=False
+        )
         if patient is None:
             raise ValueError("Paciente no encontrado o no pertenece a tu consulta.")
 
@@ -271,13 +275,10 @@ class UserService:
         if patient.role_id != patient_role_id:
             raise ValueError("El usuario no es un paciente.")
 
-        try:
-            self._users.delete(patient)
-        except Exception as exc:
-            self._users.rollback()
-            raise ValueError(
-                "No se pudo eliminar el paciente porque tiene registros asociados."
-            ) from exc
+        if not patient.is_active:
+            raise ValueError("Este paciente ya está desactivado.")
+
+        self._users.set_active(patient, False)
 
     async def get_me_response(self, user_id: str) -> Optional[UserResponse]:
         user = self._users.get_by_id_with_role(user_id)

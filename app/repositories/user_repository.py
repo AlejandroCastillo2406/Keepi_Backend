@@ -82,19 +82,28 @@ class UserRepository:
             .filter(
                 User.created_by_user_id == doctor_id,
                 User.role_id == patient_role_id,
+                User.is_active.is_(True),
             )
             .order_by(User.created_at.desc())
             .all()
         )
 
     def get_patient_owned_by_doctor(
-        self, patient_id: uuid.UUID, doctor_id: uuid.UUID
+        self,
+        patient_id: uuid.UUID,
+        doctor_id: uuid.UUID,
+        *,
+        active_only: bool = True,
     ) -> Optional[User]:
-        return (
-            self._db.query(User)
-            .filter(
-                User.id == patient_id,
-                User.created_by_user_id == doctor_id,
-            )
-            .first()
+        query = self._db.query(User).filter(
+            User.id == patient_id,
+            User.created_by_user_id == doctor_id,
         )
+        if active_only:
+            query = query.filter(User.is_active.is_(True))
+        return query.first()
+
+    def set_active(self, user: User, active: bool) -> None:
+        user.is_active = active
+        self._db.commit()
+        self._db.refresh(user)

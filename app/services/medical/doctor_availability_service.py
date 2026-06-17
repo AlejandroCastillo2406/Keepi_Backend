@@ -323,7 +323,8 @@ class DoctorAvailabilityService:
         )
         link = build_public_scheduling_link(raw)
         message = (
-            "Comparte este enlace con el paciente para que agende citas en la web."
+            "Comparte este enlace con el paciente para que agende citas en la web. "
+            "Es permanente para este paciente."
             if link.startswith("http")
             else "Configura PUBLIC_QUESTIONNAIRE_BASE_URL en el servidor para obtener un enlace web completo."
         )

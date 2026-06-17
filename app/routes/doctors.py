@@ -50,6 +50,7 @@ async def create_patient_account(
     body: DoctorCreatePatientRequest,
     current_user: User = Depends(require_no_temp_password_user),
     svc: UserService = Depends(get_user_service),
+    db: Session = Depends(get_db),
 ):
     if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
         raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
@@ -61,6 +62,10 @@ async def create_patient_account(
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    DoctorAvailabilityService.create_patient_scheduling_token(
+        db, patient.id, current_user.id
+    )
 
     # Correo de bienvenida con contraseña temporal y link de agenda: deshabilitado.
     return DoctorCreatePatientResponse(

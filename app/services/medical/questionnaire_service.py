@@ -376,6 +376,9 @@ class QuestionnaireService:
                 getattr(payload, "enable_clinical_intake", True)
             ),
             intake_only=bool(getattr(payload, "intake_only", False)),
+            collect_prior_documents=bool(
+                getattr(payload, "collect_prior_documents", False)
+            ),
         )
         if email_res.success:
             logger.info(
