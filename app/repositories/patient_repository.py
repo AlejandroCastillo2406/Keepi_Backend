@@ -325,7 +325,7 @@ class PatientRepository:
             db.rollback()
             logger.error(f"Error en timeline (documentos previos): {e}")
 
-        raw_events.sort(key=lambda x: x["raw_dt"])
+        raw_events.sort(key=lambda x: x["raw_dt"], reverse=True)
 
         pending_request_ids = set()
         try:

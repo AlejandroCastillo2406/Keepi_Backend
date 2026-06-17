@@ -596,10 +596,10 @@ class AppointmentService:
         row = repo.get_by_id(appointment_id)
         if row is None or row.doctor_id != doctor_id:
             raise HTTPException(status_code=404, detail="Cita no encontrada.")
-        if row.status != "pending_doctor_approval":
+        if row.status not in ("pending_doctor_approval", "pending_patient_approval"):
             raise HTTPException(
                 status_code=400,
-                detail="Solo puedes reprogramar solicitudes web pendientes de confirmación.",
+                detail="Solo puedes reprogramar citas pendientes de confirmación.",
             )
 
         start_at = body.proposed_start_at
@@ -615,6 +615,39 @@ class AppointmentService:
             row,
             doctor_name=doctor_name,
             raw_token=raw_token,
+        )
+        return row
+
+    @staticmethod
+    def doctor_reassign_canceled_appointment(
+        db: Session,
+        appointment_id: UUID,
+        doctor_id: UUID,
+        body: AppointmentDoctorProposeRequest,
+        doctor_name: str,
+    ) -> Appointment:
+        repo = AppointmentService._repo(db)
+        row = repo.get_by_id(appointment_id)
+        if row is None or row.doctor_id != doctor_id:
+            raise HTTPException(status_code=404, detail="Cita no encontrada.")
+        if row.status != "canceled":
+            raise HTTPException(
+                status_code=400,
+                detail="Solo puedes reasignar citas canceladas o rechazadas.",
+            )
+
+        start_at = body.proposed_start_at
+        end_at = start_at + timedelta(minutes=body.duration_minutes)
+        row.appointment_date = start_at
+        row.end_date = end_at
+        row.status = "scheduled"
+        row.attendance_status = None
+        repo.save(row)
+
+        AppointmentService.notify_patient_doctor_scheduled(
+            db,
+            row,
+            doctor_name=doctor_name,
         )
         return row
 

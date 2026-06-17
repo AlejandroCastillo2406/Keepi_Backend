@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -248,6 +249,35 @@ class UserService:
 
     def get_patient_if_owned_by_doctor(self, patient_id, doctor_id) -> Optional[User]:
         return self._users.get_patient_owned_by_doctor(patient_id, doctor_id)
+
+    async def delete_patient_by_doctor(self, doctor: User, patient_id) -> None:
+        if doctor.role is None or doctor.role.name != ROLE_DOCTOR:
+            raise PermissionError(
+                "Solo un usuario con rol DOCTOR puede eliminar pacientes"
+            )
+
+        try:
+            pid = patient_id if isinstance(patient_id, uuid.UUID) else uuid.UUID(
+                str(patient_id)
+            )
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Paciente no válido") from exc
+
+        patient = self._users.get_patient_owned_by_doctor(pid, doctor.id)
+        if patient is None:
+            raise ValueError("Paciente no encontrado o no pertenece a tu consulta.")
+
+        patient_role_id = self.role_id_by_name(ROLE_PATIENT)
+        if patient.role_id != patient_role_id:
+            raise ValueError("El usuario no es un paciente.")
+
+        try:
+            self._users.delete(patient)
+        except Exception as exc:
+            self._users.rollback()
+            raise ValueError(
+                "No se pudo eliminar el paciente porque tiene registros asociados."
+            ) from exc
 
     async def get_me_response(self, user_id: str) -> Optional[UserResponse]:
         user = self._users.get_by_id_with_role(user_id)

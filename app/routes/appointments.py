@@ -172,6 +172,26 @@ async def doctor_reschedule_web_appointment(
     return AppointmentResponse.from_entity(row)
 
 
+@router.post(
+    "/{appointment_id}/doctor/reassign-canceled",
+    response_model=AppointmentResponse,
+)
+async def doctor_reassign_canceled_appointment(
+    appointment_id: UUID,
+    body: AppointmentDoctorProposeRequest,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    row = AppointmentService.doctor_reassign_canceled_appointment(
+        db,
+        appointment_id,
+        current_user.id,
+        body,
+        current_user.name or "",
+    )
+    return AppointmentResponse.from_entity(row)
+
+
 public_router = APIRouter()
 
 
