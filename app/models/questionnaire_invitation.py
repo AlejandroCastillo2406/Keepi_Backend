@@ -210,81 +210,28 @@ class PublicInvitationViewResponse(BaseModel):
     consultation_reason: Optional[str] = None
 
 
-class PublicInvitationAnswerIn(BaseModel):
-    item_id: str
-    answer: Any
-
-
-class PublicInvitationSubmitRequest(BaseModel):
-    answers: List[PublicInvitationAnswerIn] = Field(default_factory=list)
-
-
 class QuestionnaireSendInvitationRequest(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
     patient_id: str
-    template_ids: List[str] = Field(default_factory=list)
-    question_ids: List[str] = Field(default_factory=list)
     collect_prior_documents: bool = Field(
         default=False,
-        description="Tras la ficha clínica, el paciente puede subir estudios previos (opcional) antes del cuestionario.",
-    )
-    use_dynamic_questionnaire: bool = Field(
-        default=False,
-        description="Cuestionario adaptativo con IA (Bedrock). No compatible con plantillas.",
+        description="Tras la ficha clínica, el paciente puede subir estudios previos (opcional).",
     )
     enable_clinical_intake: bool = Field(
         default=True,
-        description="Ficha clínica previa al cuestionario (mismo enlace web).",
+        description="Ficha clínica previa (mismo enlace web /q/{token}).",
     )
     intake_only: bool = Field(
-        default=False,
-        description="Solo ficha clínica, sin cuestionario (mismo enlace /q/{token}).",
+        default=True,
+        description="Solo ficha clínica en el enlace web.",
     )
     phone: Optional[str] = None
     birth_date: Optional[str] = None
     sex: Optional[str] = None
     consultation_reason: Optional[str] = None
     specialty: Optional[str] = None
-
-    @field_validator("use_dynamic_questionnaire", mode="before")
-    @classmethod
-    def _coerce_dynamic_flag(cls, value):
-        if value in (True, 1, "1", "true", "True", "yes", "on"):
-            return True
-        return False
-
-
-class DynamicQuestionnaireInvitationRequest(BaseModel):
-    """Alta de invitación solo con cuestionario dinámico (sin plantillas)."""
-
-    patient_id: str
-    collect_prior_documents: bool = Field(
-        default=False,
-        description="Tras la ficha clínica, paso opcional de documentos previos antes del cuestionario.",
-    )
-    enable_clinical_intake: bool = True
-    phone: Optional[str] = None
-    birth_date: Optional[str] = None
-    sex: Optional[str] = None
-    consultation_reason: Optional[str] = None
-    specialty: Optional[str] = None
-
-
-DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS = 10
-
-
-class PublicDynamicAnswerRequest(BaseModel):
-    answer: Any
-
-
-class PublicDynamicAnswerResponse(BaseModel):
-    completed: bool
-    collect_prior_documents: bool = False
-    next_question: Optional[InvitationQuestionView] = None
-    dynamic_answered_count: int = 0
-    dynamic_max_questions: int = DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS
 
 
 class QuestionnaireInvitationSummaryResponse(BaseModel):
@@ -308,13 +255,6 @@ class QuestionnaireInvitationSendResponse(BaseModel):
         description="True si SES aceptó el envío. Si es False, ver email_error y logs del backend.",
     )
     email_error: Optional[str] = None
-
-
-class PublicInvitationSubmitResponse(BaseModel):
-    invitation_id: str
-    status: str
-    completed_at: datetime
-    collect_prior_documents: bool = False
 
 
 class PublicPriorDocumentUploadResponse(BaseModel):

@@ -26,13 +26,8 @@ from app.models.questionnaire import (
 )
 from app.dto.questionnaire_responses_dto import PatientQuestionnaireAnswerView
 from app.models.questionnaire_invitation import (
-    DynamicQuestionnaireInvitationRequest,
-    PublicDynamicAnswerRequest,
-    PublicDynamicAnswerResponse,
     PublicIntakeSectionSubmitRequest,
     PublicIntakeSectionSubmitResponse,
-    PublicInvitationSubmitRequest,
-    PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
     PublicPriorDocumentUploadResponse,
     QuestionnaireInvitationSendResponse,
@@ -348,29 +343,6 @@ def upsert_template_questions(
 
 
 @router.post(
-    "/invitations/dynamic",
-    response_model=QuestionnaireInvitationSendResponse,
-    status_code=http_status.HTTP_201_CREATED,
-)
-def create_dynamic_invitation(
-    payload: DynamicQuestionnaireInvitationRequest,
-    current_user: User = Depends(require_doctor_user),
-    svc: QuestionnaireService = Depends(get_questionnaire_service),
-):
-    return svc.create_dynamic_invitation_with_email(
-        current_user.id,
-        payload.patient_id,
-        collect_prior_documents=payload.collect_prior_documents,
-        enable_clinical_intake=payload.enable_clinical_intake,
-        phone=payload.phone,
-        birth_date=payload.birth_date,
-        sex=payload.sex,
-        consultation_reason=payload.consultation_reason,
-        specialty=payload.specialty,
-    )
-
-
-@router.post(
     "/invitations",
     response_model=QuestionnaireInvitationSendResponse,
     status_code=http_status.HTTP_201_CREATED,
@@ -380,18 +352,6 @@ def create_invitation(
     current_user: User = Depends(require_doctor_user),
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    if payload.use_dynamic_questionnaire:
-        return svc.create_dynamic_invitation_with_email(
-            current_user.id,
-            payload.patient_id,
-            collect_prior_documents=payload.collect_prior_documents,
-            enable_clinical_intake=payload.enable_clinical_intake,
-            phone=payload.phone,
-            birth_date=payload.birth_date,
-            sex=payload.sex,
-            consultation_reason=payload.consultation_reason,
-            specialty=payload.specialty,
-        )
     return svc.create_invitation_with_email(current_user.id, payload)
 
 
@@ -414,11 +374,11 @@ def get_invitation(
     "/public/{token}",
     response_model=PublicInvitationViewResponse,
 )
-async def get_public_invitation(
+def get_public_invitation(
     token: str,
     svc: QuestionnaireService = Depends(get_questionnaire_service),
 ):
-    return await svc.get_public_invitation_view(token)
+    return svc.get_public_invitation_view(token)
 
 
 @router.post(
@@ -433,30 +393,6 @@ def submit_public_intake_section(
     return svc.save_public_intake_section(
         token, payload.section_id, payload.answers
     )
-
-
-@router.post(
-    "/public/{token}/dynamic/answer",
-    response_model=PublicDynamicAnswerResponse,
-)
-async def answer_dynamic_question(
-    token: str,
-    payload: PublicDynamicAnswerRequest,
-    svc: QuestionnaireService = Depends(get_questionnaire_service),
-):
-    return await svc.answer_dynamic_question(token, payload)
-
-
-@router.post(
-    "/public/{token}/submit",
-    response_model=PublicInvitationSubmitResponse,
-)
-def submit_public_invitation(
-    token: str,
-    payload: PublicInvitationSubmitRequest,
-    svc: QuestionnaireService = Depends(get_questionnaire_service),
-):
-    return svc.submit_public_invitation_with_notify(token, payload)
 
 
 @router.post(

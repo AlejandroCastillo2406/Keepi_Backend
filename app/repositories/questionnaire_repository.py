@@ -10,12 +10,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 from app.models.questionnaire_invitation import (
-    DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
     IntakeSectionView,
-    InvitationQuestionView,
     PublicIntakeSectionSubmitResponse,
-    PublicInvitationSubmitRequest,
-    PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
     QuestionnaireInvitation,
     QuestionnaireInvitationAnswer,
@@ -759,125 +755,6 @@ class QuestionnaireRepository:
             )
         return patient
 
-    def _build_snapshot_questions(
-        self,
-        doctor_id: uuid.UUID,
-        template_ids: List[uuid.UUID],
-        extra_question_ids: List[uuid.UUID],
-    ) -> List[dict]:
-        rows: List[dict] = []
-        seen: set[uuid.UUID] = set()
-
-        for t_id in template_ids:
-            template = (
-                self._db.query(Template)
-                .filter(Template.id == t_id, Template.doctor_id == doctor_id)
-                .first()
-            )
-            if not template:
-                raise HTTPException(
-                    status_code=404, detail=f"Plantilla no encontrada: {t_id}"
-                )
-
-            items = (
-                self._db.query(TemplateQuestion)
-                .filter(TemplateQuestion.template_id == template.id)
-                .order_by(TemplateQuestion.sort_order.asc())
-                .all()
-            )
-            question_ids = [i.question_id for i in items]
-            if not question_ids:
-                continue
-
-            questions = (
-                self._db.query(Question).filter(Question.id.in_(question_ids)).all()
-            )
-            question_by_id = {q.id: q for q in questions}
-            specialties = {}
-            spec_ids = {q.specialty_id for q in questions if q.specialty_id}
-            if spec_ids:
-                for s in (
-                    self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all()
-                ):
-                    specialties[s.id] = s.name
-
-            for item in items:
-                q = question_by_id.get(item.question_id)
-                if not q or q.id in seen:
-                    continue
-                seen.add(q.id)
-                rows.append(
-                    {
-                        "question_id": q.id,
-                        "question_text": q.text,
-                        "response_type": q.response_type,
-                        "options": list(q.options) if q.options else None,
-                        "help_text": q.help_text,
-                        "is_required": bool(q.is_required_default),
-                        "specialty_name": (
-                            specialties.get(q.specialty_id) if q.specialty_id else None
-                        ),
-                        "template_name": template.name,
-                    }
-                )
-
-        if extra_question_ids:
-            questions = (
-                self._db.query(Question)
-                .filter(
-                    Question.id.in_(extra_question_ids),
-                    or_(
-                        Question.origin == "system", Question.owner_user_id == doctor_id
-                    ),
-                )
-                .all()
-            )
-            available = {q.id: q for q in questions}
-            missing = [str(qid) for qid in extra_question_ids if qid not in available]
-            if missing:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Preguntas no disponibles: {', '.join(missing)}",
-                )
-
-            spec_ids = {q.specialty_id for q in questions if q.specialty_id}
-            specialties = {}
-            if spec_ids:
-                for s in (
-                    self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all()
-                ):
-                    specialties[s.id] = s.name
-
-            for qid in extra_question_ids:
-                q = available[qid]
-                if q.id in seen:
-                    continue
-                seen.add(q.id)
-                rows.append(
-                    {
-                        "question_id": q.id,
-                        "question_text": q.text,
-                        "response_type": q.response_type,
-                        "options": list(q.options) if q.options else None,
-                        "help_text": q.help_text,
-                        "is_required": bool(q.is_required_default),
-                        "specialty_name": (
-                            specialties.get(q.specialty_id) if q.specialty_id else None
-                        ),
-                        "template_name": None,
-                    }
-                )
-
-        if not rows:
-            raise HTTPException(
-                status_code=400, detail="No hay preguntas para enviar en la invitación"
-            )
-        return rows
-
-    @staticmethod
-    def _is_dynamic_invitation(data: QuestionnaireSendInvitationRequest) -> bool:
-        return bool(getattr(data, "use_dynamic_questionnaire", False))
-
     @staticmethod
     def _intake_context_from_payload(data) -> Optional[dict]:
         ctx: dict = {}
@@ -916,8 +793,6 @@ class QuestionnaireRepository:
 
     def _is_intake_only_invitation(self, inv: QuestionnaireInvitation) -> bool:
         if not bool(getattr(inv, "enable_clinical_intake", False)):
-            return False
-        if bool(getattr(inv, "is_dynamic", False)):
             return False
         return self._invitation_item_count(inv.id) == 0
 
@@ -1005,117 +880,19 @@ class QuestionnaireRepository:
     def create_invitation_batch(
         self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
     ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
-        if self._is_dynamic_invitation(data):
-            if self._intake_only_from_payload(data):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Solo ficha clínica no puede combinarse con cuestionario dinámico",
-                )
-            return self._create_dynamic_invitation_batch(doctor_id, data)
-
-        intake_only = self._intake_only_from_payload(data)
-        has_questions = bool(data.template_ids or data.question_ids)
-        enable_intake = self._enable_clinical_intake_from_payload(data)
-        if not intake_only and not has_questions and enable_intake:
-            intake_only = True
-        if intake_only:
-            if has_questions:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Solo ficha clínica no puede combinarse con plantillas o preguntas",
-                )
-        elif not has_questions:
+        if not self._enable_clinical_intake_from_payload(data):
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    "Indica plantillas, preguntas, cuestionario dinámico "
-                    "o activa ficha clínica previa (intake_only)"
-                ),
+                detail="Las invitaciones requieren ficha clínica previa.",
             )
 
-        patient_id = _as_uuid(data.patient_id)
-        if patient_id is None:
-            raise HTTPException(status_code=400, detail="patient_id inválido")
-        patient = self._load_patient_owned_by_doctor(doctor_id, patient_id)
-
-        if intake_only:
-            snapshot: List[dict] = []
-        else:
-            template_ids = []
-            for tid in data.template_ids:
-                uid = _as_uuid(tid)
-                if uid is None:
-                    raise HTTPException(
-                        status_code=400, detail=f"template_id inválido: {tid}"
-                    )
-                template_ids.append(uid)
-
-            question_ids = []
-            for qid in data.question_ids:
-                uid = _as_uuid(qid)
-                if uid is None:
-                    raise HTTPException(
-                        status_code=400, detail=f"question_id inválido: {qid}"
-                    )
-                question_ids.append(uid)
-
-            snapshot = self._build_snapshot_questions(
-                doctor_id, template_ids, question_ids
-            )
-
-        hours = 24
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
-
-        invitation = QuestionnaireInvitation(
-            doctor_id=doctor_id,
-            patient_id=patient.id,
-            patient_email_snapshot=patient.email,
-            patient_name_snapshot=patient.name,
-            token_hash="__pending__",
-            status="pending",
-            expires_at=expires_at,
-            collect_prior_documents=self._resolve_collect_prior_documents(data),
-        )
-        self._apply_clinical_intake_to_invitation(invitation, data)
-        self._db.add(invitation)
-        self._db.flush()
-
-        raw_token = self._generate_invitation_secret_token()
-        invitation.token_hash = self._hash_token(raw_token)
-
-        for idx, item in enumerate(snapshot):
-            self._db.add(
-                QuestionnaireInvitationItem(
-                    invitation_id=invitation.id,
-                    question_id=item["question_id"],
-                    question_text_snapshot=item["question_text"],
-                    response_type_snapshot=item["response_type"],
-                    options_snapshot=item["options"],
-                    help_text_snapshot=item["help_text"],
-                    is_required_snapshot=item["is_required"],
-                    specialty_name_snapshot=item["specialty_name"],
-                    template_name_snapshot=item["template_name"],
-                    sort_order=idx,
-                )
-            )
-        self._db.commit()
-        self._db.refresh(invitation)
-        return self._invitation_to_summary(invitation, len(snapshot)), raw_token
-
-    def _create_dynamic_invitation_batch(
-        self, doctor_id: uuid.UUID, data: QuestionnaireSendInvitationRequest
-    ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
-        if data.template_ids or data.question_ids:
-            raise HTTPException(
-                status_code=400,
-                detail="El cuestionario dinámico no puede combinarse con plantillas o preguntas fijas",
-            )
         patient_id = _as_uuid(data.patient_id)
         if patient_id is None:
             raise HTTPException(status_code=400, detail="patient_id inválido")
         patient = self._load_patient_owned_by_doctor(doctor_id, patient_id)
 
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+
         invitation = QuestionnaireInvitation(
             doctor_id=doctor_id,
             patient_id=patient.id,
@@ -1125,7 +902,6 @@ class QuestionnaireRepository:
             status="pending",
             expires_at=expires_at,
             collect_prior_documents=self._resolve_collect_prior_documents(data),
-            is_dynamic=True,
         )
         self._apply_clinical_intake_to_invitation(invitation, data)
         self._db.add(invitation)
@@ -1135,145 +911,7 @@ class QuestionnaireRepository:
         invitation.token_hash = self._hash_token(raw_token)
         self._db.commit()
         self._db.refresh(invitation)
-        return (
-            self._invitation_to_summary(
-                invitation, DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS
-            ),
-            raw_token,
-        )
-
-    def _invitation_item_to_view(
-        self, item: QuestionnaireInvitationItem
-    ) -> InvitationQuestionView:
-        return InvitationQuestionView(
-            item_id=str(item.id),
-            question_text=item.question_text_snapshot,
-            response_type=item.response_type_snapshot,
-            options=list(item.options_snapshot) if item.options_snapshot else None,
-            help_text=item.help_text_snapshot,
-            is_required=bool(item.is_required_snapshot),
-            specialty_name=item.specialty_name_snapshot,
-            template_name=item.template_name_snapshot or "Cuestionario dinámico (IA)",
-        )
-
-    def count_answered_dynamic_items(self, invitation_id: uuid.UUID) -> int:
-        return (
-            self._db.query(func.count(QuestionnaireInvitationAnswer.id))
-            .join(
-                QuestionnaireInvitationItem,
-                QuestionnaireInvitationItem.id
-                == QuestionnaireInvitationAnswer.invitation_item_id,
-            )
-            .filter(QuestionnaireInvitationItem.invitation_id == invitation_id)
-            .scalar()
-            or 0
-        )
-
-    def get_pending_dynamic_item(
-        self, invitation_id: uuid.UUID
-    ) -> Optional[QuestionnaireInvitationItem]:
-        items = (
-            self._db.query(QuestionnaireInvitationItem)
-            .filter(QuestionnaireInvitationItem.invitation_id == invitation_id)
-            .order_by(QuestionnaireInvitationItem.sort_order.asc())
-            .all()
-        )
-        for item in items:
-            answered = (
-                self._db.query(QuestionnaireInvitationAnswer)
-                .filter(
-                    QuestionnaireInvitationAnswer.invitation_item_id == item.id
-                )
-                .first()
-            )
-            if answered is None:
-                return item
-        return None
-
-    def get_dynamic_conversation(
-        self, invitation_id: uuid.UUID
-    ) -> List[dict]:
-        items = (
-            self._db.query(QuestionnaireInvitationItem)
-            .filter(QuestionnaireInvitationItem.invitation_id == invitation_id)
-            .order_by(QuestionnaireInvitationItem.sort_order.asc())
-            .all()
-        )
-        rows: List[dict] = []
-        for item in items:
-            ans = (
-                self._db.query(QuestionnaireInvitationAnswer)
-                .filter(
-                    QuestionnaireInvitationAnswer.invitation_item_id == item.id
-                )
-                .first()
-            )
-            if ans is None:
-                continue
-            value = ans.answer_json.get("value") if ans.answer_json else None
-            rows.append(
-                {
-                    "question_text": item.question_text_snapshot,
-                    "answer": value,
-                }
-            )
-        return rows
-
-    def add_dynamic_question_item(
-        self,
-        invitation_id: uuid.UUID,
-        *,
-        question_text: str,
-        response_type: str,
-        options: Optional[List[str]],
-        help_text: Optional[str],
-        is_required: bool,
-        sort_order: int,
-    ) -> QuestionnaireInvitationItem:
-        item = QuestionnaireInvitationItem(
-            invitation_id=invitation_id,
-            question_id=None,
-            question_text_snapshot=question_text,
-            response_type_snapshot=response_type,
-            options_snapshot=options,
-            help_text_snapshot=help_text,
-            is_required_snapshot=is_required,
-            specialty_name_snapshot=None,
-            template_name_snapshot="Cuestionario dinámico (IA)",
-            sort_order=sort_order,
-        )
-        self._db.add(item)
-        self._db.commit()
-        self._db.refresh(item)
-        return item
-
-    def save_dynamic_item_answer(
-        self, item: QuestionnaireInvitationItem, answer: Any
-    ) -> None:
-        existing = (
-            self._db.query(QuestionnaireInvitationAnswer)
-            .filter(
-                QuestionnaireInvitationAnswer.invitation_item_id == item.id
-            )
-            .first()
-        )
-        if existing:
-            existing.answer_json = {"value": answer}
-        else:
-            self._db.add(
-                QuestionnaireInvitationAnswer(
-                    invitation_item_id=item.id,
-                    answer_json={"value": answer},
-                )
-            )
-        self._db.commit()
-
-    def complete_invitation(self, invitation: QuestionnaireInvitation) -> None:
-        invitation.status = "completed"
-        invitation.completed_at = datetime.now(timezone.utc)
-        invitation.used_at = datetime.now(timezone.utc)
-        self._db.commit()
-        self._db.refresh(invitation)
+        return self._invitation_to_summary(invitation, 0), raw_token
 
     def _mark_expired_if_needed(
         self, invitation: QuestionnaireInvitation
@@ -1314,96 +952,22 @@ class QuestionnaireRepository:
         inv = self._get_invitation_for_public_token(raw_token)
         inv = self._mark_expired_if_needed(inv)
 
-        is_dynamic = bool(getattr(inv, "is_dynamic", False))
-        answered_dynamic = (
-            self.count_answered_dynamic_items(inv.id) if is_dynamic else 0
-        )
-
         enable_intake, intake_done, intake_sections, specialty, reason = (
             self._intake_meta_for_invitation(inv)
         )
         intake_only = self._is_intake_only_invitation(inv)
         collect_prior = bool(getattr(inv, "collect_prior_documents", False))
 
-        if inv.status != "pending":
-            return PublicInvitationViewResponse(
-                invitation_id=str(inv.id),
-                patient_name=inv.patient_name_snapshot,
-                patient_email=inv.patient_email_snapshot,
-                status=inv.status,
-                expires_at=inv.expires_at,
-                questions=[],
-                collect_prior_documents=collect_prior,
-                is_dynamic=is_dynamic,
-                dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
-                dynamic_answered_count=answered_dynamic,
-                enable_clinical_intake=enable_intake,
-                intake_completed=intake_done,
-                intake_only=intake_only,
-                intake_sections=intake_sections,
-                specialty=specialty,
-                consultation_reason=reason,
-            )
-
-        if enable_intake and not intake_done:
-            return PublicInvitationViewResponse(
-                invitation_id=str(inv.id),
-                patient_name=inv.patient_name_snapshot,
-                patient_email=inv.patient_email_snapshot,
-                status=inv.status,
-                expires_at=inv.expires_at,
-                questions=[],
-                collect_prior_documents=collect_prior,
-                is_dynamic=is_dynamic,
-                dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
-                dynamic_answered_count=answered_dynamic,
-                enable_clinical_intake=True,
-                intake_completed=False,
-                intake_only=intake_only,
-                intake_sections=intake_sections,
-                specialty=specialty,
-                consultation_reason=reason,
-            )
-
-        if is_dynamic:
-            pending = self.get_pending_dynamic_item(inv.id)
-            questions = (
-                [self._invitation_item_to_view(pending)] if pending else []
-            )
-            return PublicInvitationViewResponse(
-                invitation_id=str(inv.id),
-                patient_name=inv.patient_name_snapshot,
-                patient_email=inv.patient_email_snapshot,
-                status=inv.status,
-                expires_at=inv.expires_at,
-                questions=questions,
-                collect_prior_documents=collect_prior,
-                is_dynamic=True,
-                dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
-                dynamic_answered_count=answered_dynamic,
-                enable_clinical_intake=enable_intake,
-                intake_completed=intake_done,
-                intake_only=intake_only,
-                intake_sections=intake_sections,
-                specialty=specialty,
-                consultation_reason=reason,
-            )
-
-        items = (
-            self._db.query(QuestionnaireInvitationItem)
-            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
-            .order_by(QuestionnaireInvitationItem.sort_order.asc())
-            .all()
-        )
-        return PublicInvitationViewResponse(
+        base_kwargs = dict(
             invitation_id=str(inv.id),
             patient_name=inv.patient_name_snapshot,
             patient_email=inv.patient_email_snapshot,
             status=inv.status,
             expires_at=inv.expires_at,
+            questions=[],
             collect_prior_documents=collect_prior,
             is_dynamic=False,
-            dynamic_max_questions=DYNAMIC_QUESTIONNAIRE_MAX_QUESTIONS,
+            dynamic_max_questions=0,
             dynamic_answered_count=0,
             enable_clinical_intake=enable_intake,
             intake_completed=intake_done,
@@ -1411,101 +975,17 @@ class QuestionnaireRepository:
             intake_sections=intake_sections,
             specialty=specialty,
             consultation_reason=reason,
-            questions=[
-                {
-                    "item_id": str(i.id),
-                    "question_text": i.question_text_snapshot,
-                    "response_type": i.response_type_snapshot,
-                    "options": list(i.options_snapshot) if i.options_snapshot else None,
-                    "help_text": i.help_text_snapshot,
-                    "is_required": bool(i.is_required_snapshot),
-                    "specialty_name": i.specialty_name_snapshot,
-                    "template_name": i.template_name_snapshot,
-                }
-                for i in items
-            ],
         )
 
-    def submit_public_invitation(
-        self, raw_token: str, payload: PublicInvitationSubmitRequest
-    ) -> tuple[PublicInvitationSubmitResponse, QuestionnaireInvitation]:
-        inv = self._get_invitation_for_public_token(raw_token)
-        inv = self._mark_expired_if_needed(inv)
-        if inv.status == "completed":
-            raise HTTPException(
-                status_code=409, detail="Este cuestionario ya fue completado"
-            )
         if inv.status != "pending":
-            raise HTTPException(status_code=400, detail="Invitación no disponible")
-        if bool(getattr(inv, "enable_clinical_intake", False)) and not inv.intake_completed_at:
-            raise HTTPException(
-                status_code=400,
-                detail="Completa primero tu ficha clínica antes del cuestionario",
-            )
-        if bool(getattr(inv, "is_dynamic", False)):
-            raise HTTPException(
-                status_code=400,
-                detail="Este cuestionario es dinámico; usa el flujo pregunta a pregunta",
+            return PublicInvitationViewResponse(**base_kwargs)
+
+        if enable_intake and not intake_done:
+            return PublicInvitationViewResponse(
+                **{**base_kwargs, "enable_clinical_intake": True, "intake_completed": False}
             )
 
-        items = (
-            self._db.query(QuestionnaireInvitationItem)
-            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
-            .all()
-        )
-        item_by_id = {str(i.id): i for i in items}
-        required_item_ids = {str(i.id) for i in items if i.is_required_snapshot}
-
-        answer_by_item = {}
-        for answer in payload.answers:
-            if answer.item_id in item_by_id:
-                answer_by_item[answer.item_id] = answer.answer
-
-        missing_required = [
-            iid
-            for iid in required_item_ids
-            if iid not in answer_by_item or answer_by_item[iid] in (None, "", [], {})
-        ]
-        if missing_required:
-            raise HTTPException(
-                status_code=400, detail="Faltan respuestas obligatorias"
-            )
-
-        for item_id, answer in answer_by_item.items():
-            item_uuid = uuid.UUID(item_id)
-            existing = (
-                self._db.query(QuestionnaireInvitationAnswer)
-                .filter(QuestionnaireInvitationAnswer.invitation_item_id == item_uuid)
-                .first()
-            )
-            if existing:
-                existing.answer_json = {"value": answer}
-            else:
-                self._db.add(
-                    QuestionnaireInvitationAnswer(
-                        invitation_item_id=item_uuid,
-                        answer_json={"value": answer},
-                    )
-                )
-
-        now = datetime.now(timezone.utc)
-        inv.status = "completed"
-        inv.used_at = now
-        inv.completed_at = now
-        self._db.commit()
-        self._db.refresh(inv)
-
-        return (
-            PublicInvitationSubmitResponse(
-                invitation_id=str(inv.id),
-                status=inv.status,
-                completed_at=inv.completed_at or now,
-                collect_prior_documents=bool(
-                    getattr(inv, "collect_prior_documents", False)
-                ),
-            ),
-            inv,
-        )
+        return PublicInvitationViewResponse(**base_kwargs)
 
     def get_clinical_intake_detail_for_doctor(
         self,

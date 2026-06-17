@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 import json
 import logging
 import re
@@ -24,23 +24,23 @@ class BedrockService:
 
     async def detectar_tipo_documento(self, texto: str) -> str:
         """
-        Clasifica el documento para saber qué parser usar.
+        Clasifica el documento para saber quÃ© parser usar.
         Retorna: "RECETA", "LABORATORIO", "IDENTIFICACION" o "OTRO".
         """
         if not self.bedrock_client:
             return "OTRO"
         
         prompt = f"""
-        Analiza el siguiente texto extraído de un documento médico o administrativo.
-        Clasifícalo estrictamente en UNA de estas categorías: "RECETA", "LABORATORIO", "IDENTIFICACION", "OTRO".
+        Analiza el siguiente texto extraÃ­do de un documento mÃ©dico o administrativo.
+        ClasifÃ­calo estrictamente en UNA de estas categorÃ­as: "RECETA", "LABORATORIO", "IDENTIFICACION", "OTRO".
         
         Reglas:
         - Si ves medicamentos, indicaciones de dosis o folios de receta -> RECETA.
-        - Si ves valores, unidades de medida, estudios clínicos o diagnósticos -> LABORATORIO.
+        - Si ves valores, unidades de medida, estudios clÃ­nicos o diagnÃ³sticos -> LABORATORIO.
         - Si ves datos personales (CURP, INE, RFC, PASAPORTE) -> IDENTIFICACION.
         - Si no encaja en ninguna -> OTRO.
         
-        Responde ÚNICAMENTE la palabra de la categoría, sin explicaciones ni formato adicional.
+        Responde ÃšNICAMENTE la palabra de la categorÃ­a, sin explicaciones ni formato adicional.
         
         TEXTO:
         {texto[:1500]}
@@ -61,7 +61,7 @@ class BedrockService:
     ) -> Dict[str, Any]:
         if not self.bedrock_client:
             return {
-                "category": "Sin categoría",
+                "category": "Sin categorÃ­a",
                 "confidence": 0.0,
                 "expiry_date": None,
                 "recommended_name": None,
@@ -83,7 +83,7 @@ class BedrockService:
         except Exception as e:
             logger.error(f"Error analizando documento con Bedrock: {e}")
             return {
-                "category": "Sin categoría",
+                "category": "Sin categorÃ­a",
                 "confidence": 0.0,
                 "expiry_date": None,
                 "recommended_name": None,
@@ -128,12 +128,12 @@ class BedrockService:
             ]
             response_text = await self._call_claude_multimodal(content)
             result = self._parse_claude_response(response_text)
-            category = result.get("category", "Sin categoría")
-            if category in ("Sin categoría", "MANUAL_CLASSIFICATION_REQUIRED", ""):
+            category = result.get("category", "Sin categorÃ­a")
+            if category in ("Sin categorÃ­a", "MANUAL_CLASSIFICATION_REQUIRED", ""):
                 result["category"] = "MANUAL_CLASSIFICATION_REQUIRED"
             return result
         except Exception as e:
-            logger.warning("Error analizando imagen con Bedrock (visión): %s", e)
+            logger.warning("Error analizando imagen con Bedrock (visiÃ³n): %s", e)
             return {
                 "category": "MANUAL_CLASSIFICATION_REQUIRED",
                 "confidence": 0.0,
@@ -151,25 +151,25 @@ class BedrockService:
             folders_list = ", ".join(f'"{n}"' for n in existing_folder_names[:50])
             folders_instruction = f"""
 CARPETAS EXISTENTES DEL USUARIO: [{folders_list}]
-- Si el documento en la imagen encaja en UNA de estas categorías, usa EXACTAMENTE ese nombre en "category".
-- Si no encaja en ninguna, propón una NUEVA categoría amplia (máximo 3 palabras).
+- Si el documento en la imagen encaja en UNA de estas categorÃ­as, usa EXACTAMENTE ese nombre en "category".
+- Si no encaja en ninguna, propÃ³n una NUEVA categorÃ­a amplia (mÃ¡ximo 3 palabras).
 """
         return f"""
 Analiza la imagen adjunta (documento o foto de documento llamada "{filename}") y devuelve en UN solo JSON:
 
-1. CATEGORÍA: Determina qué tipo de documento es (máximo 3 palabras, ASCII).
-   - Ejemplos: "Documentos personales" (DNI, RFC, INE, pasaporte), "Facturas", "Contratos", "Recetas médicas", "Certificados", "Seguros", "Comprobantes fiscales", "Fotos personales", "Otros".
+1. CATEGORÃA: Determina quÃ© tipo de documento es (mÃ¡ximo 3 palabras, ASCII).
+   - Ejemplos: "Documentos personales" (DNI, RFC, INE, pasaporte), "Facturas", "Contratos", "Recetas mÃ©dicas", "Certificados", "Seguros", "Comprobantes fiscales", "Fotos personales", "Otros".
 {folders_instruction}
 
-2. FECHA DE VENCIMIENTO: Si ves una fecha de vencimiento/expiración en la imagen, formato YYYY-MM-DD. Si no, null.
+2. FECHA DE VENCIMIENTO: Si ves una fecha de vencimiento/expiraciÃ³n en la imagen, formato YYYY-MM-DD. Si no, null.
 
-3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0).
+3. CONFIANZA: QuÃ© tan seguro estÃ¡s de la categorÃ­a (0.0 a 1.0).
 
-4. NOMBRE RECOMENDADO: Nombre sugerido para el archivo. OBLIGATORIO: usa la MISMA extensión que "{filename}" (si es .jpg/.png/.jpeg NUNCA pongas .pdf si no es .PDF la original).
+4. NOMBRE RECOMENDADO: Nombre sugerido para el archivo. OBLIGATORIO: usa la MISMA extensiÃ³n que "{filename}" (si es .jpg/.png/.jpeg NUNCA pongas .pdf si no es .PDF la original).
 
-5. TAGS: Lista de 1 a 5 etiquetas en minúsculas.
+5. TAGS: Lista de 1 a 5 etiquetas en minÃºsculas.
 
-Responde SOLO con este JSON válido (sin markdown ni texto extra):
+Responde SOLO con este JSON vÃ¡lido (sin markdown ni texto extra):
 {{
     "category": "nombre_categoria_amplia",
     "confidence": 0.95,
@@ -205,31 +205,31 @@ Responde SOLO con este JSON válido (sin markdown ni texto extra):
             folders_list = ", ".join(f'"{n}"' for n in existing_folder_names[:50])
             folders_instruction = f"""
 CARPETAS EXISTENTES DEL USUARIO: [{folders_list}]
-- Si el documento encaja claramente en UNA de estas categorías, usa EXACTAMENTE ese nombre en "category".
-- Si no encaja en ninguna, propón una NUEVA categoría amplia (máximo 3 palabras).
+- Si el documento encaja claramente en UNA de estas categorÃ­as, usa EXACTAMENTE ese nombre en "category".
+- Si no encaja en ninguna, propÃ³n una NUEVA categorÃ­a amplia (mÃ¡ximo 3 palabras).
 """
 
         return f"""
-Analiza el siguiente texto extraído de un documento llamado "{filename}" y devuelve en UN solo JSON:
+Analiza el siguiente texto extraÃ­do de un documento llamado "{filename}" y devuelve en UN solo JSON:
 
-1. CATEGORÍA: Usa categorías AMPLIAS que agrupen varios tipos de documento (máximo 3 palabras, ASCII).
-   - Ejemplos de categorías amplias: "Documentos personales" (para DNI, RFC, CURP, INE, pasaporte, cédula), "Facturas", "Contratos", "Recetas médicas", "Certificados académicos", "Seguros", "Comprobantes fiscales".
-   - NO uses categorías muy específicas como "DNI" o "INE"
+1. CATEGORÃA: Usa categorÃ­as AMPLIAS que agrupen varios tipos de documento (mÃ¡ximo 3 palabras, ASCII).
+   - Ejemplos de categorÃ­as amplias: "Documentos personales" (para DNI, RFC, CURP, INE, pasaporte, cÃ©dula), "Facturas", "Contratos", "Recetas mÃ©dicas", "Certificados acadÃ©micos", "Seguros", "Comprobantes fiscales".
+   - NO uses categorÃ­as muy especÃ­ficas como "DNI" o "INE"
 {folders_instruction}
 
-2. FECHA DE VENCIMIENTO: Si hay fecha de vencimiento/expiración, en formato YYYY-MM-DD. Si no hay, null. Es importante NO confundir la fecha de expedicion con la fecha de vencimiento..
+2. FECHA DE VENCIMIENTO: Si hay fecha de vencimiento/expiraciÃ³n, en formato YYYY-MM-DD. Si no hay, null. Es importante NO confundir la fecha de expedicion con la fecha de vencimiento..
 
-3. CONFIANZA: Qué tan seguro estás de la categoría (0.0 a 1.0) TIENES QUE SER SINCERO Y NO PONER VALORES ALTOS SOLO POR PONER ALGO.
+3. CONFIANZA: QuÃ© tan seguro estÃ¡s de la categorÃ­a (0.0 a 1.0) TIENES QUE SER SINCERO Y NO PONER VALORES ALTOS SOLO POR PONER ALGO.
 
-4. NOMBRE RECOMENDADO DEL ARCHIVO: Debe ser MUY ESPECÍFICO. Extrae del texto el dato principal que identifica el documento y úsalo en el nombre. Formato: "[Tipo documento] [Dato identificador].ext".
+4. NOMBRE RECOMENDADO DEL ARCHIVO: Debe ser MUY ESPECÃFICO. Extrae del texto el dato principal que identifica el documento y Ãºsalo en el nombre. Formato: "[Tipo documento] [Dato identificador].ext".
    - Documentos personales (RFC, CURP, INE, pasaporte): usa el NOMBRE COMPLETO del titular. Ejemplo: "RFC Cesar Alejandro Castillo Garces.pdf", "INE Maria Lopez Hernandez.pdf".
-   - Facturas/comprobantes: razón social o nombre del proveedor + folio o fecha. Ejemplo: "Factura CFE 2024-01.pdf".
+   - Facturas/comprobantes: razÃ³n social o nombre del proveedor + folio o fecha. Ejemplo: "Factura CFE 2024-01.pdf".
    - Contratos: partes o objeto + fecha. Ejemplo: "Contrato arrendamiento 2024-03.pdf".
-   - Sin guiones bajos; usa espacios. Respeta SIEMPRE la extensión del archivo original (imagen = .jpg/.png/.jpeg, PDF = .pdf).
+   - Sin guiones bajos; usa espacios. Respeta SIEMPRE la extensiÃ³n del archivo original (imagen = .jpg/.png/.jpeg, PDF = .pdf).
 
-5. TAGS: Lista de 1 a 5 etiquetas en minúsculas. Sin duplicar la categoría.
+5. TAGS: Lista de 1 a 5 etiquetas en minÃºsculas. Sin duplicar la categorÃ­a.
 
-Responde SOLO con este JSON válido (sin markdown ni texto extra):
+Responde SOLO con este JSON vÃ¡lido (sin markdown ni texto extra):
 {{
     "category": "nombre_categoria_amplia",
     "confidence": 0.95,
@@ -277,7 +277,7 @@ TEXTO DEL DOCUMENTO:
 
             result = json.loads(response)
 
-            category = result.get("category", "Sin categoría")
+            category = result.get("category", "Sin categorÃ­a")
             confidence = float(result.get("confidence", 0.0))
             expiry_date = result.get("expiry_date")
 
@@ -324,7 +324,7 @@ TEXTO DEL DOCUMENTO:
         except json.JSONDecodeError as e:
             logger.error(f"Error parseando respuesta de Claude: {e}")
             return {
-                "category": "Sin categoría",
+                "category": "Sin categorÃ­a",
                 "confidence": 0.0,
                 "expiry_date": None,
                 "recommended_name": None,
@@ -334,7 +334,7 @@ TEXTO DEL DOCUMENTO:
         except Exception as e:
             logger.error(f"Error procesando respuesta de Claude: {e}")
             return {
-                "category": "Sin categoría",
+                "category": "Sin categorÃ­a",
                 "confidence": 0.0,
                 "expiry_date": None,
                 "recommended_name": None,
@@ -361,7 +361,7 @@ TEXTO DEL DOCUMENTO:
         expiry_keywords = [
             "vencimiento",
             "expira",
-            "válido hasta",
+            "vÃ¡lido hasta",
             "caduca",
             "expiry",
             "expires",
@@ -378,7 +378,7 @@ TEXTO DEL DOCUMENTO:
 
     async def clean_medical_questions(self, raw_text: str) -> List[Dict[str, Any]]:
         """
-        Recibe el texto bruto extraído por OCR y le pide a Claude que estructure las preguntas 
+        Recibe el texto bruto extraÃ­do por OCR y le pide a Claude que estructure las preguntas 
         respetando FIELMENTE el texto original, sin inventar, y asignando el tipo de respuesta.
         """
         if not self.bedrock_client:
@@ -386,38 +386,38 @@ TEXTO DEL DOCUMENTO:
             return [{"texto": line, "tipo": "short_text", "opciones": None} for line in raw_text.split('\n') if len(line.strip()) > 8]
 
         prompt = f"""
-        Eres un transcriptor estricto de documentos. A continuación recibes un texto extraído por OCR de una hoja escrita a mano por un doctor.
+        Eres un transcriptor estricto de documentos. A continuaciÃ³n recibes un texto extraÃ­do por OCR de una hoja escrita a mano por un doctor.
         
-        REGLAS ESTRICTAS QUE DEBES OBEDECER SIN EXCEPCIÓN:
-        1. FIDELIDAD ABSOLUTA: Mantén las palabras EXACTAS que escribió el doctor. NO reescribas la pregunta para que suene "más profesional", NO agregues palabras. Solo corrige errores de dedo ortográficos obvios (ej. si dice "ciruyia" pon "cirugía", si dice "haz" pon "has") y asegúrate de abrir y cerrar con signos de interrogación ('¿' y '?').
-        2. CERO ALUCINACIONES: Si hay texto basura, garabatos, manchas o letras sueltas al final (ej. "O M", "w6", números aleatorios), IGNÓRALOS por completo. NO inventes preguntas que no estén claramente escritas en el texto.
-        3. DIVIDIR PREGUNTAS MÚLTIPLES: Si una misma oración pide DOS datos numéricos o medidas distintas (por ejemplo: "¿Cuál es su peso y estatura?"), DIVÍDELA obligatoriamente en dos preguntas separadas (ej. "¿Cuál es su peso?" y "¿Cuál es su estatura?").
-        4. CLASIFICAR EL TIPO DE RESPUESTA. Tus únicas opciones son:
-            - "single_choice": Tiene opciones explícitas y se elige una.
-            - "multi_choice": Tiene opciones explícitas y se eligen varias.
-            - "yes_no": Pregunta de Sí o No.
+        REGLAS ESTRICTAS QUE DEBES OBEDECER SIN EXCEPCIÃ“N:
+        1. FIDELIDAD ABSOLUTA: MantÃ©n las palabras EXACTAS que escribiÃ³ el doctor. NO reescribas la pregunta para que suene "mÃ¡s profesional", NO agregues palabras. Solo corrige errores de dedo ortogrÃ¡ficos obvios (ej. si dice "ciruyia" pon "cirugÃ­a", si dice "haz" pon "has") y asegÃºrate de abrir y cerrar con signos de interrogaciÃ³n ('Â¿' y '?').
+        2. CERO ALUCINACIONES: Si hay texto basura, garabatos, manchas o letras sueltas al final (ej. "O M", "w6", nÃºmeros aleatorios), IGNÃ“RALOS por completo. NO inventes preguntas que no estÃ©n claramente escritas en el texto.
+        3. DIVIDIR PREGUNTAS MÃšLTIPLES: Si una misma oraciÃ³n pide DOS datos numÃ©ricos o medidas distintas (por ejemplo: "Â¿CuÃ¡l es su peso y estatura?"), DIVÃDELA obligatoriamente en dos preguntas separadas (ej. "Â¿CuÃ¡l es su peso?" y "Â¿CuÃ¡l es su estatura?").
+        4. CLASIFICAR EL TIPO DE RESPUESTA. Tus Ãºnicas opciones son:
+            - "single_choice": Tiene opciones explÃ­citas y se elige una.
+            - "multi_choice": Tiene opciones explÃ­citas y se eligen varias.
+            - "yes_no": Pregunta de SÃ­ o No.
             - "numeric": Pregunta de peso, estatura, edad, cantidad, etc.
             - "short_text": Respuestas cortas o nombres.
             - "long_text": Explicaciones detalladas.
         5. Extraer las OPCIONES si el tipo es single_choice o multi_choice (sino, pon null).
         
-        Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto extra ni markdown:
+        Devuelve ÃšNICAMENTE un objeto JSON vÃ¡lido con la siguiente estructura, sin texto extra ni markdown:
         {{
             "preguntas": [
                 {{
-                    "texto": "¿Conoces algún medicamento?",
+                    "texto": "Â¿Conoces algÃºn medicamento?",
                     "tipo": "yes_no",
                     "opciones": null
                 }},
                 {{
-                    "texto": "¿Te has hecho una cirugía?",
+                    "texto": "Â¿Te has hecho una cirugÃ­a?",
                     "tipo": "yes_no",
                     "opciones": null
                 }}
             ]
         }}
         
-        Texto extraído por OCR:
+        Texto extraÃ­do por OCR:
         {raw_text[:2000]}
         """
 
@@ -436,186 +436,3 @@ TEXTO DEL DOCUMENTO:
         except Exception as e:
             logger.error(f"Error en IA al limpiar preguntas: {e}")
             return [{"texto": line, "tipo": "short_text", "opciones": None} for line in raw_text.split('\n') if len(line.strip()) > 8]
-
-    async def generate_dynamic_questionnaire_question(
-        self,
-        *,
-        patient_name: str,
-        conversation: List[Dict[str, Any]],
-        question_number: int,
-        max_questions: int = 10,
-    ) -> Dict[str, Any]:
-        """Genera la siguiente pregunta de un cuestionario clínico adaptativo."""
-        fallback = self._fallback_dynamic_question(question_number, conversation)
-
-        if not self.bedrock_client:
-            return fallback
-
-        history_lines = []
-        for idx, turn in enumerate(conversation, start=1):
-            q = (turn.get("question_text") or "").strip()
-            a = turn.get("answer")
-            if isinstance(a, list):
-                a_text = ", ".join(str(x) for x in a)
-            else:
-                a_text = str(a) if a is not None else ""
-            history_lines.append(f"{idx}. P: {q}\n  R: {a_text}")
-
-        history_block = (
-            "\n".join(history_lines) if history_lines else "(sin respuestas previas)"
-        )
-
-        prompt = f"""
-Eres un asistente clínico que elabora UN cuestionario de salud breve para un paciente.
-Paciente: {patient_name}
-Pregunta actual a generar: {question_number} de {max_questions} (máximo).
-
-Historial de preguntas y respuestas:
-{history_block}
-
-REGLAS:
-1. Genera UNA sola pregunta nueva en español, clara y empática, sin repetir temas ya cubiertos.
-2. La pregunta debe ser relevante para atención médica general (síntomas, antecedentes, hábitos, medicación, alergias, etc.).
-3. Elige el tipo de respuesta más adecuado entre: single_choice, multi_choice, yes_no, numeric, short_text, long_text.
-4. Para yes_no usa opciones ["No", "No estoy seguro", "Sí"].
-5. Para single_choice o multi_choice incluye entre 3 y 6 opciones concretas.
-6. Para numeric incluye help_text indicando la unidad si aplica.
-7. is_required debe ser true salvo que la pregunta sea claramente opcional.
-
-Responde SOLO JSON válido (sin markdown):
-{{
-  "question_text": "¿...?",
-  "response_type": "yes_no",
-  "options": ["No", "No estoy seguro", "Sí"],
-  "help_text": null,
-  "is_required": true
-}}
-"""
-        try:
-            response_text = await self._call_claude(prompt)
-            response_text = response_text.strip()
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-            parsed = json.loads(response_text)
-            rt = (parsed.get("response_type") or "short_text").lower()
-            if rt not in (
-                "single_choice",
-                "multi_choice",
-                "yes_no",
-                "numeric",
-                "short_text",
-                "long_text",
-            ):
-                rt = "short_text"
-            options = parsed.get("options")
-            if rt == "yes_no":
-                options = ["No", "No estoy seguro", "Sí"]
-            if rt in ("single_choice", "multi_choice") and not options:
-                rt = "short_text"
-                options = None
-            if rt not in ("single_choice", "multi_choice", "yes_no"):
-                options = None
-            return {
-                "question_text": (parsed.get("question_text") or fallback["question_text"]).strip(),
-                "response_type": rt,
-                "options": options,
-                "help_text": parsed.get("help_text"),
-                "is_required": bool(parsed.get("is_required", True)),
-            }
-        except Exception as e:
-            logger.warning("Bedrock cuestionario dinámico: %s", e)
-            return fallback
-
-    def _fallback_dynamic_question(
-        self, question_number: int, conversation: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        asked = {((t.get("question_text") or "").lower()[:40]) for t in conversation}
-        bank = [
-            {
-                "question_text": "¿Cuál es el motivo principal de tu consulta hoy?",
-                "response_type": "long_text",
-                "options": None,
-                "help_text": "Describe brevemente tus síntomas o inquietudes.",
-                "is_required": True,
-            },
-            {
-                "question_text": "¿Desde cuándo has tenido estos síntomas?",
-                "response_type": "short_text",
-                "options": None,
-                "help_text": "Ejemplo: 3 días, 2 semanas.",
-                "is_required": True,
-            },
-            {
-                "question_text": "¿Tomas algún medicamento de forma habitual?",
-                "response_type": "yes_no",
-                "options": ["No", "No estoy seguro", "Sí"],
-                "help_text": None,
-                "is_required": True,
-            },
-            {
-                "question_text": "¿Tienes alergias conocidas a medicamentos o alimentos?",
-                "response_type": "yes_no",
-                "options": ["No", "No estoy seguro", "Sí"],
-                "help_text": None,
-                "is_required": True,
-            },
-            {
-                "question_text": "¿Cuál es tu peso aproximado en kilogramos?",
-                "response_type": "numeric",
-                "options": None,
-                "help_text": "Solo el número en kg.",
-                "is_required": False,
-            },
-            {
-                "question_text": "¿Fumas o consumes alcohol con regularidad?",
-                "response_type": "single_choice",
-                "options": ["No", "Ocasionalmente", "Con frecuencia"],
-                "help_text": None,
-                "is_required": True,
-            },
-            {
-                "question_text": "¿Has tenido cirugías previas?",
-                "response_type": "yes_no",
-                "options": ["No", "No estoy seguro", "Sí"],
-                "help_text": None,
-                "is_required": True,
-            },
-            {
-                "question_text": "¿Algún familiar directo tiene enfermedades crónicas importantes?",
-                "response_type": "multi_choice",
-                "options": [
-                    "Diabetes",
-                    "Hipertensión",
-                    "Cáncer",
-                    "Ninguna",
-                    "No lo sé",
-                ],
-                "help_text": "Puedes elegir varias.",
-                "is_required": False,
-            },
-            {
-                "question_text": "¿Cómo calificarías tu nivel de actividad física?",
-                "response_type": "single_choice",
-                "options": ["Sedentario", "Ligero", "Moderado", "Activo"],
-                "help_text": None,
-                "is_required": True,
-            },
-            {
-                "question_text": "¿Hay algo más que quieras que tu médico sepa antes de la consulta?",
-                "response_type": "long_text",
-                "options": None,
-                "help_text": "Opcional.",
-                "is_required": False,
-            },
-        ]
-        idx = min(question_number - 1, len(bank) - 1)
-        for i in range(len(bank)):
-            candidate = bank[(idx + i) % len(bank)]
-            key = candidate["question_text"].lower()[:40]
-            if key not in asked:
-                return candidate
-        return bank[idx]
