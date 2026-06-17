@@ -28,6 +28,8 @@ from app.dto.questionnaire_responses_dto import PatientQuestionnaireAnswerView
 from app.models.questionnaire_invitation import (
     PublicIntakeSectionSubmitRequest,
     PublicIntakeSectionSubmitResponse,
+    PublicInvitationSubmitRequest,
+    PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
     PublicPriorDocumentUploadResponse,
     QuestionnaireInvitationSendResponse,
@@ -393,6 +395,18 @@ def submit_public_intake_section(
     return svc.save_public_intake_section(
         token, payload.section_id, payload.answers
     )
+
+
+@router.post(
+    "/public/{token}/submit",
+    response_model=PublicInvitationSubmitResponse,
+)
+def submit_public_invitation(
+    token: str,
+    payload: PublicInvitationSubmitRequest,
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.submit_public_invitation_with_notify(token, payload)
 
 
 @router.post(

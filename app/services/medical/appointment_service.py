@@ -245,7 +245,7 @@ class AppointmentService:
         )
         from app.services.notificaciones.appointment_email_service import (
             _format_slot_range,
-            build_public_appointment_response_link,
+            build_public_appointment_link,
             send_appointment_proposal_email,
         )
         from app.services.notificaciones.notification_service import NotificationService
@@ -284,16 +284,14 @@ class AppointmentService:
 
         email = (patient.email or "").strip()
         if email:
-            confirm_link = build_public_appointment_response_link(raw_token, "accept")
-            reject_link = build_public_appointment_response_link(raw_token, "reject")
+            response_link = build_public_appointment_link(raw_token)
             send_appointment_proposal_email(
                 to_email=email,
                 patient_name=patient_name,
                 doctor_name=doctor_name,
                 reason=reason,
                 when_label=when_label,
-                confirm_link=confirm_link,
-                reject_link=reject_link,
+                response_link=response_link,
             )
 
     @staticmethod

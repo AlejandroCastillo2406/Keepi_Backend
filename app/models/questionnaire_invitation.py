@@ -215,6 +215,10 @@ class QuestionnaireSendInvitationRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     patient_id: str
+    template_ids: List[str] = Field(
+        default_factory=list,
+        description="Plantillas de cuestionario a incluir tras la ficha clínica.",
+    )
     collect_prior_documents: bool = Field(
         default=False,
         description="Tras la ficha clínica, el paciente puede subir estudios previos (opcional).",
@@ -232,6 +236,15 @@ class QuestionnaireSendInvitationRequest(BaseModel):
     sex: Optional[str] = None
     consultation_reason: Optional[str] = None
     specialty: Optional[str] = None
+
+
+class PublicInvitationAnswerIn(BaseModel):
+    item_id: str
+    answer: Any
+
+
+class PublicInvitationSubmitRequest(BaseModel):
+    answers: List[PublicInvitationAnswerIn] = Field(default_factory=list)
 
 
 class QuestionnaireInvitationSummaryResponse(BaseModel):
@@ -255,6 +268,13 @@ class QuestionnaireInvitationSendResponse(BaseModel):
         description="True si SES aceptó el envío. Si es False, ver email_error y logs del backend.",
     )
     email_error: Optional[str] = None
+
+
+class PublicInvitationSubmitResponse(BaseModel):
+    invitation_id: str
+    status: str
+    completed_at: datetime
+    collect_prior_documents: bool = False
 
 
 class PublicPriorDocumentUploadResponse(BaseModel):

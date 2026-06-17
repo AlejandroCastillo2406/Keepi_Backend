@@ -22,6 +22,8 @@ from app.models.questionnaire import (
 )
 from app.models.document import Document
 from app.models.questionnaire_invitation import (
+    PublicInvitationSubmitRequest,
+    PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
     PublicPriorDocumentUploadResponse,
     QuestionnaireInvitation,
@@ -169,6 +171,11 @@ class QuestionnaireService:
     ) -> PublicInvitationViewResponse:
         return self._repo.get_public_invitation_view(raw_token)
 
+    def submit_public_invitation(
+        self, raw_token: str, payload: PublicInvitationSubmitRequest
+    ) -> tuple[PublicInvitationSubmitResponse, QuestionnaireInvitation]:
+        return self._repo.submit_public_invitation(raw_token, payload)
+
     def list_patient_questionnaire_answers(
         self, doctor_id: uuid.UUID, patient_id: uuid.UUID
     ) -> List[PatientQuestionnaireAnswerView]:
@@ -250,6 +257,20 @@ class QuestionnaireService:
             email_sent=bool(email_res.success),
             email_error=email_res.error,
         )
+
+    def submit_public_invitation_with_notify(
+        self,
+        token: str,
+        payload: PublicInvitationSubmitRequest,
+    ) -> PublicInvitationSubmitResponse:
+        response, invitation = self.submit_public_invitation(token, payload)
+        NotificationService(self._db).notify_questionnaire_completed_for_doctor(
+            invitation.doctor_id,
+            patient_name=invitation.patient_name_snapshot,
+            invitation_id=str(invitation.id),
+            patient_id=str(invitation.patient_id),
+        )
+        return response
 
     async def upload_public_prior_document(
         self, token: str, file: UploadFile

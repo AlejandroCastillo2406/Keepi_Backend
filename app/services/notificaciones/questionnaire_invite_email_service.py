@@ -29,6 +29,10 @@ def build_questionnaire_invite_email_html(
         "En un solo enlace podrás registrar datos personales, antecedentes familiares, "
         "alergias, medicamentos y motivo de consulta.",
     ]
+    if not intake_only:
+        paragraphs.append(
+            "Después de la ficha, responderás un cuestionario médico preparado por tu doctor."
+        )
     if collect_prior_documents:
         paragraphs.append(
             "También podrás subir estudios o informes médicos previos (opcional)."
