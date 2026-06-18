@@ -12,7 +12,10 @@ from sqlalchemy.orm import Session
 from app.models.appointment import Appointment
 from app.models.doctor_scheduling import (
     AvailabilityRuleResponse,
+    AvailabilityRuleItem,
     AvailabilitySlotResponse,
+    ConsultationScheduleDayResponse,
+    ConsultationScheduleResponse,
     DoctorAvailabilityRule,
     PatientSchedulingLinkResponse,
     PublicAvailabilityResponse,
@@ -21,7 +24,6 @@ from app.models.doctor_scheduling import (
     PublicSchedulingMetaResponse,
     SchedulingSettingsResponse,
 )
-from app.models.doctor_scheduling import AvailabilityRuleItem
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.doctor_scheduling_repository import DoctorSchedulingRepository
 
@@ -77,6 +79,28 @@ class DoctorAvailabilityService:
             )
             for r in rows
         ]
+
+    @staticmethod
+    def get_consultation_schedule(
+        db: Session, doctor_id: UUID
+    ) -> ConsultationScheduleResponse:
+        settings = DoctorAvailabilityService._sched_repo(db).get_or_create_settings(
+            doctor_id
+        )
+        rules = DoctorAvailabilityService._sched_repo(db).list_rules(doctor_id)
+        days = [
+            ConsultationScheduleDayResponse(
+                weekday=r.weekday,
+                start_time=r.start_time.strftime("%H:%M"),
+                end_time=r.end_time.strftime("%H:%M"),
+            )
+            for r in rules
+            if r.is_enabled
+        ]
+        return ConsultationScheduleResponse(
+            slot_duration_minutes=settings.slot_duration_minutes,
+            days=days,
+        )
 
     @staticmethod
     def replace_rules(

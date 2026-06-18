@@ -151,6 +151,17 @@ class SchedulingSettingsUpdateRequest(BaseModel):
     timezone: str = Field(default="America/Mexico_City", min_length=3, max_length=64)
 
 
+class ConsultationScheduleDayResponse(BaseModel):
+    weekday: int
+    start_time: str
+    end_time: str
+
+
+class ConsultationScheduleResponse(BaseModel):
+    slot_duration_minutes: int
+    days: List[ConsultationScheduleDayResponse]
+
+
 class PublicSchedulingMetaResponse(BaseModel):
     doctor_name: str
     patient_name: str

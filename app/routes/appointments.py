@@ -16,6 +16,7 @@ from app.models.appointment import (
     AppointmentDoctorProposeRequest,
     AppointmentDoctorRescheduleRequest,
     AppointmentResponse,
+    DoctorCalendarResponse,
     PublicAppointmentMetaResponse,
     PublicAppointmentRespondRequest,
     PublicAppointmentRespondResponse,
@@ -23,6 +24,7 @@ from app.models.appointment import (
 from app.models.user import User
 from app.dto.timeline_dto import EventType
 from app.services.medical.appointment_service import AppointmentService
+from app.services.medical.doctor_availability_service import DoctorAvailabilityService
 from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
 
 router = APIRouter()
@@ -51,7 +53,7 @@ async def create_appointment(
     return appt
 
 
-@router.get("/doctor/calendar", response_model=list[AppointmentResponse])
+@router.get("/doctor/calendar", response_model=DoctorCalendarResponse)
 async def get_doctor_calendar(
     start_at: datetime = Query(...),
     end_at: datetime = Query(...),
@@ -61,7 +63,12 @@ async def get_doctor_calendar(
     rows = AppointmentService.list_doctor_calendar(
         db, current_user.id, start_at, end_at
     )
-    return [AppointmentResponse.from_entity(r) for r in rows]
+    return DoctorCalendarResponse(
+        appointments=[AppointmentResponse.from_entity(r) for r in rows],
+        consultation_schedule=DoctorAvailabilityService.get_consultation_schedule(
+            db, current_user.id
+        ),
+    )
 
 
 @router.get("/mine", response_model=list[AppointmentResponse])

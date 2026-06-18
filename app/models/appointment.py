@@ -1,7 +1,7 @@
 import uuid
 from uuid import UUID as PyUUID
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, List, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import Column, DateTime, ForeignKey, String, Text
@@ -10,6 +10,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+from app.models.doctor_scheduling import ConsultationScheduleResponse
 
 AppointmentStatus = Literal[
     "pending_doctor_proposal",
@@ -146,3 +147,8 @@ class AppointmentResponse(BaseModel):
             created_at=appt.created_at,
             patient_name=patient_name,
         )
+
+
+class DoctorCalendarResponse(BaseModel):
+    appointments: List[AppointmentResponse]
+    consultation_schedule: ConsultationScheduleResponse
