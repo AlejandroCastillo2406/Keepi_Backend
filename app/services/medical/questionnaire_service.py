@@ -22,6 +22,9 @@ from app.models.questionnaire import (
 )
 from app.models.document import Document
 from app.models.questionnaire_invitation import (
+    PendingQuestionnaireInvitationView,
+    DoctorInvitationQuestionsResponse,
+    DoctorInvitationSubmitResponse,
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
@@ -187,9 +190,34 @@ class QuestionnaireService:
                 answered_at=r.answered_at,
                 invitation_id=str(r.invitation_id) if r.invitation_id else None,
                 questionnaire_name=(r.questionnaire_name or "").strip() or None,
+                answered_by=(r.answered_by or "").strip() or None,
             )
             for r in rows
         ]
+
+    def list_patient_pending_questionnaires(
+        self, doctor_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> List[PendingQuestionnaireInvitationView]:
+        return self._repo.list_patient_pending_questionnaire_invitations(
+            patient_id, doctor_id
+        )
+
+    def get_invitation_questions_for_doctor(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> DoctorInvitationQuestionsResponse:
+        return self._repo.get_invitation_questions_for_doctor(
+            doctor_id, invitation_id
+        )
+
+    def submit_doctor_invitation(
+        self,
+        doctor_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        payload: PublicInvitationSubmitRequest,
+    ) -> DoctorInvitationSubmitResponse:
+        return self._repo.submit_doctor_invitation(
+            doctor_id, invitation_id, payload
+        )
 
     def save_public_intake_section(
         self, raw_token: str, section_id: str, answers: dict

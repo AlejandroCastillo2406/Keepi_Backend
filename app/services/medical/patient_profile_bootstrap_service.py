@@ -37,10 +37,14 @@ class PatientProfileBootstrapService:
         questionnaire = QuestionnaireService(
             self._db
         ).list_patient_questionnaire_answers(doctor_id, patient_id)
+        questionnaire_pending = QuestionnaireService(
+            self._db
+        ).list_patient_pending_questionnaires(doctor_id, patient_id)
 
         return PatientProfileBootstrapResponse(
             context=context,
             timeline=timeline,
             analysis_requests=analysis,
             questionnaire_responses=questionnaire,
+            questionnaire_pending=questionnaire_pending,
         )

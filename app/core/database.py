@@ -160,6 +160,20 @@ class DatabaseConfig:
                 )
                 conn.execute(
                     text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS questionnaire_completed_at "
+                        "TIMESTAMP WITH TIME ZONE"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE questionnaire_invitations "
+                        "ADD COLUMN IF NOT EXISTS questionnaire_answered_by "
+                        "VARCHAR(20)"
+                    )
+                )
+                conn.execute(
+                    text(
                         "ALTER TABLE doctor_patient_clinical_profiles "
                         "ADD COLUMN IF NOT EXISTS phone VARCHAR(32)"
                     )

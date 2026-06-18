@@ -70,6 +70,8 @@ class QuestionnaireInvitation(Base):
     intake_context = Column(JSONB, nullable=True)
     intake_responses = Column(JSONB, nullable=True)
     intake_completed_at = Column(DateTime(timezone=True), nullable=True)
+    questionnaire_completed_at = Column(DateTime(timezone=True), nullable=True)
+    questionnaire_answered_by = Column(String(20), nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -208,6 +210,9 @@ class PublicInvitationViewResponse(BaseModel):
     intake_sections: List[IntakeSectionView] = Field(default_factory=list)
     specialty: Optional[str] = None
     consultation_reason: Optional[str] = None
+    has_questionnaire: bool = False
+    questionnaire_completed: bool = False
+    questionnaire_answered_by: Optional[str] = None
 
 
 class QuestionnaireSendInvitationRequest(BaseModel):
@@ -288,3 +293,28 @@ class PublicPriorDocumentUploadResponse(BaseModel):
     message: str
     document_id: str
     file_name: str
+
+
+class PendingQuestionnaireInvitationView(BaseModel):
+    id: str
+    questionnaire_name: str
+    status: str
+    created_at: datetime
+    expires_at: datetime
+    total_questions: int = 0
+    enable_clinical_intake: bool = False
+    collect_prior_documents: bool = False
+
+
+class DoctorInvitationQuestionsResponse(BaseModel):
+    invitation_id: str
+    questionnaire_name: str
+    patient_name: str
+    questions: List[InvitationQuestionView] = Field(default_factory=list)
+
+
+class DoctorInvitationSubmitResponse(BaseModel):
+    invitation_id: str
+    status: str
+    questionnaire_answered_by: str
+    questionnaire_completed_at: datetime

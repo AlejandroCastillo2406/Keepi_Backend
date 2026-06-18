@@ -26,6 +26,8 @@ from app.models.questionnaire import (
 )
 from app.dto.questionnaire_responses_dto import PatientQuestionnaireAnswerView
 from app.models.questionnaire_invitation import (
+    DoctorInvitationQuestionsResponse,
+    DoctorInvitationSubmitResponse,
     PublicIntakeSectionSubmitRequest,
     PublicIntakeSectionSubmitResponse,
     PublicInvitationSubmitRequest,
@@ -369,6 +371,38 @@ def get_invitation(
     return svc.get_invitation_summary(
         current_user.id,
         _parse_uuid(invitation_id, "invitation_id"),
+    )
+
+
+@router.get(
+    "/invitations/{invitation_id}/questions",
+    response_model=DoctorInvitationQuestionsResponse,
+)
+def get_invitation_questions_for_doctor(
+    invitation_id: str,
+    current_user: User = Depends(require_doctor_user),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.get_invitation_questions_for_doctor(
+        current_user.id,
+        _parse_uuid(invitation_id, "invitation_id"),
+    )
+
+
+@router.post(
+    "/invitations/{invitation_id}/submit",
+    response_model=DoctorInvitationSubmitResponse,
+)
+def submit_doctor_invitation(
+    invitation_id: str,
+    payload: PublicInvitationSubmitRequest,
+    current_user: User = Depends(require_doctor_user),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.submit_doctor_invitation(
+        current_user.id,
+        _parse_uuid(invitation_id, "invitation_id"),
+        payload,
     )
 
 

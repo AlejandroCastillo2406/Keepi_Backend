@@ -12,3 +12,4 @@ class PatientQuestionnaireAnswerView(BaseModel):
     answered_at: datetime
     invitation_id: str | None = None
     questionnaire_name: str | None = None
+    answered_by: str | None = None

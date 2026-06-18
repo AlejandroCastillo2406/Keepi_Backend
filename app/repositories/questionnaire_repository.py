@@ -16,6 +16,9 @@ from app.models.questionnaire_invitation import (
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
     PublicInvitationViewResponse,
+    PendingQuestionnaireInvitationView,
+    DoctorInvitationQuestionsResponse,
+    DoctorInvitationSubmitResponse,
     QuestionnaireInvitation,
     QuestionnaireInvitationAnswer,
     QuestionnaireInvitationItem,
@@ -973,9 +976,101 @@ class QuestionnaireRepository:
     def _invitation_has_pending_steps(self, inv: QuestionnaireInvitation) -> bool:
         if bool(getattr(inv, "enable_clinical_intake", False)) and not inv.intake_completed_at:
             return True
-        if self._invitation_item_count(inv.id) > 0:
+        if (
+            self._invitation_item_count(inv.id) > 0
+            and not self._questionnaire_is_complete(inv)
+        ):
             return True
         return False
+
+    def _questionnaire_is_complete(self, inv: QuestionnaireInvitation) -> bool:
+        if getattr(inv, "questionnaire_completed_at", None) is not None:
+            return True
+        total = self._invitation_item_count(inv.id)
+        if total == 0:
+            return False
+        answered = (
+            self._db.query(func.count(QuestionnaireInvitationAnswer.id))
+            .join(
+                QuestionnaireInvitationItem,
+                QuestionnaireInvitationItem.id
+                == QuestionnaireInvitationAnswer.invitation_item_id,
+            )
+            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+            .scalar()
+            or 0
+        )
+        return int(answered) >= total
+
+    def _questionnaire_name_for_invitation(
+        self, invitation_id: uuid.UUID
+    ) -> str:
+        row = (
+            self._db.query(QuestionnaireInvitationItem.template_name_snapshot)
+            .filter(QuestionnaireInvitationItem.invitation_id == invitation_id)
+            .order_by(QuestionnaireInvitationItem.sort_order.asc())
+            .first()
+        )
+        name = (row[0] if row else "") or ""
+        return name.strip() or "Cuestionario"
+
+    def _persist_questionnaire_answers(
+        self,
+        inv: QuestionnaireInvitation,
+        payload: PublicInvitationSubmitRequest,
+        *,
+        answered_by: str,
+    ) -> datetime:
+        items = (
+            self._db.query(QuestionnaireInvitationItem)
+            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+            .all()
+        )
+        if not items:
+            raise HTTPException(
+                status_code=400, detail="Esta invitación no incluye cuestionario"
+            )
+
+        item_by_id = {str(i.id): i for i in items}
+        required_item_ids = {str(i.id) for i in items if i.is_required_snapshot}
+
+        answer_by_item: dict[str, Any] = {}
+        for answer in payload.answers:
+            if answer.item_id in item_by_id:
+                answer_by_item[answer.item_id] = answer.answer
+
+        missing_required = [
+            iid
+            for iid in required_item_ids
+            if iid not in answer_by_item or answer_by_item[iid] in (None, "", [], {})
+        ]
+        if missing_required:
+            raise HTTPException(
+                status_code=400, detail="Faltan respuestas obligatorias"
+            )
+
+        for item_id, answer in answer_by_item.items():
+            item_uuid = uuid.UUID(item_id)
+            existing = (
+                self._db.query(QuestionnaireInvitationAnswer)
+                .filter(QuestionnaireInvitationAnswer.invitation_item_id == item_uuid)
+                .first()
+            )
+            if existing:
+                existing.answer_json = {"value": answer}
+            else:
+                self._db.add(
+                    QuestionnaireInvitationAnswer(
+                        invitation_item_id=item_uuid,
+                        answer_json={"value": answer},
+                    )
+                )
+
+        now = datetime.now(timezone.utc)
+        inv.questionnaire_completed_at = now
+        inv.questionnaire_answered_by = answered_by
+        inv.used_at = inv.used_at or now
+        return now
 
     def complete_public_invitation(
         self, raw_token: str
@@ -1103,9 +1198,16 @@ class QuestionnaireRepository:
         )
         intake_only = self._is_intake_only_invitation(inv)
         collect_prior = bool(getattr(inv, "collect_prior_documents", False))
+        has_questionnaire = self._invitation_item_count(inv.id) > 0
+        questionnaire_completed = self._questionnaire_is_complete(inv)
+        questionnaire_answered_by = getattr(inv, "questionnaire_answered_by", None)
 
         questions: List[InvitationQuestionView] = []
-        if inv.status == "pending":
+        if (
+            inv.status == "pending"
+            and has_questionnaire
+            and not questionnaire_completed
+        ):
             items = (
                 self._db.query(QuestionnaireInvitationItem)
                 .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
@@ -1131,6 +1233,9 @@ class QuestionnaireRepository:
             intake_sections=intake_sections,
             specialty=specialty,
             consultation_reason=reason,
+            has_questionnaire=has_questionnaire,
+            questionnaire_completed=questionnaire_completed,
+            questionnaire_answered_by=questionnaire_answered_by,
         )
 
         if inv.status != "pending":
@@ -1148,7 +1253,12 @@ class QuestionnaireRepository:
     ) -> tuple[PublicInvitationSubmitResponse, QuestionnaireInvitation]:
         inv = self._get_invitation_for_public_token(raw_token)
         inv = self._mark_expired_if_needed(inv)
-        if inv.status == "completed":
+        if self._questionnaire_is_complete(inv):
+            if getattr(inv, "questionnaire_answered_by", None) == "doctor":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Este cuestionario ya fue contestado por tu médico",
+                )
             raise HTTPException(
                 status_code=409, detail="Este cuestionario ya fue completado"
             )
@@ -1160,54 +1270,10 @@ class QuestionnaireRepository:
                 detail="Completa primero tu ficha clínica antes del cuestionario",
             )
 
-        items = (
-            self._db.query(QuestionnaireInvitationItem)
-            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
-            .all()
+        now = self._persist_questionnaire_answers(
+            inv, payload, answered_by="patient"
         )
-        if not items:
-            raise HTTPException(
-                status_code=400, detail="Esta invitación no incluye cuestionario"
-            )
-
-        item_by_id = {str(i.id): i for i in items}
-        required_item_ids = {str(i.id) for i in items if i.is_required_snapshot}
-
-        answer_by_item = {}
-        for answer in payload.answers:
-            if answer.item_id in item_by_id:
-                answer_by_item[answer.item_id] = answer.answer
-
-        missing_required = [
-            iid
-            for iid in required_item_ids
-            if iid not in answer_by_item or answer_by_item[iid] in (None, "", [], {})
-        ]
-        if missing_required:
-            raise HTTPException(
-                status_code=400, detail="Faltan respuestas obligatorias"
-            )
-
-        for item_id, answer in answer_by_item.items():
-            item_uuid = uuid.UUID(item_id)
-            existing = (
-                self._db.query(QuestionnaireInvitationAnswer)
-                .filter(QuestionnaireInvitationAnswer.invitation_item_id == item_uuid)
-                .first()
-            )
-            if existing:
-                existing.answer_json = {"value": answer}
-            else:
-                self._db.add(
-                    QuestionnaireInvitationAnswer(
-                        invitation_item_id=item_uuid,
-                        answer_json={"value": answer},
-                    )
-                )
-
-        now = datetime.now(timezone.utc)
         inv.status = "completed"
-        inv.used_at = now
         inv.completed_at = now
         self._db.commit()
         self._db.refresh(inv)
@@ -1296,6 +1362,7 @@ class QuestionnaireRepository:
                 ),
                 QuestionnaireInvitationAnswer.answer_json.label("answer_value"),
                 QuestionnaireInvitationAnswer.answered_at,
+                QuestionnaireInvitation.questionnaire_answered_by.label("answered_by"),
             )
             .select_from(QuestionnaireInvitation)
             .join(
@@ -1309,7 +1376,140 @@ class QuestionnaireRepository:
             )
             .filter(QuestionnaireInvitation.patient_id == patient_id)
             .filter(QuestionnaireInvitation.doctor_id == doctor_id)
-            .filter(QuestionnaireInvitation.status == "completed")
+            .filter(
+                or_(
+                    QuestionnaireInvitation.questionnaire_completed_at.isnot(None),
+                    QuestionnaireInvitation.status == "completed",
+                )
+            )
             .order_by(QuestionnaireInvitationAnswer.answered_at.desc())
             .all()
+        )
+
+    def list_patient_pending_questionnaire_invitations(
+        self, patient_id: uuid.UUID, doctor_id: uuid.UUID
+    ) -> List[PendingQuestionnaireInvitationView]:
+        rows = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.patient_id == patient_id,
+                QuestionnaireInvitation.doctor_id == doctor_id,
+                QuestionnaireInvitation.status == "pending",
+            )
+            .order_by(QuestionnaireInvitation.created_at.desc())
+            .all()
+        )
+        pending: List[PendingQuestionnaireInvitationView] = []
+        for inv in rows:
+            inv = self._mark_expired_if_needed(inv)
+            if inv.status != "pending":
+                continue
+            total = self._invitation_item_count(inv.id)
+            if total == 0 or self._questionnaire_is_complete(inv):
+                continue
+            pending.append(
+                PendingQuestionnaireInvitationView(
+                    id=str(inv.id),
+                    questionnaire_name=self._questionnaire_name_for_invitation(inv.id),
+                    status=inv.status,
+                    created_at=inv.created_at,
+                    expires_at=inv.expires_at,
+                    total_questions=total,
+                    enable_clinical_intake=bool(
+                        getattr(inv, "enable_clinical_intake", False)
+                    ),
+                    collect_prior_documents=bool(
+                        getattr(inv, "collect_prior_documents", False)
+                    ),
+                )
+            )
+        return pending
+
+    def get_invitation_questions_for_doctor(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> DoctorInvitationQuestionsResponse:
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.id == invitation_id,
+                QuestionnaireInvitation.doctor_id == doctor_id,
+            )
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        inv = self._mark_expired_if_needed(inv)
+        if inv.status != "pending":
+            raise HTTPException(
+                status_code=400, detail="Esta invitación ya no está pendiente"
+            )
+        if self._questionnaire_is_complete(inv):
+            raise HTTPException(
+                status_code=409, detail="Este cuestionario ya fue contestado"
+            )
+        items = (
+            self._db.query(QuestionnaireInvitationItem)
+            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+            .order_by(QuestionnaireInvitationItem.sort_order.asc())
+            .all()
+        )
+        if not items:
+            raise HTTPException(
+                status_code=400, detail="Esta invitación no incluye cuestionario"
+            )
+        return DoctorInvitationQuestionsResponse(
+            invitation_id=str(inv.id),
+            questionnaire_name=self._questionnaire_name_for_invitation(inv.id),
+            patient_name=inv.patient_name_snapshot,
+            questions=[self._invitation_item_to_view(i) for i in items],
+        )
+
+    def submit_doctor_invitation(
+        self,
+        doctor_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        payload: PublicInvitationSubmitRequest,
+    ) -> DoctorInvitationSubmitResponse:
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.id == invitation_id,
+                QuestionnaireInvitation.doctor_id == doctor_id,
+            )
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        inv = self._mark_expired_if_needed(inv)
+        if inv.status != "pending":
+            raise HTTPException(
+                status_code=400, detail="Esta invitación ya no está pendiente"
+            )
+        if self._questionnaire_is_complete(inv):
+            raise HTTPException(
+                status_code=409, detail="Este cuestionario ya fue contestado"
+            )
+
+        now = self._persist_questionnaire_answers(
+            inv, payload, answered_by="doctor"
+        )
+
+        intake_pending = bool(
+            getattr(inv, "enable_clinical_intake", False)
+        ) and not inv.intake_completed_at
+        docs_step = bool(getattr(inv, "collect_prior_documents", False))
+        if intake_pending or docs_step:
+            inv.status = "pending"
+        else:
+            inv.status = "completed"
+            inv.completed_at = now
+
+        self._db.commit()
+        self._db.refresh(inv)
+
+        return DoctorInvitationSubmitResponse(
+            invitation_id=str(inv.id),
+            status=inv.status,
+            questionnaire_answered_by="doctor",
+            questionnaire_completed_at=inv.questionnaire_completed_at or now,
         )
