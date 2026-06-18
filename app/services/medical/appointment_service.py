@@ -357,6 +357,20 @@ class AppointmentService:
         return AppointmentService._repo(db).list_by_patient(patient_id)
 
     @staticmethod
+    def list_doctor_patient_appointments(
+        db: Session, doctor_id: UUID, patient_id: UUID
+    ):
+        from app.services.medical.consultation_context_service import (
+            ConsultationContextService,
+        )
+
+        ConsultationContextService(db)._ensure_patient(doctor_id, patient_id)
+        rows = AppointmentService._repo(db).list_by_doctor_and_patient(
+            doctor_id, patient_id
+        )
+        return rows
+
+    @staticmethod
     def get_appointment_for_patient(
         db: Session, appointment_id: UUID, patient_id: UUID
     ) -> Appointment:

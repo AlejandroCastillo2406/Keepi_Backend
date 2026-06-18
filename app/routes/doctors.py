@@ -197,6 +197,23 @@ async def get_patient_consultation_context(
 
 
 @router.get(
+    "/patients/{patient_id}/appointments",
+    response_model=List[AppointmentResponse],
+)
+async def list_patient_appointments_for_doctor(
+    patient_id: UUID,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    rows = AppointmentService.list_doctor_patient_appointments(
+        db, current_user.id, patient_id
+    )
+    return [AppointmentResponse.from_entity(r) for r in rows]
+
+
+@router.get(
     "/patients/{patient_id}/profile-bootstrap",
     response_model=PatientProfileBootstrapResponse,
 )

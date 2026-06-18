@@ -44,6 +44,23 @@ class AppointmentRepository:
             .all()
         )
 
+    def list_by_doctor_and_patient(
+        self, doctor_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> List[Appointment]:
+        return (
+            self._db.query(Appointment)
+            .filter(
+                Appointment.doctor_id == doctor_id,
+                Appointment.patient_id == patient_id,
+                Appointment.status != "canceled",
+            )
+            .order_by(
+                Appointment.appointment_date.desc().nullslast(),
+                Appointment.created_at.desc(),
+            )
+            .all()
+        )
+
     def list_doctor_calendar(
         self, doctor_id: uuid.UUID, start_at: datetime, end_at: datetime
     ) -> List[Appointment]:
