@@ -27,6 +27,7 @@ from app.models.questionnaire_invitation import (
     DoctorInvitationSubmitResponse,
     PublicInvitationSubmitRequest,
     PublicInvitationSubmitResponse,
+    PublicIntakeSectionSubmitResponse,
     PublicInvitationViewResponse,
     PublicPriorDocumentUploadResponse,
     QuestionnaireInvitation,
@@ -219,6 +220,38 @@ class QuestionnaireService:
             doctor_id, invitation_id, payload
         )
 
+    def get_invitation_workflow_for_doctor(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> PublicInvitationViewResponse:
+        return self._repo.get_invitation_workflow_for_doctor(
+            doctor_id, invitation_id
+        )
+
+    def save_doctor_intake_section(
+        self,
+        doctor_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        section_id: str,
+        answers: dict,
+    ) -> PublicIntakeSectionSubmitResponse:
+        return self._repo.save_doctor_intake_section(
+            doctor_id, invitation_id, section_id, answers
+        )
+
+    def finish_doctor_invitation(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> dict:
+        return self._repo.finish_doctor_invitation(doctor_id, invitation_id)
+
+    async def upload_doctor_prior_document(
+        self,
+        doctor_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        file: UploadFile,
+    ) -> PublicPriorDocumentUploadResponse:
+        inv = self._repo._get_doctor_invitation(doctor_id, invitation_id)
+        return await self._upload_prior_document_for_invitation(inv, file)
+
     def save_public_intake_section(
         self, raw_token: str, section_id: str, answers: dict
     ):
@@ -318,19 +351,24 @@ class QuestionnaireService:
         if not inv:
             raise HTTPException(status_code=404, detail="Invitación no encontrada")
         inv = self._repo._mark_expired_if_needed(inv)
+        return await self._upload_prior_document_for_invitation(inv, file)
+
+    async def _upload_prior_document_for_invitation(
+        self, inv: QuestionnaireInvitation, file: UploadFile
+    ) -> PublicPriorDocumentUploadResponse:
         if not bool(getattr(inv, "collect_prior_documents", False)):
             raise HTTPException(
                 status_code=403,
                 detail="Esta invitación no permite subir documentos previos",
             )
-        if inv.status != "completed":
-            intake_done = bool(getattr(inv, "intake_completed_at", None))
-            enable_intake = bool(getattr(inv, "enable_clinical_intake", False))
-            if not (enable_intake and intake_done):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Primero debes completar la ficha clínica",
-                )
+        if inv.status not in ("pending", "completed"):
+            raise HTTPException(status_code=400, detail="Invitación no disponible")
+        enable_intake = bool(getattr(inv, "enable_clinical_intake", False))
+        if enable_intake and not inv.intake_completed_at:
+            raise HTTPException(
+                status_code=400,
+                detail="Primero debes completar la ficha clínica",
+            )
 
         content = await file.read()
         if not content:

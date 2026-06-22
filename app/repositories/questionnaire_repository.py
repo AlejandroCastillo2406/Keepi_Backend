@@ -926,8 +926,33 @@ class QuestionnaireRepository:
 
     def save_public_intake_section(
         self, raw_token: str, section_id: str, answers: dict
-    ) -> PublicIntakeSectionSubmitResponse:
+    ) -> tuple[PublicIntakeSectionSubmitResponse, Optional[QuestionnaireInvitation]]:
         inv = self._get_invitation_for_public_token(raw_token)
+        return self._save_intake_section_for_invitation(inv, section_id, answers)
+
+    def save_doctor_intake_section(
+        self,
+        doctor_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        section_id: str,
+        answers: dict,
+    ) -> PublicIntakeSectionSubmitResponse:
+        inv = self._get_doctor_invitation(doctor_id, invitation_id)
+        if inv.status != "pending":
+            raise HTTPException(
+                status_code=400, detail="Esta invitación ya no está disponible"
+            )
+        response, _ = self._save_intake_section_for_invitation(
+            inv, section_id, answers
+        )
+        return response
+
+    def _save_intake_section_for_invitation(
+        self,
+        inv: QuestionnaireInvitation,
+        section_id: str,
+        answers: dict,
+    ) -> tuple[PublicIntakeSectionSubmitResponse, Optional[QuestionnaireInvitation]]:
         inv = self._mark_expired_if_needed(inv)
         if inv.status != "pending":
             raise HTTPException(
@@ -961,14 +986,17 @@ class QuestionnaireRepository:
         self._db.commit()
         self._db.refresh(inv)
         completed = inv.intake_completed_at is not None
-        return PublicIntakeSectionSubmitResponse(
-            intake_completed=completed,
-            intake_sections=sections,
-            intake_only=intake_only,
-            collect_prior_documents=bool(
-                getattr(inv, "collect_prior_documents", False)
+        return (
+            PublicIntakeSectionSubmitResponse(
+                intake_completed=completed,
+                intake_sections=sections,
+                intake_only=intake_only,
+                collect_prior_documents=bool(
+                    getattr(inv, "collect_prior_documents", False)
+                ),
             ),
-        ), inv if intake_only and completed and not collect_prior and not has_questions else None
+            inv if intake_only and completed and not collect_prior and not has_questions else None,
+        )
 
     def _resolve_collect_prior_documents(self, data) -> bool:
         return bool(getattr(data, "collect_prior_documents", False))
@@ -1013,6 +1041,95 @@ class QuestionnaireRepository:
         )
         name = (row[0] if row else "") or ""
         return name.strip() or "Cuestionario"
+
+    def _invitation_display_label(self, inv: QuestionnaireInvitation) -> str:
+        parts: List[str] = []
+        has_questions = self._invitation_item_count(inv.id) > 0
+        if bool(getattr(inv, "enable_clinical_intake", False)):
+            parts.append("Ficha clínica")
+        if has_questions:
+            name = self._questionnaire_name_for_invitation(inv.id)
+            parts.append(name if name != "Cuestionario" else "Cuestionario")
+        if bool(getattr(inv, "collect_prior_documents", False)):
+            parts.append("Documentos previos")
+        return " · ".join(parts) if parts else "Invitación pendiente"
+
+    def _get_doctor_invitation(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> QuestionnaireInvitation:
+        inv = (
+            self._db.query(QuestionnaireInvitation)
+            .filter(
+                QuestionnaireInvitation.id == invitation_id,
+                QuestionnaireInvitation.doctor_id == doctor_id,
+            )
+            .first()
+        )
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invitación no encontrada")
+        return self._mark_expired_if_needed(inv)
+
+    def _build_invitation_workflow_view(
+        self, inv: QuestionnaireInvitation
+    ) -> PublicInvitationViewResponse:
+        enable_intake, intake_done, intake_sections, specialty, reason = (
+            self._intake_meta_for_invitation(inv)
+        )
+        intake_only = self._is_intake_only_invitation(inv)
+        collect_prior = bool(getattr(inv, "collect_prior_documents", False))
+        has_questionnaire = self._invitation_item_count(inv.id) > 0
+        questionnaire_completed = self._questionnaire_is_complete(inv)
+        questionnaire_answered_by = getattr(inv, "questionnaire_answered_by", None)
+
+        questions: List[InvitationQuestionView] = []
+        if (
+            inv.status == "pending"
+            and has_questionnaire
+            and not questionnaire_completed
+        ):
+            items = (
+                self._db.query(QuestionnaireInvitationItem)
+                .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+                .order_by(QuestionnaireInvitationItem.sort_order.asc())
+                .all()
+            )
+            questions = [self._invitation_item_to_view(i) for i in items]
+
+        base_kwargs = dict(
+            invitation_id=str(inv.id),
+            patient_name=inv.patient_name_snapshot,
+            patient_email=inv.patient_email_snapshot,
+            status=inv.status,
+            expires_at=inv.expires_at,
+            questions=questions,
+            collect_prior_documents=collect_prior,
+            is_dynamic=False,
+            dynamic_max_questions=0,
+            dynamic_answered_count=0,
+            enable_clinical_intake=enable_intake,
+            intake_completed=intake_done,
+            intake_only=intake_only,
+            intake_sections=intake_sections,
+            specialty=specialty,
+            consultation_reason=reason,
+            has_questionnaire=has_questionnaire,
+            questionnaire_completed=questionnaire_completed,
+            questionnaire_answered_by=questionnaire_answered_by,
+        )
+
+        if inv.status != "pending":
+            return PublicInvitationViewResponse(**base_kwargs)
+
+        if enable_intake and not intake_done:
+            return PublicInvitationViewResponse(
+                **{
+                    **base_kwargs,
+                    "enable_clinical_intake": True,
+                    "intake_completed": False,
+                }
+            )
+
+        return PublicInvitationViewResponse(**base_kwargs)
 
     def _persist_questionnaire_answers(
         self,
@@ -1192,61 +1309,34 @@ class QuestionnaireRepository:
     ) -> PublicInvitationViewResponse:
         inv = self._get_invitation_for_public_token(raw_token)
         inv = self._mark_expired_if_needed(inv)
+        return self._build_invitation_workflow_view(inv)
 
-        enable_intake, intake_done, intake_sections, specialty, reason = (
-            self._intake_meta_for_invitation(inv)
-        )
-        intake_only = self._is_intake_only_invitation(inv)
-        collect_prior = bool(getattr(inv, "collect_prior_documents", False))
-        has_questionnaire = self._invitation_item_count(inv.id) > 0
-        questionnaire_completed = self._questionnaire_is_complete(inv)
-        questionnaire_answered_by = getattr(inv, "questionnaire_answered_by", None)
+    def get_invitation_workflow_for_doctor(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> PublicInvitationViewResponse:
+        inv = self._get_doctor_invitation(doctor_id, invitation_id)
+        return self._build_invitation_workflow_view(inv)
 
-        questions: List[InvitationQuestionView] = []
-        if (
-            inv.status == "pending"
-            and has_questionnaire
-            and not questionnaire_completed
-        ):
-            items = (
-                self._db.query(QuestionnaireInvitationItem)
-                .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
-                .order_by(QuestionnaireInvitationItem.sort_order.asc())
-                .all()
-            )
-            questions = [self._invitation_item_to_view(i) for i in items]
-
-        base_kwargs = dict(
-            invitation_id=str(inv.id),
-            patient_name=inv.patient_name_snapshot,
-            patient_email=inv.patient_email_snapshot,
-            status=inv.status,
-            expires_at=inv.expires_at,
-            questions=questions,
-            collect_prior_documents=collect_prior,
-            is_dynamic=False,
-            dynamic_max_questions=0,
-            dynamic_answered_count=0,
-            enable_clinical_intake=enable_intake,
-            intake_completed=intake_done,
-            intake_only=intake_only,
-            intake_sections=intake_sections,
-            specialty=specialty,
-            consultation_reason=reason,
-            has_questionnaire=has_questionnaire,
-            questionnaire_completed=questionnaire_completed,
-            questionnaire_answered_by=questionnaire_answered_by,
-        )
-
+    def finish_doctor_invitation(
+        self, doctor_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> dict:
+        inv = self._get_doctor_invitation(doctor_id, invitation_id)
+        if inv.status == "completed":
+            return {"invitation_id": str(inv.id), "status": inv.status}
         if inv.status != "pending":
-            return PublicInvitationViewResponse(**base_kwargs)
-
-        if enable_intake and not intake_done:
-            return PublicInvitationViewResponse(
-                **{**base_kwargs, "enable_clinical_intake": True, "intake_completed": False}
+            raise HTTPException(status_code=400, detail="Invitación no disponible")
+        if self._invitation_has_pending_steps(inv):
+            raise HTTPException(
+                status_code=400,
+                detail="Aún hay pasos pendientes en esta invitación",
             )
-
-        return PublicInvitationViewResponse(**base_kwargs)
+        now = datetime.now(timezone.utc)
+        inv.status = "completed"
+        inv.used_at = inv.used_at or now
+        inv.completed_at = now
+        self._db.commit()
+        self._db.refresh(inv)
+        return {"invitation_id": str(inv.id), "status": inv.status}
 
     def submit_public_invitation(
         self, raw_token: str, payload: PublicInvitationSubmitRequest
@@ -1405,24 +1495,37 @@ class QuestionnaireRepository:
             if inv.status != "pending":
                 continue
             total = self._invitation_item_count(inv.id)
-            if total == 0 or self._questionnaire_is_complete(inv):
-                continue
-            pending.append(
-                PendingQuestionnaireInvitationView(
-                    id=str(inv.id),
-                    questionnaire_name=self._questionnaire_name_for_invitation(inv.id),
-                    status=inv.status,
-                    created_at=inv.created_at,
-                    expires_at=inv.expires_at,
-                    total_questions=total,
-                    enable_clinical_intake=bool(
-                        getattr(inv, "enable_clinical_intake", False)
-                    ),
-                    collect_prior_documents=bool(
-                        getattr(inv, "collect_prior_documents", False)
-                    ),
-                )
+            has_questionnaire = total > 0
+            questionnaire_completed = (
+                self._questionnaire_is_complete(inv) if has_questionnaire else False
             )
+            enable_intake = bool(getattr(inv, "enable_clinical_intake", False))
+            intake_completed = inv.intake_completed_at is not None
+            if enable_intake and not intake_completed:
+                _, intake_completed, _, _, _ = self._intake_meta_for_invitation(inv)
+            if (
+                (enable_intake and not intake_completed)
+                or (has_questionnaire and not questionnaire_completed)
+                or bool(getattr(inv, "collect_prior_documents", False))
+            ):
+                pending.append(
+                    PendingQuestionnaireInvitationView(
+                        id=str(inv.id),
+                        questionnaire_name=self._invitation_display_label(inv),
+                        status=inv.status,
+                        created_at=inv.created_at,
+                        expires_at=inv.expires_at,
+                        total_questions=total,
+                        enable_clinical_intake=enable_intake,
+                        collect_prior_documents=bool(
+                            getattr(inv, "collect_prior_documents", False)
+                        ),
+                        intake_completed=intake_completed,
+                        has_questionnaire=has_questionnaire,
+                        questionnaire_completed=questionnaire_completed,
+                        intake_only=self._is_intake_only_invitation(inv),
+                    )
+                )
         return pending
 
     def get_invitation_questions_for_doctor(

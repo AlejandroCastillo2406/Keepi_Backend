@@ -304,6 +304,10 @@ class PendingQuestionnaireInvitationView(BaseModel):
     total_questions: int = 0
     enable_clinical_intake: bool = False
     collect_prior_documents: bool = False
+    intake_completed: bool = False
+    has_questionnaire: bool = False
+    questionnaire_completed: bool = False
+    intake_only: bool = False
 
 
 class DoctorInvitationQuestionsResponse(BaseModel):

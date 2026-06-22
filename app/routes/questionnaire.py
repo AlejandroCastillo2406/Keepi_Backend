@@ -389,6 +389,68 @@ def get_invitation_questions_for_doctor(
     )
 
 
+@router.get(
+    "/invitations/{invitation_id}/workflow",
+    response_model=PublicInvitationViewResponse,
+)
+def get_invitation_workflow_for_doctor(
+    invitation_id: str,
+    current_user: User = Depends(require_doctor_user),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.get_invitation_workflow_for_doctor(
+        current_user.id,
+        _parse_uuid(invitation_id, "invitation_id"),
+    )
+
+
+@router.post(
+    "/invitations/{invitation_id}/intake",
+    response_model=PublicIntakeSectionSubmitResponse,
+)
+def submit_doctor_intake_section(
+    invitation_id: str,
+    payload: PublicIntakeSectionSubmitRequest,
+    current_user: User = Depends(require_doctor_user),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.save_doctor_intake_section(
+        current_user.id,
+        _parse_uuid(invitation_id, "invitation_id"),
+        payload.section_id,
+        payload.answers,
+    )
+
+
+@router.post("/invitations/{invitation_id}/finish")
+def finish_doctor_invitation(
+    invitation_id: str,
+    current_user: User = Depends(require_doctor_user),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return svc.finish_doctor_invitation(
+        current_user.id,
+        _parse_uuid(invitation_id, "invitation_id"),
+    )
+
+
+@router.post(
+    "/invitations/{invitation_id}/prior-documents",
+    response_model=PublicPriorDocumentUploadResponse,
+)
+async def upload_doctor_prior_document(
+    invitation_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_doctor_user),
+    svc: QuestionnaireService = Depends(get_questionnaire_service),
+):
+    return await svc.upload_doctor_prior_document(
+        current_user.id,
+        _parse_uuid(invitation_id, "invitation_id"),
+        file,
+    )
+
+
 @router.post(
     "/invitations/{invitation_id}/submit",
     response_model=DoctorInvitationSubmitResponse,
