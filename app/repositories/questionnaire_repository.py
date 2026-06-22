@@ -1495,37 +1495,27 @@ class QuestionnaireRepository:
             if inv.status != "pending":
                 continue
             total = self._invitation_item_count(inv.id)
-            has_questionnaire = total > 0
-            questionnaire_completed = (
-                self._questionnaire_is_complete(inv) if has_questionnaire else False
-            )
             enable_intake = bool(getattr(inv, "enable_clinical_intake", False))
-            intake_completed = inv.intake_completed_at is not None
-            if enable_intake and not intake_completed:
-                _, intake_completed, _, _, _ = self._intake_meta_for_invitation(inv)
-            if (
-                (enable_intake and not intake_completed)
-                or (has_questionnaire and not questionnaire_completed)
-                or bool(getattr(inv, "collect_prior_documents", False))
-            ):
-                pending.append(
-                    PendingQuestionnaireInvitationView(
-                        id=str(inv.id),
-                        questionnaire_name=self._invitation_display_label(inv),
-                        status=inv.status,
-                        created_at=inv.created_at,
-                        expires_at=inv.expires_at,
-                        total_questions=total,
-                        enable_clinical_intake=enable_intake,
-                        collect_prior_documents=bool(
-                            getattr(inv, "collect_prior_documents", False)
-                        ),
-                        intake_completed=intake_completed,
-                        has_questionnaire=has_questionnaire,
-                        questionnaire_completed=questionnaire_completed,
-                        intake_only=self._is_intake_only_invitation(inv),
-                    )
+            pending.append(
+                PendingQuestionnaireInvitationView(
+                    id=str(inv.id),
+                    questionnaire_name=self._invitation_display_label(inv),
+                    status=inv.status,
+                    created_at=inv.created_at,
+                    expires_at=inv.expires_at,
+                    total_questions=total,
+                    enable_clinical_intake=enable_intake,
+                    collect_prior_documents=bool(
+                        getattr(inv, "collect_prior_documents", False)
+                    ),
+                    intake_completed=inv.intake_completed_at is not None,
+                    has_questionnaire=total > 0,
+                    questionnaire_completed=(
+                        self._questionnaire_is_complete(inv) if total > 0 else False
+                    ),
+                    intake_only=self._is_intake_only_invitation(inv),
                 )
+            )
         return pending
 
     def get_invitation_questions_for_doctor(
