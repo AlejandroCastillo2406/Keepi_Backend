@@ -28,8 +28,10 @@ class PatientProfileBootstrapService:
         analysis = [
             AnalysisRequestResponse.model_validate(row) for row in analysis_rows
         ]
-        context = ConsultationContextService(self._db).get_context(
-            doctor_id, patient_id
+        context_svc = ConsultationContextService(self._db)
+        stats = context_svc._stats(doctor_id, patient_id)
+        context = context_svc.get_context(
+            doctor_id, patient_id, stats=stats
         )
         questionnaire = QuestionnaireService(
             self._db

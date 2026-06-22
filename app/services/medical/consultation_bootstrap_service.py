@@ -17,6 +17,7 @@ from app.repositories.appointment_repository import AppointmentRepository
 from app.services.medical.consultation_context_service import ConsultationContextService
 from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
 from app.services.medical.patient_timeline_service import PatientTimelineService
+from app.utils.attendance_stats import attendance_counts
 
 _MONTHS_ES = (
     "ENE",
@@ -58,7 +59,11 @@ class ConsultationBootstrapService:
 
     @staticmethod
     def _stats_from(
-        requests: list, timeline_count: int
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        requests: list,
+        timeline_count: int,
     ) -> ConsultationStatsDto:
         uploaded = sum(
             1
@@ -68,11 +73,18 @@ class ConsultationBootstrapService:
         pending = sum(
             1 for r in requests if r.status == "pending" and r.document_id is None
         )
+        attended, no_show = AppointmentRepository(self._db).count_attendance(
+            doctor_id, patient_id
+        )
+        attended, no_show, rate = attendance_counts(attended, no_show)
         return ConsultationStatsDto(
             analysis_requested=len(requests),
             analysis_uploaded=uploaded,
             analysis_pending=pending,
             timeline_events=timeline_count,
+            appointments_attended=attended,
+            appointments_no_show=no_show,
+            attendance_rate_percent=rate,
         )
 
     @staticmethod
@@ -127,8 +139,10 @@ class ConsultationBootstrapService:
         analysis = [
             AnalysisRequestResponse.model_validate(row) for row in analysis_rows
         ]
+        stats = self._stats_from(doctor_id, patient_id, analysis_rows, len(timeline))
+
         context = ConsultationContextService(self._db).get_context(
-            doctor_id, patient_id
+            doctor_id, patient_id, stats=stats
         )
 
         event_id = f"appt_{appointment_id}"

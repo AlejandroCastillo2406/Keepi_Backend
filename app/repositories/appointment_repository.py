@@ -97,19 +97,26 @@ class AppointmentRepository:
             .all()
         )
 
-    def list_scheduled_for_attendance_stats(
+    def count_attendance(
         self,
         doctor_id: uuid.UUID,
         patient_id: uuid.UUID | None = None,
-    ) -> List[Appointment]:
+    ) -> tuple[int, int]:
+        from sqlalchemy import func
+
         q = (
-            self._db.query(Appointment)
-            .filter(
-                Appointment.doctor_id == doctor_id,
-                Appointment.status == "scheduled",
-                Appointment.appointment_date.isnot(None),
-            )
+            self._db.query(Appointment.attendance_status, func.count(Appointment.id))
+            .filter(Appointment.doctor_id == doctor_id)
+            .filter(Appointment.attendance_status.in_(("attended", "no_show")))
         )
         if patient_id is not None:
             q = q.filter(Appointment.patient_id == patient_id)
-        return q.all()
+        rows = q.group_by(Appointment.attendance_status).all()
+        attended = 0
+        no_show = 0
+        for status, count in rows:
+            if status == "attended":
+                attended = int(count)
+            elif status == "no_show":
+                no_show = int(count)
+        return attended, no_show

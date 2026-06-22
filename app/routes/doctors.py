@@ -9,6 +9,7 @@ from app.dto.clinical_intake_dto import ClinicalIntakeDetailResponse
 from app.dto.consultation_bootstrap_dto import ConsultationBootstrapResponse
 from app.dto.patient_profile_bootstrap_dto import PatientProfileBootstrapResponse
 from app.dto.consultation_context_dto import (
+    AttendanceStatsDto,
     ClinicalProfileUpdateRequest,
     ConsultationContextResponse,
 )
@@ -43,16 +44,6 @@ from app.services.medical.patient_timeline_service import PatientTimelineService
 from app.services.usuarios import UserService
 
 router = APIRouter()
-
-
-@router.get("/attendance-stats")
-async def get_doctor_attendance_stats(
-    current_user: User = Depends(require_no_temp_password_user),
-    db: Session = Depends(get_db),
-):
-    if current_user.role.name != ROLE_DOCTOR:
-        raise HTTPException(status_code=403, detail="Acceso denegado.")
-    return AppointmentService.compute_attendance_stats(db, current_user.id)
 
 
 @router.post("/patients", response_model=DoctorCreatePatientResponse)
@@ -96,6 +87,16 @@ async def list_my_patients(
     patient_role_id = svc.role_id_by_name(ROLE_PATIENT)
     rows = svc.list_patients_created_by_doctor(current_user.id, patient_role_id)
     return [{"id": str(u.id), "email": u.email, "name": u.name} for u in rows]
+
+
+@router.get("/attendance-stats", response_model=AttendanceStatsDto)
+async def get_doctor_attendance_stats(
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+    return AppointmentService.get_doctor_attendance_stats(db, current_user.id)
 
 
 @router.delete("/patients/{patient_id}", status_code=204)

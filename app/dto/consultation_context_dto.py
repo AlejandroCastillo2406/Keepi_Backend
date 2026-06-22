@@ -3,16 +3,20 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
 
 
+class AttendanceStatsDto(BaseModel):
+    appointments_attended: int = 0
+    appointments_no_show: int = 0
+    attendance_rate_percent: Optional[float] = None
+
+
 class ConsultationStatsDto(BaseModel):
     analysis_requested: int = 0
     analysis_uploaded: int = 0
     analysis_pending: int = 0
     timeline_events: int = 0
-    attendance_attended: int = 0
-    attendance_no_show: int = 0
-    attendance_pending: int = 0
-    attendance_attended_percent: float = 0.0
-    attendance_no_show_percent: float = 0.0
+    appointments_attended: int = 0
+    appointments_no_show: int = 0
+    attendance_rate_percent: Optional[float] = None
 
 
 class ConsultationContextResponse(BaseModel):
