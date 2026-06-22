@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.dto.analysis_request_dto import AnalysisRequestResponse
 from app.dto.patient_profile_bootstrap_dto import PatientProfileBootstrapResponse
 from app.repositories.analysis_request_repository import AnalysisRequestRepository
-from app.services.medical.consultation_bootstrap_service import ConsultationBootstrapService
 from app.services.medical.consultation_context_service import ConsultationContextService
 from app.services.medical.patient_timeline_service import PatientTimelineService
 from app.services.medical.questionnaire_service import QuestionnaireService
@@ -29,10 +28,8 @@ class PatientProfileBootstrapService:
         analysis = [
             AnalysisRequestResponse.model_validate(row) for row in analysis_rows
         ]
-        stats = ConsultationBootstrapService._stats_from(analysis_rows, len(timeline))
-
         context = ConsultationContextService(self._db).get_context(
-            doctor_id, patient_id, stats=stats
+            doctor_id, patient_id
         )
         questionnaire = QuestionnaireService(
             self._db

@@ -45,6 +45,16 @@ from app.services.usuarios import UserService
 router = APIRouter()
 
 
+@router.get("/attendance-stats")
+async def get_doctor_attendance_stats(
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Acceso denegado.")
+    return AppointmentService.compute_attendance_stats(db, current_user.id)
+
+
 @router.post("/patients", response_model=DoctorCreatePatientResponse)
 async def create_patient_account(
     body: DoctorCreatePatientRequest,

@@ -18,6 +18,7 @@ from app.models.questionnaire_invitation import QuestionnaireInvitation
 from app.repositories.analysis_request_repository import AnalysisRequestRepository
 from app.repositories.questionnaire_repository import QuestionnaireRepository
 from app.repositories.user_repository import UserRepository
+from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.patient_timeline_service import PatientTimelineService
 
 
@@ -202,11 +203,15 @@ class ConsultationContextService:
         timeline = PatientTimelineService(self._db).timeline_for_doctor_patient(
             doctor_id, patient_id
         )
+        attendance = AppointmentService.compute_attendance_stats(
+            self._db, doctor_id, patient_id
+        )
         return ConsultationStatsDto(
             analysis_requested=len(requests),
             analysis_uploaded=uploaded,
             analysis_pending=pending,
             timeline_events=len(timeline),
+            **attendance,
         )
 
     def get_context(

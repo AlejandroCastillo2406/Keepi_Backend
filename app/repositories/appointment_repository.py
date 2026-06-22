@@ -96,3 +96,20 @@ class AppointmentRepository:
             .filter(Appointment.end_date > start_at)
             .all()
         )
+
+    def list_scheduled_for_attendance_stats(
+        self,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID | None = None,
+    ) -> List[Appointment]:
+        q = (
+            self._db.query(Appointment)
+            .filter(
+                Appointment.doctor_id == doctor_id,
+                Appointment.status == "scheduled",
+                Appointment.appointment_date.isnot(None),
+            )
+        )
+        if patient_id is not None:
+            q = q.filter(Appointment.patient_id == patient_id)
+        return q.all()

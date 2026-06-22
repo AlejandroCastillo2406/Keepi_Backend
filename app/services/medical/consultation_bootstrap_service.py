@@ -127,10 +127,8 @@ class ConsultationBootstrapService:
         analysis = [
             AnalysisRequestResponse.model_validate(row) for row in analysis_rows
         ]
-        stats = self._stats_from(analysis_rows, len(timeline))
-
         context = ConsultationContextService(self._db).get_context(
-            doctor_id, patient_id, stats=stats
+            doctor_id, patient_id
         )
 
         event_id = f"appt_{appointment_id}"

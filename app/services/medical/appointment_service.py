@@ -444,6 +444,62 @@ class AppointmentService:
         return repo.save(row)
 
     @staticmethod
+    def compute_attendance_stats(
+        db: Session,
+        doctor_id: UUID,
+        patient_id: UUID | None = None,
+    ) -> dict:
+        from datetime import timezone
+
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+
+        repo = AppointmentService._repo(db)
+        rows = repo.list_scheduled_for_attendance_stats(doctor_id, patient_id)
+        settings = DoctorAvailabilityService.get_settings(db, doctor_id)
+        slot_minutes = settings.slot_duration_minutes
+
+        now = datetime.now(timezone.utc)
+        attended = 0
+        no_show = 0
+        pending = 0
+
+        for row in rows:
+            start = row.appointment_date
+            if start is None:
+                continue
+            end = row.end_date
+            if end is None:
+                end = start + timedelta(minutes=slot_minutes)
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            if now < end:
+                continue
+
+            status = getattr(row, "attendance_status", None)
+            if status == "attended":
+                attended += 1
+            elif status == "no_show":
+                no_show += 1
+            else:
+                pending += 1
+
+        recorded = attended + no_show
+        attended_pct = round(attended * 100.0 / recorded, 1) if recorded else 0.0
+        no_show_pct = round(no_show * 100.0 / recorded, 1) if recorded else 0.0
+
+        return {
+            "attendance_attended": attended,
+            "attendance_no_show": no_show,
+            "attendance_pending": pending,
+            "attendance_attended_percent": attended_pct,
+            "attendance_no_show_percent": no_show_pct,
+        }
+
+    @staticmethod
     def doctor_propose_and_notify(
         db: Session,
         appointment_id: UUID,
