@@ -64,6 +64,46 @@ def _user_name(db: Session, user_id) -> Optional[str]:
     return u.name if u else None
 
 
+def _invitation_timeline_label(
+    inv: QuestionnaireInvitation, db: Session
+) -> str:
+    parts: List[str] = []
+    item_count = (
+        db.query(QuestionnaireInvitationItem)
+        .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+        .count()
+    )
+    if bool(getattr(inv, "enable_clinical_intake", False)):
+        parts.append("Ficha clínica")
+    if item_count > 0:
+        row = (
+            db.query(QuestionnaireInvitationItem.template_name_snapshot)
+            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
+            .order_by(QuestionnaireInvitationItem.sort_order.asc())
+            .first()
+        )
+        name = ((row[0] if row else "") or "").strip() or "Cuestionario"
+        parts.append(name)
+    if bool(getattr(inv, "collect_prior_documents", False)):
+        parts.append("Documentos previos")
+    return " · ".join(parts) if parts else "Solicitud clínica"
+
+
+def _prior_documents_for_patient(db: Session, pid: UUID) -> List[Document]:
+    patient_tag = f"patient:{pid}"
+    rows = (
+        db.query(Document)
+        .filter(Document.tags.isnot(None))
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+    return [
+        d
+        for d in rows
+        if d.tags and "documento_previo" in d.tags and patient_tag in d.tags
+    ]
+
+
 class PatientRepository:
     def get_timeline_events(
         self, db: Session, patient_id: str
@@ -194,6 +234,33 @@ class PatientRepository:
             logger.error(f"Error en timeline (análisis): {e}")
 
         now_utc = datetime.now(timezone.utc)
+        prior_for_patient: List[Document] = []
+        try:
+            prior_for_patient = _prior_documents_for_patient(db, pid)
+            for doc in prior_for_patient:
+                when = _as_utc(doc.created_at) or now_utc
+                doc_name = (doc.name or doc.file_name or "Documento").strip()
+                raw_events.append(
+                    {
+                        "id": f"priordoc_{doc.id}",
+                        "date": _fmt_date(when),
+                        "time": _fmt_time(when),
+                        "title": "Documento previo subido",
+                        "actor": "Paciente",
+                        "event_type": EventType.PRIOR_DOCUMENTS,
+                        "subtitle": doc_name,
+                        "description": (
+                            "Estudio o informe médico previo compartido con tu médico."
+                        ),
+                        "raw_dt": when,
+                        "action_patient_id": str(pid),
+                        "prior_documents_count": 1,
+                    }
+                )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error en timeline (documentos previos): {e}")
+
         try:
             invitations = (
                 db.query(QuestionnaireInvitation)
@@ -205,26 +272,105 @@ class PatientRepository:
                 if not when_sent:
                     continue
 
+                label = _invitation_timeline_label(inv, db)
+                enable_intake = bool(getattr(inv, "enable_clinical_intake", False))
+                collect_prior = bool(getattr(inv, "collect_prior_documents", False))
                 intake_done_at = _as_utc(getattr(inv, "intake_completed_at", None))
-                if intake_done_at and bool(
-                    getattr(inv, "enable_clinical_intake", False)
-                ):
-                    raw_events.append(
-                        {
-                            "id": f"intake_{inv.id}",
-                            "date": _fmt_date(intake_done_at),
-                            "time": _fmt_time(intake_done_at),
-                            "title": "Antecedentes completos",
-                            "actor": "Paciente",
-                            "event_type": EventType.CLINICAL_INTAKE,
-                            "subtitle": "Ficha clínica previa a la consulta",
-                            "description": (
-                                "El paciente completó su ficha clínica "
-                                "(datos, antecedentes, alergias y medicamentos)."
-                            ),
-                            "raw_dt": intake_done_at,
-                        }
-                    )
+                expires_utc = _as_utc(inv.expires_at)
+                is_active_pending = inv.status == "pending" and (
+                    expires_utc is None or expires_utc >= now_utc
+                )
+                inv_tag = f"questionnaire_invitation:{inv.id}"
+                prior_docs_for_inv = sum(
+                    1
+                    for d in prior_for_patient
+                    if d.tags and inv_tag in d.tags
+                )
+
+                if enable_intake:
+                    if intake_done_at:
+                        answered_by = (
+                            getattr(inv, "questionnaire_answered_by", None) or "patient"
+                        )
+                        actor = "Doctor" if answered_by == "doctor" else "Paciente"
+                        raw_events.append(
+                            {
+                                "id": f"intake_{inv.id}",
+                                "date": _fmt_date(intake_done_at),
+                                "time": _fmt_time(intake_done_at),
+                                "title": "Ficha clínica completada",
+                                "actor": actor,
+                                "event_type": EventType.CLINICAL_INTAKE,
+                                "subtitle": label,
+                                "description": (
+                                    "Ficha clínica previa a la consulta completada "
+                                    "(datos, antecedentes, alergias y medicamentos)."
+                                ),
+                                "raw_dt": intake_done_at,
+                                "action_patient_id": str(pid),
+                            }
+                        )
+                    elif is_active_pending:
+                        raw_events.append(
+                            {
+                                "id": f"intake_req_{inv.id}",
+                                "date": _fmt_date(when_sent),
+                                "time": _fmt_time(when_sent),
+                                "title": "Ficha clínica solicitada",
+                                "actor": "Doctor",
+                                "event_type": EventType.CLINICAL_INTAKE,
+                                "subtitle": label,
+                                "description": (
+                                    "Tu médico te envió una ficha clínica para completar."
+                                ),
+                                "raw_dt": when_sent,
+                                "force_visual_state": "current",
+                                "action_patient_id": str(pid),
+                            }
+                        )
+
+                if collect_prior:
+                    if is_active_pending and prior_docs_for_inv == 0:
+                        raw_events.append(
+                            {
+                                "id": f"priordocs_req_{inv.id}",
+                                "date": _fmt_date(when_sent),
+                                "time": _fmt_time(when_sent),
+                                "title": "Documentos previos solicitados",
+                                "actor": "Doctor",
+                                "event_type": EventType.PRIOR_DOCUMENTS,
+                                "subtitle": label,
+                                "description": (
+                                    "Tu médico solicitó estudios o informes médicos previos."
+                                ),
+                                "raw_dt": when_sent,
+                                "force_visual_state": "current",
+                                "action_patient_id": str(pid),
+                            }
+                        )
+                    elif prior_docs_for_inv > 0:
+                        raw_events.append(
+                            {
+                                "id": f"priordocs_sent_{inv.id}",
+                                "date": _fmt_date(when_sent),
+                                "time": _fmt_time(when_sent),
+                                "title": "Documentos previos solicitados",
+                                "actor": "Doctor",
+                                "event_type": EventType.PRIOR_DOCUMENTS,
+                                "subtitle": (
+                                    f"{prior_docs_for_inv} archivo subido"
+                                    if prior_docs_for_inv == 1
+                                    else f"{prior_docs_for_inv} archivos subidos"
+                                ),
+                                "description": (
+                                    "Solicitud de documentos previos vinculada a una "
+                                    "invitación clínica."
+                                ),
+                                "raw_dt": when_sent,
+                                "action_patient_id": str(pid),
+                                "prior_documents_count": prior_docs_for_inv,
+                            }
+                        )
 
                 item_count = (
                     db.query(QuestionnaireInvitationItem)
@@ -232,98 +378,50 @@ class PatientRepository:
                     .count()
                 )
                 is_dynamic = bool(getattr(inv, "is_dynamic", False))
-                show_questionnaire_event = is_dynamic or item_count > 0
-                if not show_questionnaire_event:
-                    continue
+                if is_dynamic or item_count > 0:
+                    q_status = None
+                    completed_time = None
 
-                q_status = None
-                completed_time = None
-
-                if inv.status == "completed":
-                    q_status = QuestionnaireStatus.COMPLETED
-                    if inv.completed_at:
-                        completed_time = _as_utc(inv.completed_at).isoformat()
-                else:
-                    expires_utc = _as_utc(inv.expires_at)
-                    if expires_utc and expires_utc < now_utc:
-                        q_status = QuestionnaireStatus.UNANSWERED
+                    if inv.status == "completed":
+                        q_status = QuestionnaireStatus.COMPLETED
+                        if inv.completed_at:
+                            completed_time = _as_utc(inv.completed_at).isoformat()
                     else:
-                        q_status = QuestionnaireStatus.PENDING
+                        if expires_utc and expires_utc < now_utc:
+                            q_status = QuestionnaireStatus.UNANSWERED
+                        else:
+                            q_status = QuestionnaireStatus.PENDING
 
-                q_when = (
-                    _as_utc(inv.completed_at) if inv.status == "completed" else when_sent
-                )
-                raw_events.append(
-                    {
-                        "id": f"quest_{inv.id}",
-                        "date": _fmt_date(q_when),
-                        "time": _fmt_time(q_when),
-                        "title": "Cuestionario médico",
-                        "actor": "Doctor",
-                        "event_type": EventType.QUESTIONNAIRE,
-                        "subtitle": (
-                            "Cuestionario completado"
-                            if q_status == QuestionnaireStatus.COMPLETED
-                            else "Cuestionario de seguimiento"
-                        ),
-                        "description": "Se te envió un cuestionario médico para contestar.",
-                        "raw_dt": q_when,
-                        "questionnaire_status": q_status,
-                        "completed_at": completed_time,
-                    }
-                )
+                    q_when = (
+                        _as_utc(inv.completed_at)
+                        if inv.status == "completed"
+                        else when_sent
+                    )
+                    raw_events.append(
+                        {
+                            "id": f"quest_{inv.id}",
+                            "date": _fmt_date(q_when),
+                            "time": _fmt_time(q_when),
+                            "title": "Cuestionario médico",
+                            "actor": "Doctor",
+                            "event_type": EventType.QUESTIONNAIRE,
+                            "subtitle": (
+                                "Cuestionario completado"
+                                if q_status == QuestionnaireStatus.COMPLETED
+                                else "Cuestionario de seguimiento"
+                            ),
+                            "description": (
+                                "Se te envió un cuestionario médico para contestar."
+                            ),
+                            "raw_dt": q_when,
+                            "questionnaire_status": q_status,
+                            "completed_at": completed_time,
+                        }
+                    )
         except Exception as e:
             db.rollback()
 
             logger.error(f"Error en timeline (cuestionarios): {e}")
-
-        try:
-            patient_tag = f"patient:{pid}"
-            prior_docs = (
-                db.query(Document)
-                .filter(Document.tags.isnot(None))
-                .order_by(Document.created_at.desc())
-                .all()
-            )
-            prior_for_patient = [
-                d
-                for d in prior_docs
-                if d.tags
-                and "documento_previo" in d.tags
-                and patient_tag in d.tags
-            ]
-            if prior_for_patient:
-                when = max(
-                    (_as_utc(d.created_at) or now_utc for d in prior_for_patient),
-                    default=now_utc,
-                )
-                count = len(prior_for_patient)
-                label = (
-                    f"{count} archivo subido"
-                    if count == 1
-                    else f"{count} archivos subidos"
-                )
-                raw_events.append(
-                    {
-                        "id": f"priordocs_{pid}",
-                        "date": _fmt_date(when),
-                        "time": _fmt_time(when),
-                        "title": "Documentos previos subidos",
-                        "actor": "Paciente",
-                        "event_type": EventType.PRIOR_DOCUMENTS,
-                        "subtitle": label,
-                        "description": (
-                            "Estudios o informes compartidos al completar la "
-                            "ficha clínica."
-                        ),
-                        "raw_dt": when,
-                        "action_patient_id": str(pid),
-                        "prior_documents_count": count,
-                    }
-                )
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error en timeline (documentos previos): {e}")
 
         raw_events.sort(key=lambda x: x["raw_dt"], reverse=True)
 
@@ -346,9 +444,14 @@ class PatientRepository:
         out: List[TimelineEventResponse] = []
         for e in raw_events:
             rid = e.get("analysis_request_id")
-            if e["raw_dt"] > now_utc:
+            forced = e.get("force_visual_state")
+            if forced:
+                vstate = forced
+            elif e["raw_dt"] > now_utc:
                 vstate = "future"
             elif rid and rid in pending_request_ids:
+                vstate = "current"
+            elif e.get("questionnaire_status") == QuestionnaireStatus.PENDING:
                 vstate = "current"
             else:
                 vstate = "completed"
@@ -382,15 +485,4 @@ class PatientRepository:
             pid = UUID(str(patient_id))
         except (ValueError, TypeError):
             return []
-        patient_tag = f"patient:{pid}"
-        rows = (
-            db.query(Document)
-            .filter(Document.tags.isnot(None))
-            .order_by(Document.created_at.desc())
-            .all()
-        )
-        return [
-            d
-            for d in rows
-            if d.tags and "documento_previo" in d.tags and patient_tag in d.tags
-        ]
+        return _prior_documents_for_patient(db, pid)
