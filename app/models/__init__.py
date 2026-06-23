@@ -2,6 +2,7 @@ from .analysis_request import AnalysisRequest
 from .analysis_request_invitation import AnalysisRequestUploadInvitation
 from .plans import Plan
 from .doctor_patient_clinical_profile import DoctorPatientClinicalProfile
+from .doctor_procedure_block import DoctorProcedureBlock
 from .doctor_scheduling import (
     DoctorAvailabilityRule,
     DoctorSchedulingSettings,
@@ -44,6 +45,7 @@ __all__ = [
     "Plan",
     "Appointment",
     "DoctorPatientClinicalProfile",
+    "DoctorProcedureBlock",
     "DoctorAvailabilityRule",
     "DoctorSchedulingSettings",
     "PatientSchedulingToken",

@@ -11,6 +11,7 @@ from sqlalchemy.sql import func
 
 from app.core.database import Base
 from app.models.doctor_scheduling import ConsultationScheduleResponse
+from app.models.doctor_procedure_block import ProcedureBlockResponse
 
 AppointmentStatus = Literal[
     "pending_doctor_proposal",
@@ -151,4 +152,5 @@ class AppointmentResponse(BaseModel):
 
 class DoctorCalendarResponse(BaseModel):
     appointments: List[AppointmentResponse]
+    procedures: List[ProcedureBlockResponse] = []
     consultation_schedule: ConsultationScheduleResponse

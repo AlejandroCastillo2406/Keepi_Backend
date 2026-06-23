@@ -21,11 +21,16 @@ from app.models.appointment import (
     PublicAppointmentRespondRequest,
     PublicAppointmentRespondResponse,
 )
+from app.models.doctor_procedure_block import (
+    ProcedureBlockCreateRequest,
+    ProcedureBlockResponse,
+)
 from app.models.user import User
 from app.dto.timeline_dto import EventType
 from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.doctor_availability_service import DoctorAvailabilityService
 from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
+from app.services.medical.procedure_block_service import ProcedureBlockService
 
 router = APIRouter()
 
@@ -63,12 +68,34 @@ async def get_doctor_calendar(
     rows = AppointmentService.list_doctor_calendar(
         db, current_user.id, start_at, end_at
     )
+    procedures = ProcedureBlockService.list_for_calendar(
+        db, current_user.id, start_at, end_at
+    )
     return DoctorCalendarResponse(
         appointments=[AppointmentResponse.from_entity(r) for r in rows],
+        procedures=procedures,
         consultation_schedule=DoctorAvailabilityService.get_consultation_schedule(
             db, current_user.id
         ),
     )
+
+
+@router.post("/doctor/procedures", response_model=ProcedureBlockResponse)
+async def create_doctor_procedure(
+    body: ProcedureBlockCreateRequest,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    return ProcedureBlockService.create(db, current_user.id, body)
+
+
+@router.delete("/doctor/procedures/{block_id}", status_code=204)
+async def delete_doctor_procedure(
+    block_id: UUID,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    ProcedureBlockService.delete(db, current_user.id, block_id)
 
 
 @router.get("/mine", response_model=list[AppointmentResponse])

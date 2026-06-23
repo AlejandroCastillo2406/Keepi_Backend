@@ -122,6 +122,11 @@ class AppointmentService:
     ) -> Appointment:
         start_at = body.appointment_date
         end_at = start_at + timedelta(minutes=body.duration_minutes)
+        from app.services.medical.procedure_block_service import (
+            ProcedureBlockService,
+        )
+
+        ProcedureBlockService._assert_no_conflicts(db, doctor_id, start_at, end_at)
         row = Appointment(
             doctor_id=doctor_id,
             patient_id=UUID(body.patient_id),

@@ -26,6 +26,9 @@ from app.models.doctor_scheduling import (
 )
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.doctor_scheduling_repository import DoctorSchedulingRepository
+from app.repositories.procedure_block_repository import ProcedureBlockRepository
+from app.services.medical.procedure_block_service import ProcedureBlockService
+from app.repositories.procedure_block_repository import ProcedureBlockRepository
 
 
 class DoctorAvailabilityService:
@@ -170,6 +173,9 @@ class DoctorAvailabilityService:
         blocking = DoctorAvailabilityService._appt_repo(db).list_blocking_in_range(
             doctor_id, range_start_utc, range_end_utc
         )
+        procedure_blocks = ProcedureBlockRepository(db).list_in_range(
+            doctor_id, range_start_utc, range_end_utc
+        )
 
         slots: List[AvailabilitySlotResponse] = []
         current = from_date
@@ -194,6 +200,11 @@ class DoctorAvailabilityService:
                                 slot_start_utc, slot_end_utc, appt
                             )
                             for appt in blocking
+                        ) or any(
+                            ProcedureBlockService.overlaps_slot(
+                                block, slot_start_utc, slot_end_utc
+                            )
+                            for block in procedure_blocks
                         )
                         if not occupied:
                             slots.append(
