@@ -14,10 +14,10 @@ from app.dto.timeline_dto import EventType, TimelineEventResponse
 from app.models.appointment import Appointment
 from app.repositories.analysis_request_repository import AnalysisRequestRepository
 from app.repositories.appointment_repository import AppointmentRepository
+from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.consultation_context_service import ConsultationContextService
 from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
 from app.services.medical.patient_timeline_service import PatientTimelineService
-from app.utils.attendance_stats import attendance_counts
 
 _MONTHS_ES = (
     "ENE",
@@ -57,7 +57,6 @@ class ConsultationBootstrapService:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    @staticmethod
     def _stats_from(
         self,
         doctor_id: uuid.UUID,
@@ -73,18 +72,15 @@ class ConsultationBootstrapService:
         pending = sum(
             1 for r in requests if r.status == "pending" and r.document_id is None
         )
-        attended, no_show = AppointmentRepository(self._db).count_attendance(
-            doctor_id, patient_id
+        attendance = AppointmentService.compute_attendance_stats(
+            self._db, doctor_id, patient_id
         )
-        attended, no_show, rate = attendance_counts(attended, no_show)
         return ConsultationStatsDto(
             analysis_requested=len(requests),
             analysis_uploaded=uploaded,
             analysis_pending=pending,
             timeline_events=timeline_count,
-            appointments_attended=attended,
-            appointments_no_show=no_show,
-            attendance_rate_percent=rate,
+            **attendance,
         )
 
     @staticmethod

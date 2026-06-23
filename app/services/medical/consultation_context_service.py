@@ -16,11 +16,10 @@ from app.dto.consultation_context_dto import (
 from app.models.doctor_patient_clinical_profile import DoctorPatientClinicalProfile
 from app.models.questionnaire_invitation import QuestionnaireInvitation
 from app.repositories.analysis_request_repository import AnalysisRequestRepository
-from app.repositories.appointment_repository import AppointmentRepository
+from app.services.medical.appointment_service import AppointmentService
 from app.repositories.questionnaire_repository import QuestionnaireRepository
 from app.repositories.user_repository import UserRepository
 from app.services.medical.patient_timeline_service import PatientTimelineService
-from app.utils.attendance_stats import attendance_counts
 
 
 def _age_from_birth_date(raw: Any) -> Optional[int]:
@@ -204,18 +203,15 @@ class ConsultationContextService:
         timeline = PatientTimelineService(self._db).timeline_for_doctor_patient(
             doctor_id, patient_id
         )
-        attended, no_show = AppointmentRepository(self._db).count_attendance(
-            doctor_id, patient_id
+        attendance = AppointmentService.compute_attendance_stats(
+            self._db, doctor_id, patient_id
         )
-        attended, no_show, rate = attendance_counts(attended, no_show)
         return ConsultationStatsDto(
             analysis_requested=len(requests),
             analysis_uploaded=uploaded,
             analysis_pending=pending,
             timeline_events=len(timeline),
-            appointments_attended=attended,
-            appointments_no_show=no_show,
-            attendance_rate_percent=rate,
+            **attendance,
         )
 
     def get_context(
