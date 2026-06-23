@@ -65,24 +65,15 @@ def _user_name(db: Session, user_id) -> Optional[str]:
 
 
 def _invitation_timeline_label(
-    inv: QuestionnaireInvitation, db: Session
+    inv: QuestionnaireInvitation,
+    items_by_inv: "dict[str, list]",
 ) -> str:
     parts: List[str] = []
-    item_count = (
-        db.query(QuestionnaireInvitationItem)
-        .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
-        .count()
-    )
+    inv_items = items_by_inv.get(str(inv.id), [])
     if bool(getattr(inv, "enable_clinical_intake", False)):
         parts.append("Ficha clínica")
-    if item_count > 0:
-        row = (
-            db.query(QuestionnaireInvitationItem.template_name_snapshot)
-            .filter(QuestionnaireInvitationItem.invitation_id == inv.id)
-            .order_by(QuestionnaireInvitationItem.sort_order.asc())
-            .first()
-        )
-        name = ((row[0] if row else "") or "").strip() or "Cuestionario"
+    if inv_items:
+        name = (inv_items[0].template_name_snapshot or "").strip() or "Cuestionario"
         parts.append(name)
     if bool(getattr(inv, "collect_prior_documents", False)):
         parts.append("Documentos previos")
@@ -91,17 +82,16 @@ def _invitation_timeline_label(
 
 def _prior_documents_for_patient(db: Session, pid: UUID) -> List[Document]:
     patient_tag = f"patient:{pid}"
-    rows = (
+    return (
         db.query(Document)
-        .filter(Document.tags.isnot(None))
+        .filter(
+            Document.tags.isnot(None),
+            Document.tags.contains(["documento_previo"]),
+            Document.tags.contains([patient_tag]),
+        )
         .order_by(Document.created_at.desc())
         .all()
     )
-    return [
-        d
-        for d in rows
-        if d.tags and "documento_previo" in d.tags and patient_tag in d.tags
-    ]
 
 
 class PatientRepository:
@@ -267,12 +257,28 @@ class PatientRepository:
                 .filter(QuestionnaireInvitation.patient_id == pid)
                 .all()
             )
+            inv_ids = [inv.id for inv in invitations]
+            items_by_inv: dict = {}
+            if inv_ids:
+                all_items = (
+                    db.query(QuestionnaireInvitationItem)
+                    .filter(QuestionnaireInvitationItem.invitation_id.in_(inv_ids))
+                    .order_by(
+                        QuestionnaireInvitationItem.invitation_id,
+                        QuestionnaireInvitationItem.sort_order.asc(),
+                    )
+                    .all()
+                )
+                for item in all_items:
+                    key = str(item.invitation_id)
+                    items_by_inv.setdefault(key, []).append(item)
+
             for inv in invitations:
                 when_sent = _as_utc(inv.created_at)
                 if not when_sent:
                     continue
 
-                label = _invitation_timeline_label(inv, db)
+                label = _invitation_timeline_label(inv, items_by_inv)
                 enable_intake = bool(getattr(inv, "enable_clinical_intake", False))
                 collect_prior = bool(getattr(inv, "collect_prior_documents", False))
                 intake_done_at = _as_utc(getattr(inv, "intake_completed_at", None))

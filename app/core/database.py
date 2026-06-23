@@ -198,6 +198,49 @@ class DatabaseConfig:
                         "ADD COLUMN IF NOT EXISTS attendance_status VARCHAR(20)"
                     )
                 )
+                # Performance indexes (idempotent)
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_documents_tags_gin "
+                        "ON documents USING GIN (tags)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_appointments_patient_id "
+                        "ON appointments (patient_id)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_appointments_doctor_patient "
+                        "ON appointments (doctor_id, patient_id)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_analysis_requests_patient_id "
+                        "ON analysis_requests (patient_id)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_prescriptions_patient_id "
+                        "ON prescriptions (patient_id)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_questionnaire_invitations_patient_doctor "
+                        "ON questionnaire_invitations (patient_id, doctor_id)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_inv_items_invitation_id "
+                        "ON questionnaire_invitation_items (invitation_id, sort_order)"
+                    )
+                )
                 conn.commit()
         except Exception as e:
             logger.warning("Schema patch questionnaire_invitations: %s", e)

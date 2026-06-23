@@ -135,6 +135,7 @@ class ConsultationBootstrapService:
         analysis = [
             AnalysisRequestResponse.model_validate(row) for row in analysis_rows
         ]
+        # Pass len(timeline) already computed — avoids re-fetching timeline in _stats_from
         stats = self._stats_from(doctor_id, patient_id, analysis_rows, len(timeline))
 
         context = ConsultationContextService(self._db).get_context(
