@@ -84,6 +84,9 @@ class Settings(BaseSettings):
 
     echo_sql: bool = False
 
+    # Si es False, el análisis de documentos no exige suscripción (desarrollo / transitorio).
+    require_subscription_for_document_analysis: bool = Field(default=False)
+
     email_url_icon_check: str = ""
     email_url_icon_card: str = ""
     email_url_icon_vencimiento: str = ""
@@ -104,7 +107,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("debug", "echo_sql", mode="before")
+    @field_validator("debug", "echo_sql", "require_subscription_for_document_analysis", mode="before")
     @classmethod
     def _parse_bool_fields(cls, v: Any) -> bool:
         if isinstance(v, bool):

@@ -4,10 +4,19 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.services.aws.bedrock_service import BedrockService
 from app.services.subscription import SubscriptionService
 
 logger = logging.getLogger(__name__)
+
+_UNLIMITED_ANALYSIS_CHECK = {
+    "can_analyze": True,
+    "plan": "unlimited",
+    "analysis_used": 0,
+    "analysis_remaining": 999999,
+    "needs_subscription": False,
+}
 
 
 class DocumentAnalysisService:
@@ -17,6 +26,15 @@ class DocumentAnalysisService:
         self.bedrock_service = BedrockService()
 
         self.subscription_service = SubscriptionService()
+
+    async def _analysis_quota(self, user_id: str, db: Session) -> Dict[str, Any]:
+        if not settings.require_subscription_for_document_analysis:
+            return dict(_UNLIMITED_ANALYSIS_CHECK)
+        return await self.subscription_service.check_analysis_limit(user_id, db)
+
+    async def _track_analysis_usage(self, user_id: str, db: Session) -> None:
+        if settings.require_subscription_for_document_analysis:
+            await self.subscription_service.increment_analysis_usage(user_id, db)
 
     async def analyze_document(
         self,
@@ -29,11 +47,12 @@ class DocumentAnalysisService:
     ) -> Dict[str, Any]:
         try:
 
-            analysis_check = await self.subscription_service.check_analysis_limit(
-                user_id, db
-            )
+            analysis_check = await self._analysis_quota(user_id, db)
 
-            if not analysis_check["can_analyze"]:
+            if (
+                settings.require_subscription_for_document_analysis
+                and not analysis_check["can_analyze"]
+            ):
                 return {
                     "suggested_category": "SUBSCRIPTION_REQUIRED",
                     "confidence_score": 0.0,
@@ -72,9 +91,7 @@ class DocumentAnalysisService:
                     and suggested != "MANUAL_CLASSIFICATION_REQUIRED"
                     and confidence >= 0.25
                 ):
-                    await self.subscription_service.increment_analysis_usage(
-                        user_id, db
-                    )
+                    await self._track_analysis_usage(user_id, db)
                     tags = list(bedrock_vision.get("tags") or [])
                     if suggested.lower() not in [t.lower() for t in tags]:
                         tags.insert(0, suggested.lower())
@@ -158,7 +175,7 @@ class DocumentAnalysisService:
 
             metadata = await self._extract_metadata(extracted_text)
 
-            await self.subscription_service.increment_analysis_usage(user_id, db)
+            await self._track_analysis_usage(user_id, db)
 
             return {
                 "suggested_category": suggested_category,
