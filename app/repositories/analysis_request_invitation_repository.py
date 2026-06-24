@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -32,11 +32,17 @@ class AnalysisRequestInvitationRepository:
         analysis_request: AnalysisRequest,
         patient_email: Optional[str],
         patient_name: Optional[str],
+        expires_at: Optional[datetime] = None,
         ttl_days: int = INVITATION_TTL_DAYS,
     ) -> Tuple[AnalysisRequestUploadInvitation, str]:
         raw_token = self._generate_token()
         token_hash = self._hash_token(raw_token)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+        if expires_at is None:
+            expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+        elif expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        else:
+            expires_at = expires_at.astimezone(timezone.utc)
 
         invitation = AnalysisRequestUploadInvitation(
             analysis_request_id=analysis_request.id,
@@ -52,6 +58,44 @@ class AnalysisRequestInvitationRepository:
         self._db.commit()
         self._db.refresh(invitation)
         return invitation, raw_token
+
+    def get_expires_at_for_request(
+        self, analysis_request_id: UUID
+    ) -> Optional[datetime]:
+        inv = (
+            self._db.query(AnalysisRequestUploadInvitation)
+            .filter(
+                AnalysisRequestUploadInvitation.analysis_request_id
+                == analysis_request_id
+            )
+            .order_by(AnalysisRequestUploadInvitation.created_at.desc())
+            .first()
+        )
+        return inv.expires_at if inv else None
+
+    def get_expires_at_map(
+        self, analysis_request_ids: List[UUID]
+    ) -> Dict[UUID, datetime]:
+        if not analysis_request_ids:
+            return {}
+        rows = (
+            self._db.query(
+                AnalysisRequestUploadInvitation.analysis_request_id,
+                AnalysisRequestUploadInvitation.expires_at,
+            )
+            .filter(
+                AnalysisRequestUploadInvitation.analysis_request_id.in_(
+                    analysis_request_ids
+                )
+            )
+            .order_by(AnalysisRequestUploadInvitation.created_at.desc())
+            .all()
+        )
+        out: Dict[UUID, datetime] = {}
+        for request_id, expires_at in rows:
+            if request_id not in out and expires_at is not None:
+                out[request_id] = expires_at
+        return out
 
     def get_for_public_token(
         self, raw_token: str

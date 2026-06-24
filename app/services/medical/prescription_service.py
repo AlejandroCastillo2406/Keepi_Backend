@@ -157,6 +157,61 @@ class PrescriptionService:
             items=item_dtos,
         )
 
+    async def create_draft_manual(
+        self,
+        *,
+        doctor_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        file: UploadFile | None = None,
+    ) -> PrescriptionDraftResponse:
+        """Borrador sin OCR: adjunto opcional y medicamentos capturados a mano."""
+        filename: Optional[str] = None
+        mime: Optional[str] = None
+        s3_key: Optional[str] = None
+        if file is not None:
+            content = await file.read()
+            filename = file.filename or "receta"
+            mime = file.content_type or "application/octet-stream"
+            allowed = (
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "application/pdf",
+            )
+            if mime not in allowed and not filename.lower().endswith(
+                (".pdf", ".png", ".jpg", ".jpeg", ".webp")
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Formato no soportado. Usa PDF o imagen.",
+                )
+            s3_key = f"prescriptions/{doctor_id}/{uuid.uuid4()}_{filename}"
+            self._s3.put_object(
+                Bucket=settings.aws_s3_bucket,
+                Key=s3_key,
+                Body=content,
+                ContentType=mime,
+            )
+
+        draft = Prescription(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            source_file_name=filename,
+            source_file_type=mime,
+            source_s3_key=s3_key,
+            extracted_text="",
+            status="draft_manual",
+        )
+        saved = self._rx.create_with_items(draft, [])
+        return PrescriptionDraftResponse(
+            id=str(saved.id),
+            patient_id=str(saved.patient_id),
+            status=saved.status,
+            filename=filename,
+            extracted_text="",
+            items=[],
+        )
+
     async def confirm_prescription(
         self,
         *,

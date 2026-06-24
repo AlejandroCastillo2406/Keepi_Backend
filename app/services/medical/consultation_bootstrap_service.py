@@ -7,12 +7,15 @@ from typing import List, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.dto.analysis_request_dto import AnalysisRequestResponse
+from app.dto.analysis_request_dto import enrich_analysis_request_responses
 from app.dto.consultation_bootstrap_dto import ConsultationBootstrapResponse
 from app.dto.consultation_context_dto import ConsultationStatsDto
 from app.dto.timeline_dto import EventType, TimelineEventResponse
 from app.models.appointment import Appointment
 from app.repositories.analysis_request_repository import AnalysisRequestRepository
+from app.repositories.analysis_request_invitation_repository import (
+    AnalysisRequestInvitationRepository,
+)
 from app.repositories.appointment_repository import AppointmentRepository
 from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.consultation_context_service import ConsultationContextService
@@ -132,9 +135,10 @@ class ConsultationBootstrapService:
         analysis_rows = AnalysisRequestRepository(self._db).get_all_by_patient(
             patient_id
         )
-        analysis = [
-            AnalysisRequestResponse.model_validate(row) for row in analysis_rows
-        ]
+        exp_map = AnalysisRequestInvitationRepository(self._db).get_expires_at_map(
+            [r.id for r in analysis_rows]
+        )
+        analysis = enrich_analysis_request_responses(analysis_rows, exp_map)
         # Pass len(timeline) already computed — avoids re-fetching timeline in _stats_from
         stats = self._stats_from(doctor_id, patient_id, analysis_rows, len(timeline))
 

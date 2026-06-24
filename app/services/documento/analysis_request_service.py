@@ -3,14 +3,18 @@ from __future__ import annotations
 import io
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.dto.analysis_request_dto import AnalysisRequestCreate, AnalysisRequestResponse
+from app.dto.analysis_request_dto import (
+    AnalysisRequestCreate,
+    AnalysisRequestResponse,
+    enrich_analysis_request_responses,
+)
 from app.models.analysis_request import AnalysisRequest
 from app.models.document import Document
 from app.models.user import User
@@ -49,6 +53,27 @@ def _truncate(text: str, max_len: int) -> str:
     return t[: max_len - 3] + "..."
 
 
+def _resolve_expires_at(expires_at: Optional[datetime]) -> datetime:
+    if expires_at is None:
+        return datetime.now(timezone.utc) + timedelta(days=_INVITATION_TTL_DAYS)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    else:
+        expires_at = expires_at.astimezone(timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400,
+            detail="La fecha límite debe ser posterior a la fecha actual.",
+        )
+    return expires_at
+
+
+def _format_deadline_label(expires_at: datetime) -> str:
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at.strftime("%d/%m/%Y")
+
+
 class AnalysisRequestService:
     def __init__(
         self,
@@ -71,16 +96,22 @@ class AnalysisRequestService:
         analysis_request_id: UUID,
         description: str,
         public_link: Optional[str],
+        expires_at: datetime,
     ) -> None:
         doctor = self._users.get_by_id_plain(doctor_id)
         doctor_name = (doctor.name if doctor else None) or "Tu médico"
         patient_name = (patient.name if patient else None) or "Hola"
         patient_email = (patient.email if patient else None) or ""
+        deadline_label = _format_deadline_label(expires_at)
         desc_preview = _truncate(description, 220)
         body = (
-            f"{doctor_name} te pidió subir resultados: {desc_preview}"
+            f"{doctor_name} te pidió subir resultados antes del {deadline_label}: "
+            f"{desc_preview}"
             if desc_preview
-            else f"{doctor_name} te envió una solicitud de análisis."
+            else (
+                f"{doctor_name} te envió una solicitud de análisis. "
+                f"Fecha límite: {deadline_label}."
+            )
         )
 
         title = "Nueva solicitud de análisis"
@@ -88,6 +119,7 @@ class AnalysisRequestService:
             "analysis_request_id": str(analysis_request_id),
             "doctor_id": str(doctor_id),
             "description": description,
+            "expires_at": expires_at.isoformat(),
         }
         push_data = {
             "type": "analysis_request_assigned",
@@ -95,6 +127,7 @@ class AnalysisRequestService:
             "doctor_id": str(doctor_id),
             "title": title,
             "body": body,
+            "expires_at": expires_at.isoformat(),
         }
         if public_link:
             payload["public_upload_link"] = public_link
@@ -129,7 +162,7 @@ class AnalysisRequestService:
                 doctor_name=doctor_name,
                 description=description,
                 public_link=link,
-                expires_in_days=_INVITATION_TTL_DAYS,
+                expires_at=expires_at,
             )
             email_subject = build_analysis_upload_email_subject(doctor_name)
             try:
@@ -240,9 +273,26 @@ class AnalysisRequestService:
                 analysis_req.doctor_id,
             )
 
+    def _to_response(
+        self,
+        row: AnalysisRequest,
+        expires_at: Optional[datetime] = None,
+    ) -> AnalysisRequestResponse:
+        if expires_at is None:
+            expires_at = self._invitations.get_expires_at_for_request(row.id)
+        resp = AnalysisRequestResponse.model_validate(row)
+        if expires_at is not None:
+            return resp.model_copy(update={"expires_at": expires_at})
+        return resp
+
+    def _to_responses(self, rows: List[AnalysisRequest]) -> List[AnalysisRequestResponse]:
+        exp_map = self._invitations.get_expires_at_map([r.id for r in rows])
+        return enrich_analysis_request_responses(rows, exp_map)
+
     def create_request(
         self, doctor_id: UUID, data: AnalysisRequestCreate
     ) -> AnalysisRequestResponse:
+        expires_at = _resolve_expires_at(data.expires_at)
         created = self._repo.create(
             doctor_id=doctor_id,
             patient_id=data.patient_id,
@@ -256,7 +306,7 @@ class AnalysisRequestService:
                 analysis_request=created,
                 patient_email=(patient.email if patient else None),
                 patient_name=(patient.name if patient else None),
-                ttl_days=_INVITATION_TTL_DAYS,
+                expires_at=expires_at,
             )
             public_link = build_public_analysis_upload_link(raw_token)
         except Exception:
@@ -273,6 +323,7 @@ class AnalysisRequestService:
             analysis_request_id=created.id,
             description=data.description,
             public_link=public_link,
+            expires_at=expires_at,
         )
         note_text = (getattr(data, "doctor_note", None) or "").strip()
         if note_text:
@@ -288,17 +339,17 @@ class AnalysisRequestService:
                 event_type=EventType.ANALYSIS_REQUEST.value,
                 content=note_text,
             )
-        return created
+        return self._to_response(created, expires_at)
 
     def get_pending_for_patient(
         self, patient_id: UUID
     ) -> List[AnalysisRequestResponse]:
-        return self._repo.get_pending_by_patient(patient_id)
+        return self._to_responses(self._repo.get_pending_by_patient(patient_id))
 
     def list_history_for_patient(
         self, patient_id: UUID
     ) -> List[AnalysisRequestResponse]:
-        return self._repo.get_all_by_patient(patient_id)
+        return self._to_responses(self._repo.get_all_by_patient(patient_id))
 
     def complete_with_existing_document(
         self,

@@ -36,6 +36,25 @@ async def create_prescription_draft(
     )
 
 
+@router.post("/draft/manual", response_model=PrescriptionDraftResponse)
+async def create_prescription_manual_draft(
+    patient_id: UUID = Form(...),
+    file: UploadFile | None = File(None),
+    current_user: User = Depends(require_no_temp_password_user),
+    svc: PrescriptionService = Depends(get_prescription_service),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo DOCTOR puede asignar recetas",
+        )
+    return await svc.create_draft_manual(
+        doctor_id=current_user.id,
+        patient_id=patient_id,
+        file=file,
+    )
+
+
 @router.put("/{prescription_id}/confirm", response_model=PrescriptionPatientResponse)
 async def confirm_prescription(
     prescription_id: UUID,

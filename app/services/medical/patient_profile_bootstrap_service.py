@@ -4,10 +4,13 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.dto.analysis_request_dto import AnalysisRequestResponse
+from app.dto.analysis_request_dto import enrich_analysis_request_responses
 from app.dto.consultation_context_dto import ConsultationStatsDto
 from app.dto.patient_profile_bootstrap_dto import PatientProfileBootstrapResponse
 from app.repositories.analysis_request_repository import AnalysisRequestRepository
+from app.repositories.analysis_request_invitation_repository import (
+    AnalysisRequestInvitationRepository,
+)
 from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.consultation_context_service import ConsultationContextService
 from app.services.medical.patient_timeline_service import PatientTimelineService
@@ -28,9 +31,10 @@ class PatientProfileBootstrapService:
         analysis_rows = AnalysisRequestRepository(self._db).get_all_by_patient(
             patient_id
         )
-        analysis = [
-            AnalysisRequestResponse.model_validate(row) for row in analysis_rows
-        ]
+        exp_map = AnalysisRequestInvitationRepository(self._db).get_expires_at_map(
+            [r.id for r in analysis_rows]
+        )
+        analysis = enrich_analysis_request_responses(analysis_rows, exp_map)
 
         uploaded = sum(
             1 for r in analysis_rows

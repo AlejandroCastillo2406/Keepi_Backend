@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 
 class AnalysisRequestCreate(BaseModel):
@@ -23,7 +23,22 @@ class AnalysisRequestResponse(BaseModel):
     created_at: datetime
     document_id: Optional[UUID] = None
     completed_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
 
     class Config:
 
         from_attributes = True
+
+
+def enrich_analysis_request_responses(
+    rows: List[Any],
+    expires_by_request_id: Dict[UUID, datetime],
+) -> List[AnalysisRequestResponse]:
+    out: List[AnalysisRequestResponse] = []
+    for row in rows:
+        resp = AnalysisRequestResponse.model_validate(row)
+        exp = expires_by_request_id.get(row.id)
+        if exp is not None:
+            resp = resp.model_copy(update={"expires_at": exp})
+        out.append(resp)
+    return out
