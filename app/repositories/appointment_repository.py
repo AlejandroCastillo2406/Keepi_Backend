@@ -110,3 +110,43 @@ class AppointmentRepository:
         if patient_id is not None:
             q = q.filter(Appointment.patient_id == patient_id)
         return q.all()
+    
+    def list_scheduled_for_attendance_detail(
+        self,
+        doctor_id: uuid.UUID,
+        attendance_status: str | None = None,
+        patient_id: uuid.UUID | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> List[Appointment]:
+        q = (
+            self._db.query(Appointment)
+            .options(joinedload(Appointment.patient))
+            .filter(
+                Appointment.doctor_id == doctor_id,
+                Appointment.status == "scheduled",
+                Appointment.appointment_date.isnot(None),
+            )
+        )
+
+        if patient_id is not None:
+            q = q.filter(Appointment.patient_id == patient_id)
+
+        if attendance_status == "pending":
+            q = q.filter(Appointment.attendance_status.is_(None))
+        elif attendance_status in ("attended", "no_show"):
+            q = q.filter(Appointment.attendance_status == attendance_status)
+
+        if date_from is not None:
+            q = q.filter(Appointment.appointment_date >= date_from)
+
+        if date_to is not None:
+            q = q.filter(Appointment.appointment_date <= date_to)
+
+        return (
+            q.order_by(
+                Appointment.appointment_date.desc().nullslast(),
+                Appointment.created_at.desc(),
+            )
+            .all()
+        )

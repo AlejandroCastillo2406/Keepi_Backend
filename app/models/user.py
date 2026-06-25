@@ -8,6 +8,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
+from typing import Optional
+from datetime import datetime
+from pydantic import BaseModel, EmailStr
+
 from app.core.database import Base
 
 
@@ -122,3 +126,28 @@ class UserResponse(UserBase):
             "updated_at": obj.updated_at,
         }
         return cls(**data)
+    
+class DoctorPatientListItemResponse(BaseModel):
+    id: str
+    email: EmailStr
+    name: str
+    is_active: bool
+    created_at: datetime
+
+    phone: Optional[str] = None
+    sex: Optional[str] = None
+    age_years: Optional[int] = None
+    blood_type: Optional[str] = None
+    weight_kg: Optional[float] = None
+    allergies: Optional[str] = None
+
+    appointments_total: int = 0
+    appointments_attended: int = 0
+    appointments_no_show: int = 0
+    appointments_pending_attendance: int = 0
+
+    last_appointment_date: Optional[datetime] = None
+    next_appointment_date: Optional[datetime] = None
+
+    documents_total: int = 0
+    has_clinical_profile: bool = False

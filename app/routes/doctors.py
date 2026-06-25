@@ -1,6 +1,6 @@
 from uuid import UUID
 from typing import List
-
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.dto.clinical_intake_dto import ClinicalIntakeDetailResponse
 from app.dto.consultation_bootstrap_dto import ConsultationBootstrapResponse
 from app.dto.patient_profile_bootstrap_dto import PatientProfileBootstrapResponse
+from app.models.appointment import AttendanceDetailResponse
 from app.dto.consultation_context_dto import (
     AttendanceStatsDto,
     ClinicalProfileUpdateRequest,
@@ -24,6 +25,7 @@ from app.models.doctor_scheduling import PatientSchedulingLinkResponse
 from app.models.user import (
     DoctorCreatePatientRequest,
     DoctorCreatePatientResponse,
+    DoctorPatientListItemResponse,
     User,
 )
 from app.models.appointment import AppointmentDoctorProposeRequest, AppointmentResponse
@@ -79,16 +81,21 @@ async def create_patient_account(
     )
 
 
-@router.get("/patients")
+@router.get("/patients", response_model=List[DoctorPatientListItemResponse])
 async def list_my_patients(
     current_user: User = Depends(require_no_temp_password_user),
     svc: UserService = Depends(get_user_service),
 ):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+
     patient_role_id = svc.role_id_by_name(ROLE_PATIENT)
-    rows = svc.list_patients_created_by_doctor(current_user.id, patient_role_id)
-    return [{"id": str(u.id), "email": u.email, "name": u.name} for u in rows]
 
-
+    return svc.list_patients_created_by_doctor_enriched(
+        current_user.id,
+        patient_role_id,
+    )
+    
 @router.get("/attendance-stats", response_model=AttendanceStatsDto)
 async def get_doctor_attendance_stats(
     current_user: User = Depends(require_no_temp_password_user),
@@ -98,6 +105,26 @@ async def get_doctor_attendance_stats(
         raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
     return AppointmentService.get_doctor_attendance_stats(db, current_user.id)
 
+@router.get("/attendance-detail", response_model=AttendanceDetailResponse)
+async def get_doctor_attendance_detail(
+    status: str = Query(..., pattern="^(attended|no_show|pending)$"),
+    patient_id: UUID | None = Query(None),
+    date_from: datetime | None = Query(None),
+    date_to: datetime | None = Query(None),
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+
+    return AppointmentService.get_doctor_attendance_detail(
+        db=db,
+        doctor_id=current_user.id,
+        status=status,
+        patient_id=patient_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
 @router.delete("/patients/{patient_id}", status_code=204)
 async def delete_patient_account(

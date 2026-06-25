@@ -17,7 +17,10 @@ from app.models.appointment import (
 )
 from app.repositories.appointment_repository import AppointmentRepository
 from app.dto.consultation_context_dto import AttendanceStatsDto
-
+from app.models.appointment import (
+    AttendanceDetailResponse,
+    AttendanceDetailItemResponse,
+)
 
 class AppointmentService:
 
@@ -813,4 +816,75 @@ class AppointmentService:
         return PublicAppointmentRespondResponse(
             status=appt.status,
             message="Cita rechazada.",
+        )
+    
+    @staticmethod
+    def get_doctor_attendance_detail(
+        db: Session,
+        doctor_id: UUID,
+        status: str,
+        patient_id: UUID | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> AttendanceDetailResponse:
+        from datetime import timezone
+
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+
+        if status not in ("attended", "no_show", "pending"):
+            raise HTTPException(status_code=400, detail="Status inválido.")
+
+        repo = AppointmentService._repo(db)
+        rows = repo.list_scheduled_for_attendance_detail(
+            doctor_id=doctor_id,
+            attendance_status=status,
+            patient_id=patient_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        settings = DoctorAvailabilityService.get_settings(db, doctor_id)
+        slot_minutes = settings.slot_duration_minutes
+        now = datetime.now(timezone.utc)
+
+        items = []
+
+        for row in rows:
+            start = row.appointment_date
+            if start is None:
+                continue
+
+            end = row.end_date or start + timedelta(minutes=slot_minutes)
+
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+
+            # Solo citas que ya terminaron
+            if now < end:
+                continue
+
+            patient = getattr(row, "patient", None)
+
+            items.append(
+                AttendanceDetailItemResponse(
+                    appointment_id=row.id,
+                    patient_id=row.patient_id,
+                    patient_name=getattr(patient, "name", None),
+                    patient_email=getattr(patient, "email", None),
+                    appointment_date=row.appointment_date,
+                    end_date=row.end_date,
+                    reason=row.reason or "",
+                    attendance_status=row.attendance_status,
+                )
+            )
+
+        return AttendanceDetailResponse(
+            status=status,
+            total=len(items),
+            items=items,
         )

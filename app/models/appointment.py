@@ -154,3 +154,19 @@ class DoctorCalendarResponse(BaseModel):
     appointments: List[AppointmentResponse]
     procedures: List[ProcedureBlockResponse] = []
     consultation_schedule: ConsultationScheduleResponse
+
+class AttendanceDetailItemResponse(BaseModel):
+    appointment_id: PyUUID
+    patient_id: PyUUID
+    patient_name: Optional[str] = None
+    patient_email: Optional[str] = None
+    appointment_date: datetime
+    end_date: Optional[datetime] = None
+    reason: str = ""
+    attendance_status: Optional[str] = None
+
+
+class AttendanceDetailResponse(BaseModel):
+    status: str
+    total: int
+    items: List[AttendanceDetailItemResponse]

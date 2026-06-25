@@ -16,7 +16,7 @@ from app.utils.auth import (
     get_password_hash,
     verify_password,
 )
-
+from app.models.user import DoctorPatientListItemResponse
 
 class UserService:
 
@@ -298,3 +298,58 @@ class UserService:
             "user_id": str(user.id),
             "email": user.email,
         }
+    
+    def list_patients_created_by_doctor_enriched(
+        self,
+        doctor_id,
+        patient_role_id: int,
+    ) -> List[DoctorPatientListItemResponse]:
+        rows = self._users.list_created_by_with_patient_summary(
+            doctor_id,
+            patient_role_id,
+        )
+
+        result = []
+
+        for (
+            patient,
+            clinical_profile,
+            appointments_total,
+            appointments_attended,
+            appointments_no_show,
+            appointments_pending_attendance,
+            last_appointment_date,
+            next_appointment_date,
+            documents_total,
+        ) in rows:
+            result.append(
+                DoctorPatientListItemResponse(
+                    id=str(patient.id),
+                    email=patient.email,
+                    name=patient.name,
+                    is_active=bool(patient.is_active),
+                    created_at=patient.created_at,
+
+                    phone=getattr(clinical_profile, "phone", None),
+                    sex=getattr(clinical_profile, "sex", None),
+                    age_years=getattr(clinical_profile, "age_years", None),
+                    blood_type=getattr(clinical_profile, "blood_type", None),
+                    weight_kg=getattr(clinical_profile, "weight_kg", None),
+                    allergies=getattr(clinical_profile, "allergies", None),
+
+                    appointments_total=int(appointments_total or 0),
+                    appointments_attended=int(appointments_attended or 0),
+                    appointments_no_show=int(appointments_no_show or 0),
+                    appointments_pending_attendance=int(
+                        appointments_pending_attendance or 0
+                    ),
+
+                    last_appointment_date=last_appointment_date,
+                    next_appointment_date=next_appointment_date,
+
+                    documents_total=int(documents_total or 0),
+                    has_clinical_profile=clinical_profile is not None,
+                )
+            )
+
+        return result
