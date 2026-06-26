@@ -69,6 +69,7 @@ def build_doctor_scheduled_appointment_email_html(
     reason: str,
     when_label: str,
     confirmed_from_web: bool = False,
+    scheduling_link: str | None = None,
 ) -> str:
     safe_reason = escape((reason or "Consulta médica").strip(), quote=True)
     safe_when = escape(when_label.strip(), quote=True)
@@ -109,6 +110,7 @@ def build_doctor_scheduled_appointment_email_html(
         ),
         highlight_box_html=highlight,
         badge_subtitle="Cita médica confirmada",
+        scheduling_link=scheduling_link,
     )
 
 
@@ -119,6 +121,7 @@ def build_appointment_proposal_email_html(
     reason: str,
     when_label: str,
     response_link: str,
+    scheduling_link: str | None = None,
 ) -> str:
     return build_clinical_action_email_html(
         patient_name=patient_name,
@@ -133,6 +136,7 @@ def build_appointment_proposal_email_html(
         footer_note="Si el enlace no funciona, abre la app Keepi para gestionar la cita.",
         highlight_box_html="",
         badge_subtitle="Propuesta de cita",
+        scheduling_link=scheduling_link,
     )
 
 
@@ -146,7 +150,6 @@ def build_appointment_rejection_email_html(
 ) -> str:
     safe_reason = escape((reason or "Consulta médica").strip(), quote=True)
     safe_when = escape(when_label.strip(), quote=True)
-    safe_link = escape(scheduling_link, quote=True)
     highlight = f"""
       <div style="margin:0 0 4px;padding:16px;border-radius:12px;background:#F8FAFC;
         border:1px solid #E2E8F0;">
@@ -160,32 +163,7 @@ def build_appointment_rejection_email_html(
         </p>
       </div>"""
 
-    scheduling_block = ""
-    if scheduling_link.startswith("http"):
-        scheduling_block = f"""
-      <div style="margin:24px 0 0;padding:18px;border-radius:12px;background:#F0F9FF;
-        border:1px solid #BAE6FD;">
-        <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0C4A6E;">
-          Agenda cuando quieras
-        </p>
-        <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#0369A1;">
-          Este enlace es personal y puedes usarlo cuando desees solicitar una nueva cita.
-        </p>
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
-          <tr>
-            <td align="center">
-              <a href="{safe_link}" target="_blank"
-                style="display:inline-block;background:#0284C7;color:#ffffff;
-                  text-decoration:none;font-size:14px;font-weight:600;
-                  padding:12px 24px;border-radius:50px;text-align:center;">
-                Agendar una cita
-              </a>
-            </td>
-          </tr>
-        </table>
-      </div>"""
-
-    html = build_clinical_action_email_html(
+    return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
         headline="Tu solicitud de cita no fue confirmada",
@@ -193,17 +171,15 @@ def build_appointment_rejection_email_html(
             f"{_format_doctor_display(doctor_name)} no pudo confirmar la cita que solicitaste.",
             "Puedes elegir otro horario cuando lo desees usando el enlace de abajo.",
         ],
-        cta_label=(
-            "Agendar una cita" if scheduling_link.startswith("http") else ""
-        ),
-        cta_href=scheduling_link if scheduling_link.startswith("http") else "",
+        cta_label="",
+        cta_href="",
         footer_note=(
             "Si tienes dudas, contacta directamente a tu médico."
         ),
-        highlight_box_html=highlight + scheduling_block,
+        highlight_box_html=highlight,
         badge_subtitle="Solicitud de cita",
+        scheduling_link=scheduling_link,
     )
-    return html
 
 
 def send_doctor_scheduled_appointment_email(
@@ -214,6 +190,7 @@ def send_doctor_scheduled_appointment_email(
     reason: str,
     when_label: str,
     confirmed_from_web: bool = False,
+    scheduling_link: str | None = None,
 ) -> AppointmentEmailResult:
     email = (to_email or "").strip()
     if not email:
@@ -226,6 +203,7 @@ def send_doctor_scheduled_appointment_email(
         reason=reason,
         when_label=when_label,
         confirmed_from_web=confirmed_from_web,
+        scheduling_link=scheduling_link,
     )
     result = send_simple_html_email_ses(email, subject, html)
     return AppointmentEmailResult(
@@ -243,6 +221,7 @@ def send_appointment_proposal_email(
     reason: str,
     when_label: str,
     response_link: str,
+    scheduling_link: str | None = None,
 ) -> AppointmentEmailResult:
     email = (to_email or "").strip()
     if not email:
@@ -255,6 +234,7 @@ def send_appointment_proposal_email(
         reason=reason,
         when_label=when_label,
         response_link=response_link,
+        scheduling_link=scheduling_link,
     )
     result = send_simple_html_email_ses(email, subject, html)
     return AppointmentEmailResult(

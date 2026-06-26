@@ -346,6 +346,20 @@ class DoctorAvailabilityService:
         return raw
 
     @staticmethod
+    def resolve_patient_scheduling_link(
+        db: Session, patient_id: UUID, doctor_id: UUID
+    ) -> str:
+        """Enlace web permanente del paciente para agendar con su médico."""
+        from app.services.notificaciones.patient_invite_email_service import (
+            build_public_scheduling_link,
+        )
+
+        raw = DoctorAvailabilityService.create_patient_scheduling_token(
+            db, patient_id, doctor_id
+        )
+        return build_public_scheduling_link(raw)
+
+    @staticmethod
     def build_patient_scheduling_link(
         db: Session, doctor_id: UUID, patient_id: UUID, *, patient_name: str
     ) -> PatientSchedulingLinkResponse:

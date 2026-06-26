@@ -43,6 +43,7 @@ def build_analysis_upload_email_html(
     public_link: str,
     expires_at: datetime | None = None,
     expires_in_days: int = 30,
+    scheduling_link: str | None = None,
 ) -> str:
     desc = (description or "").strip()
     highlight = ""
@@ -119,4 +120,5 @@ def build_analysis_upload_email_html(
         footer_note=footer_note,
         highlight_box_html=highlight,
         badge_subtitle="Solicitud de análisis",
+        scheduling_link=scheduling_link,
     )

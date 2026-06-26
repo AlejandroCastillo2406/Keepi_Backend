@@ -23,6 +23,7 @@ def build_questionnaire_invite_email_html(
     intake_only: bool = False,
     collect_prior_documents: bool = False,
     has_questionnaire: bool = False,
+    scheduling_link: str | None = None,
 ) -> str:
     doctor = _format_doctor_display(doctor_name)
     parts: list[str] = []
@@ -57,6 +58,7 @@ def build_questionnaire_invite_email_html(
         cta_href=public_link,
         footer_note="Si el enlace expiró, solicita uno nuevo a tu médico.",
         badge_subtitle="Keepi · Solicitud de tu médico",
+        scheduling_link=scheduling_link,
     )
 
 
@@ -82,6 +84,7 @@ def send_questionnaire_invite_email(
     intake_only: bool = False,
     collect_prior_documents: bool = False,
     has_questionnaire: bool = False,
+    scheduling_link: str | None = None,
 ):
     subject = build_questionnaire_invite_email_subject(
         doctor_name,
@@ -96,5 +99,6 @@ def send_questionnaire_invite_email(
         intake_only=intake_only,
         collect_prior_documents=collect_prior_documents,
         has_questionnaire=has_questionnaire,
+        scheduling_link=scheduling_link,
     )
     return send_simple_html_email_ses(to_email, subject, html)

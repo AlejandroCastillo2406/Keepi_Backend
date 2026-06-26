@@ -191,6 +191,9 @@ class AppointmentService:
 
         email = (patient.email or "").strip()
         if email:
+            scheduling_link = DoctorAvailabilityService.resolve_patient_scheduling_link(
+                db, appointment.patient_id, appointment.doctor_id
+            )
             send_doctor_scheduled_appointment_email(
                 to_email=email,
                 patient_name=patient_name,
@@ -198,6 +201,7 @@ class AppointmentService:
                 reason=reason,
                 when_label=when_label,
                 confirmed_from_web=False,
+                scheduling_link=scheduling_link,
             )
 
     @staticmethod
@@ -231,6 +235,9 @@ class AppointmentService:
         email = (patient.email or "").strip()
         if not email:
             return
+        scheduling_link = DoctorAvailabilityService.resolve_patient_scheduling_link(
+            db, appointment.patient_id, appointment.doctor_id
+        )
         send_doctor_scheduled_appointment_email(
             to_email=email,
             patient_name=patient_name,
@@ -238,6 +245,7 @@ class AppointmentService:
             reason=reason,
             when_label=when_label,
             confirmed_from_web=confirmed_from_web,
+            scheduling_link=scheduling_link,
         )
 
     @staticmethod
@@ -294,6 +302,9 @@ class AppointmentService:
         email = (patient.email or "").strip()
         if email:
             response_link = build_public_appointment_link(raw_token)
+            scheduling_link = DoctorAvailabilityService.resolve_patient_scheduling_link(
+                db, appointment.patient_id, appointment.doctor_id
+            )
             send_appointment_proposal_email(
                 to_email=email,
                 patient_name=patient_name,
@@ -301,6 +312,7 @@ class AppointmentService:
                 reason=reason,
                 when_label=when_label,
                 response_link=response_link,
+                scheduling_link=scheduling_link,
             )
 
     @staticmethod
@@ -317,9 +329,6 @@ class AppointmentService:
         from app.services.notificaciones.appointment_email_service import (
             _format_slot_range,
             send_appointment_rejection_email,
-        )
-        from app.services.notificaciones.patient_invite_email_service import (
-            build_public_scheduling_link,
         )
 
         patient = UserRepository(db).get_by_id_with_role(appointment.patient_id)
@@ -338,12 +347,11 @@ class AppointmentService:
         if not email:
             return
 
-        raw_token = DoctorAvailabilityService.create_patient_scheduling_token(
+        scheduling_link = DoctorAvailabilityService.resolve_patient_scheduling_link(
             db,
             appointment.patient_id,
             appointment.doctor_id,
         )
-        scheduling_link = build_public_scheduling_link(raw_token)
         send_appointment_rejection_email(
             to_email=email,
             patient_name=patient_name,

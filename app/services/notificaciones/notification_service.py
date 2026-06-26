@@ -315,6 +315,29 @@ class NotificationService:
                 }
 
                 if email_to:
+                    from app.services.medical.doctor_availability_service import (
+                        DoctorAvailabilityService,
+                    )
+                    from app.services.notificaciones.clinical_email_layout import (
+                        build_patient_reminder_email_html,
+                    )
+
+                    doctor = user_repo.get_by_id_plain(analysis_req.doctor_id)
+                    doctor_name = (getattr(doctor, "name", None) or "").strip() or "Tu médico"
+                    patient_name = (getattr(patient, "name", None) or "").strip() or "Paciente"
+                    scheduling_link = DoctorAvailabilityService.resolve_patient_scheduling_link(
+                        self.db,
+                        inv.patient_id,
+                        analysis_req.doctor_id,
+                    )
+                    email_html = build_patient_reminder_email_html(
+                        patient_name=patient_name,
+                        doctor_name=doctor_name,
+                        headline=title,
+                        message=message,
+                        scheduling_link=scheduling_link,
+                        badge_subtitle="Recordatorio de análisis",
+                    )
                     res = notify_user_push_db_and_email(
                         self.db,
                         inv.patient_id,
@@ -325,6 +348,7 @@ class NotificationService:
                         payload=payload,
                         push_data=push_data,
                         email_subject=title,
+                        email_html=email_html,
                     )
                 else:
                     notify_user_push_and_db(

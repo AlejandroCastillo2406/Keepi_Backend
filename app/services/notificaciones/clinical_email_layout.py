@@ -61,6 +61,29 @@ def _format_doctor_display(doctor_name: str) -> str:
     return f"Dr. {name}"
 
 
+def build_patient_reminder_email_html(
+    *,
+    patient_name: str,
+    doctor_name: str,
+    headline: str,
+    message: str,
+    scheduling_link: str | None = None,
+    badge_subtitle: str = "Recordatorio de tu médico",
+) -> str:
+    """Correo simple al paciente (recordatorios) con enlace de agenda opcional."""
+    return build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        headline=headline,
+        body_paragraphs=[message],
+        cta_label="",
+        cta_href="",
+        footer_note="Si tienes dudas, contacta directamente a tu médico.",
+        badge_subtitle=badge_subtitle,
+        scheduling_link=scheduling_link,
+    )
+
+
 def build_clinical_action_email_html(
     *,
     patient_name: str,
@@ -74,6 +97,7 @@ def build_clinical_action_email_html(
     badge_subtitle: str = "Solicitud de tu médico",
     secondary_cta_label: str = "",
     secondary_cta_href: str = "",
+    scheduling_link: str | None = None,
 ) -> str:
     """
     Correo de acción del paciente (cuestionario, análisis, etc.) con nombre del doctor visible.
@@ -145,6 +169,15 @@ def build_clinical_action_email_html(
         if p and p.strip()
     )
 
+    scheduling_block = ""
+    link = (scheduling_link or "").strip()
+    if link.startswith("http"):
+        from app.services.notificaciones.patient_invite_email_service import (
+            build_scheduling_link_html_block,
+        )
+
+        scheduling_block = build_scheduling_link_html_block(link)
+
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -204,6 +237,7 @@ def build_clinical_action_email_html(
 
             {paragraphs_html}
             {highlight_box_html}
+            {scheduling_block}
             {cta_block}
 
             <p style="margin:0;font-size:13px;line-height:1.55;color:#9CA3AF;text-align:center;">

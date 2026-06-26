@@ -31,6 +31,7 @@ from app.services.notificaciones.analysis_upload_invite_email_service import (
     build_public_analysis_upload_link,
 )
 from app.services.notificaciones.notification_service import NotificationService
+from app.services.medical.doctor_availability_service import DoctorAvailabilityService
 from app.services.notificaciones.user_notify import (
     notify_user_push_and_db,
     notify_user_push_db_and_email,
@@ -163,6 +164,9 @@ class AnalysisRequestService:
                 description=description,
                 public_link=link,
                 expires_at=expires_at,
+                scheduling_link=DoctorAvailabilityService.resolve_patient_scheduling_link(
+                    self._db, patient_id, doctor_id
+                ),
             )
             email_subject = build_analysis_upload_email_subject(doctor_name)
             try:

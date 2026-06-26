@@ -47,6 +47,7 @@ from app.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
 from app.services.notificaciones.notification_service import NotificationService
+from app.services.medical.doctor_availability_service import DoctorAvailabilityService
 from app.services.notificaciones.questionnaire_invite_email_service import (
     build_public_questionnaire_link,
     send_questionnaire_invite_email,
@@ -276,6 +277,9 @@ class QuestionnaireService:
         public_link = build_public_questionnaire_link(raw_token)
         doctor = UserRepository(self._db).get_by_id_plain(doctor_id)
         doctor_name = (doctor.name if doctor else None) or "Tu médico"
+        scheduling_link = DoctorAvailabilityService.resolve_patient_scheduling_link(
+            self._db, uuid.UUID(str(summary.patient_id)), doctor_id
+        )
         link_ok = (public_link or "").strip().startswith("http")
         if not link_ok:
             logger.warning(
@@ -297,6 +301,7 @@ class QuestionnaireService:
                 getattr(payload, "collect_prior_documents", False)
             ),
             has_questionnaire=bool(getattr(payload, "template_ids", None) or []),
+            scheduling_link=scheduling_link,
         )
         if email_res.success:
             logger.info(

@@ -28,7 +28,7 @@ def build_public_scheduling_link(raw_token: str) -> str:
     return f"{base}/book/{raw_token}"
 
 
-def _scheduling_block(scheduling_link: str) -> str:
+def build_scheduling_link_html_block(scheduling_link: str) -> str:
     safe_link = escape(scheduling_link, quote=True)
     return f"""
       <div style="margin:24px 0 0;padding:18px;border-radius:12px;background:#F0F9FF;
@@ -75,11 +75,6 @@ def _html(
       <p style="margin:0;font-size:14px;color:#6B7280;">
         Por seguridad, deberás elegir una nueva contraseña la primera vez que entres a la app.
       </p>"""
-    scheduling_html = (
-        _scheduling_block(scheduling_link)
-        if scheduling_link and scheduling_link.startswith("http")
-        else ""
-    )
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name or "Tu médico",
@@ -90,8 +85,9 @@ def _html(
         cta_label="Ir a Keepi",
         cta_href=(settings.email_link_account or "https://keepi.onrender.com").strip(),
         footer_note="No compartas tu contraseña temporal con nadie.",
-        highlight_box_html=cred_block + scheduling_html,
+        highlight_box_html=cred_block,
         badge_subtitle="Invitación de tu médico",
+        scheduling_link=scheduling_link,
     )
 
 
