@@ -122,20 +122,48 @@ def build_appointment_proposal_email_html(
     when_label: str,
     response_link: str,
     scheduling_link: str | None = None,
+    reschedule_confirmed: bool = False,
 ) -> str:
+    safe_reason = escape((reason or "Consulta médica").strip(), quote=True)
+    safe_when = escape(when_label.strip(), quote=True)
+    highlight = f"""
+      <div style="margin:0 0 4px;padding:16px;border-radius:12px;background:#F8FAFC;
+        border:1px solid #E2E8F0;">
+        <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:0.05em;
+          text-transform:uppercase;color:#64748B;">Nuevo horario propuesto</p>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Fecha y hora:</strong> {safe_when}
+        </p>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Motivo:</strong> {safe_reason}
+        </p>
+      </div>"""
+
+    if reschedule_confirmed:
+        headline = "Propuesta para reprogramar tu cita"
+        paragraphs = [
+            f"{_format_doctor_display(doctor_name)} propone un nuevo horario para tu cita confirmada.",
+            "Pulsa el botón para aceptar el cambio o rechazar la reprogramación.",
+        ]
+        badge = "Reprogramación de cita"
+    else:
+        headline = "Tienes una propuesta de cita"
+        paragraphs = [
+            f"{_format_doctor_display(doctor_name)} te propone un nuevo horario para tu consulta.",
+            "Pulsa el botón para ver los detalles y confirmar o rechazar la cita.",
+        ]
+        badge = "Propuesta de cita"
+
     return build_clinical_action_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
-        headline="Tienes una propuesta de cita",
-        body_paragraphs=[
-            f"{_format_doctor_display(doctor_name)} te propone un nuevo horario para tu consulta.",
-            "Pulsa el botón para ver los detalles y confirmar o rechazar la cita.",
-        ],
+        headline=headline,
+        body_paragraphs=paragraphs,
         cta_label="Contestar",
         cta_href=response_link,
         footer_note="Si el enlace no funciona, abre la app Keepi para gestionar la cita.",
-        highlight_box_html="",
-        badge_subtitle="Propuesta de cita",
+        highlight_box_html=highlight,
+        badge_subtitle=badge,
         scheduling_link=scheduling_link,
     )
 
@@ -182,6 +210,58 @@ def build_appointment_rejection_email_html(
     )
 
 
+def build_appointment_canceled_email_html(
+    *,
+    patient_name: str,
+    doctor_name: str,
+    reason: str,
+    when_label: str,
+    scheduling_link: str | None = None,
+    was_confirmed: bool = False,
+) -> str:
+    safe_reason = escape((reason or "Consulta médica").strip(), quote=True)
+    safe_when = escape(when_label.strip(), quote=True)
+    highlight = f"""
+      <div style="margin:0 0 4px;padding:16px;border-radius:12px;background:#F8FAFC;
+        border:1px solid #E2E8F0;">
+        <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:0.05em;
+          text-transform:uppercase;color:#64748B;">Cita cancelada</p>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Fecha y hora:</strong> {safe_when}
+        </p>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#334155;">
+          <strong>Motivo:</strong> {safe_reason}
+        </p>
+      </div>"""
+
+    headline = (
+        "Tu cita confirmada fue cancelada"
+        if was_confirmed
+        else "Tu cita fue cancelada"
+    )
+    intro = (
+        f"{_format_doctor_display(doctor_name)} canceló tu cita confirmada."
+        if was_confirmed
+        else f"{_format_doctor_display(doctor_name)} canceló la cita programada."
+    )
+
+    return build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        headline=headline,
+        body_paragraphs=[
+            intro,
+            "Si deseas agendar de nuevo, puedes usar tu enlace personal de agenda.",
+        ],
+        cta_label="",
+        cta_href="",
+        footer_note="Si tienes dudas, contacta directamente a tu médico.",
+        highlight_box_html=highlight,
+        badge_subtitle="Cita cancelada",
+        scheduling_link=scheduling_link,
+    )
+
+
 def send_doctor_scheduled_appointment_email(
     *,
     to_email: str,
@@ -222,12 +302,17 @@ def send_appointment_proposal_email(
     when_label: str,
     response_link: str,
     scheduling_link: str | None = None,
+    reschedule_confirmed: bool = False,
 ) -> AppointmentEmailResult:
     email = (to_email or "").strip()
     if not email:
         return AppointmentEmailResult(success=False, error="Paciente sin correo")
 
-    subject = f"Propuesta de cita con {_format_doctor_display(doctor_name)}"
+    subject = (
+        f"Reprogramación de cita con {_format_doctor_display(doctor_name)}"
+        if reschedule_confirmed
+        else f"Propuesta de cita con {_format_doctor_display(doctor_name)}"
+    )
     html = build_appointment_proposal_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
@@ -235,6 +320,7 @@ def send_appointment_proposal_email(
         when_label=when_label,
         response_link=response_link,
         scheduling_link=scheduling_link,
+        reschedule_confirmed=reschedule_confirmed,
     )
     result = send_simple_html_email_ses(email, subject, html)
     return AppointmentEmailResult(
@@ -261,12 +347,41 @@ def send_appointment_rejection_email(
         f"Tu solicitud de cita con {_format_doctor_display(doctor_name)} "
         "no fue confirmada"
     )
-    html = build_appointment_rejection_email_html(
+    result = send_simple_html_email_ses(email, subject, html)
+    return AppointmentEmailResult(
+        success=result.success,
+        error=result.error,
+        ses_message_id=result.ses_message_id,
+    )
+
+
+def send_appointment_canceled_email(
+    *,
+    to_email: str,
+    patient_name: str,
+    doctor_name: str,
+    reason: str,
+    when_label: str,
+    scheduling_link: str | None = None,
+    was_confirmed: bool = False,
+) -> AppointmentEmailResult:
+    email = (to_email or "").strip()
+    if not email:
+        return AppointmentEmailResult(success=False, error="Paciente sin correo")
+
+    doctor = _format_doctor_display(doctor_name)
+    subject = (
+        f"Tu cita con {doctor} fue cancelada"
+        if was_confirmed
+        else f"Cancelación de cita con {doctor}"
+    )
+    html = build_appointment_canceled_email_html(
         patient_name=patient_name,
         doctor_name=doctor_name,
         reason=reason,
         when_label=when_label,
         scheduling_link=scheduling_link,
+        was_confirmed=was_confirmed,
     )
     result = send_simple_html_email_ses(email, subject, html)
     return AppointmentEmailResult(

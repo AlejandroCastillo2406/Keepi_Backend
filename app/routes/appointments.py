@@ -157,7 +157,7 @@ async def cancel_doctor_appointment(
     db: Session = Depends(get_db),
 ):
     return AppointmentService.cancel_doctor_appointment(
-        db, appointment_id, current_user.id
+        db, appointment_id, current_user.id, current_user.name or ""
     )
 
 

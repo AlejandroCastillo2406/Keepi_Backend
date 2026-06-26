@@ -255,6 +255,7 @@ class AppointmentService:
         *,
         doctor_name: str,
         raw_token: str,
+        reschedule_confirmed: bool = False,
     ) -> None:
         from app.repositories.user_repository import UserRepository
         from app.services.medical.doctor_availability_service import (
@@ -280,13 +281,25 @@ class AppointmentService:
         patient_name = (patient.name or "").strip() or "Paciente"
         reason = (appointment.reason or "").strip() or "Consulta médica"
 
-        NotificationService(db).notify_user_push_in_app(
-            appointment.patient_id,
-            title="Propuesta de cita",
-            message=(
+        push_title = (
+            "Propuesta para reprogramar tu cita"
+            if reschedule_confirmed
+            else "Propuesta de cita"
+        )
+        push_message = (
+            f"El Dr. {(doctor_name or '').strip() or 'tu médico'} "
+            f"propone reprogramar tu cita para {when_label}."
+            if reschedule_confirmed
+            else (
                 f"El Dr. {(doctor_name or '').strip() or 'tu médico'} "
                 f"te propone una cita para {when_label}."
-            ),
+            )
+        )
+
+        NotificationService(db).notify_user_push_in_app(
+            appointment.patient_id,
+            title=push_title,
+            message=push_message,
             notification_type="appointment_proposed",
             payload={
                 "type": "appointment_proposed",
@@ -313,7 +326,48 @@ class AppointmentService:
                 when_label=when_label,
                 response_link=response_link,
                 scheduling_link=scheduling_link,
+                reschedule_confirmed=reschedule_confirmed,
             )
+
+    @staticmethod
+    def _send_canceled_email_to_patient(
+        db: Session,
+        appointment: Appointment,
+        *,
+        doctor_name: str,
+        when_label: str,
+        was_confirmed: bool,
+    ) -> None:
+        from app.repositories.user_repository import UserRepository
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+        from app.services.notificaciones.appointment_email_service import (
+            send_appointment_canceled_email,
+        )
+
+        patient = UserRepository(db).get_by_id_with_role(appointment.patient_id)
+        if patient is None:
+            return
+
+        patient_name = (patient.name or "").strip() or "Paciente"
+        reason = (appointment.reason or "").strip() or "Consulta médica"
+        email = (patient.email or "").strip()
+        if not email:
+            return
+
+        scheduling_link = DoctorAvailabilityService.resolve_patient_scheduling_link(
+            db, appointment.patient_id, appointment.doctor_id
+        )
+        send_appointment_canceled_email(
+            to_email=email,
+            patient_name=patient_name,
+            doctor_name=doctor_name,
+            reason=reason,
+            when_label=when_label,
+            scheduling_link=scheduling_link,
+            was_confirmed=was_confirmed,
+        )
 
     @staticmethod
     def _send_rejection_email_to_patient(
@@ -572,7 +626,16 @@ class AppointmentService:
         db: Session,
         appointment_id: UUID,
         doctor_id: UUID,
+        doctor_name: str,
     ) -> Appointment:
+        from app.services.medical.doctor_availability_service import (
+            DoctorAvailabilityService,
+        )
+        from app.services.notificaciones.appointment_email_service import (
+            _format_slot_range,
+        )
+        from app.services.notificaciones.notification_service import NotificationService
+
         repo = AppointmentService._repo(db)
         appointment = repo.get_by_id(appointment_id)
 
@@ -589,8 +652,48 @@ class AppointmentService:
                 status_code=400, detail="Esta cita ya se encuentra cancelada"
             )
 
+        was_confirmed = appointment.status == "scheduled"
+        settings = DoctorAvailabilityService.get_settings(db, appointment.doctor_id)
+        when_label = _format_slot_range(
+            appointment.appointment_date,
+            appointment.end_date,
+            timezone=settings.timezone,
+        )
+
         appointment.status = "canceled"
-        return repo.save(appointment)
+        saved = repo.save(appointment)
+
+        push_title = (
+            "Cita cancelada"
+            if was_confirmed
+            else "Cita cancelada por tu médico"
+        )
+        push_message = (
+            f"El Dr. {(doctor_name or '').strip() or 'tu médico'} canceló tu cita "
+            f"del {when_label}."
+        )
+        NotificationService(db).notify_user_push_in_app(
+            saved.patient_id,
+            title=push_title,
+            message=push_message,
+            notification_type="appointment_canceled",
+            payload={
+                "type": "appointment_canceled",
+                "appointment_id": str(saved.id),
+            },
+            push_data={
+                "type": "appointment_canceled",
+                "appointment_id": str(saved.id),
+            },
+        )
+        AppointmentService._send_canceled_email_to_patient(
+            db,
+            saved,
+            doctor_name=doctor_name,
+            when_label=when_label,
+            was_confirmed=was_confirmed,
+        )
+        return saved
 
     @staticmethod
     def approve_doctor_approval(
@@ -687,12 +790,20 @@ class AppointmentService:
         row = repo.get_by_id(appointment_id)
         if row is None or row.doctor_id != doctor_id:
             raise HTTPException(status_code=404, detail="Cita no encontrada.")
-        if row.status not in ("pending_doctor_approval", "pending_patient_approval"):
+        if row.status not in (
+            "pending_doctor_approval",
+            "pending_patient_approval",
+            "scheduled",
+        ):
             raise HTTPException(
                 status_code=400,
-                detail="Solo puedes reprogramar citas pendientes de confirmación.",
+                detail=(
+                    "Solo puedes reprogramar citas confirmadas o pendientes "
+                    "de confirmación."
+                ),
             )
 
+        was_confirmed = row.status == "scheduled"
         start_at = body.proposed_start_at
         end_at = start_at + timedelta(minutes=body.duration_minutes)
         row.appointment_date = start_at
@@ -706,6 +817,7 @@ class AppointmentService:
             row,
             doctor_name=doctor_name,
             raw_token=raw_token,
+            reschedule_confirmed=was_confirmed,
         )
         return row
 
