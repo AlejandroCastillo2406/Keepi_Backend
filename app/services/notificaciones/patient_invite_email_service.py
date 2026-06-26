@@ -91,6 +91,59 @@ def _html(
     )
 
 
+def build_patient_scheduling_link_email_html(
+    *,
+    patient_name: str,
+    doctor_name: str,
+    scheduling_link: str,
+) -> str:
+    doctor = _format_doctor_display(doctor_name or "Tu médico")
+    return build_clinical_action_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name or "Tu médico",
+        headline="Agenda tu próxima cita",
+        body_paragraphs=[
+            f"{doctor} te compartió tu enlace personal para solicitar citas en línea.",
+            "Puedes usarlo cuando lo necesites; no caduca.",
+        ],
+        cta_label="",
+        cta_href="",
+        footer_note="Si tienes dudas, contacta directamente a tu médico.",
+        badge_subtitle="Link de agenda",
+        scheduling_link=scheduling_link,
+    )
+
+
+def send_patient_scheduling_link_email(
+    to_email: str,
+    patient_name: str,
+    doctor_name: str,
+    scheduling_link: str,
+) -> PatientInviteEmailResult:
+    from app.services.notificaciones.payment_email_service import (
+        send_simple_html_email_ses,
+    )
+
+    email = (to_email or "").strip()
+    if not email:
+        return PatientInviteEmailResult(success=False, error="Paciente sin correo")
+
+    brand = _brand()
+    doctor = _format_doctor_display(doctor_name or "Tu médico")
+    subject = f"{brand} – {doctor} te envió tu link para agendar citas"
+    html = build_patient_scheduling_link_email_html(
+        patient_name=patient_name,
+        doctor_name=doctor_name,
+        scheduling_link=scheduling_link,
+    )
+    result = send_simple_html_email_ses(email, subject, html)
+    return PatientInviteEmailResult(
+        success=result.success,
+        error=result.error,
+        ses_message_id=result.ses_message_id,
+    )
+
+
 def send_patient_invite_email(
     to_email: str,
     patient_name: str,

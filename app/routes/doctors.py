@@ -21,7 +21,10 @@ from app.models.doctor_timeline_note import (
     DoctorTimelineNoteCreate,
     DoctorTimelineNoteResponse,
 )
-from app.models.doctor_scheduling import PatientSchedulingLinkResponse
+from app.models.doctor_scheduling import (
+    PatientSchedulingLinkEmailResponse,
+    PatientSchedulingLinkResponse,
+)
 from app.models.user import (
     DoctorCreatePatientRequest,
     DoctorCreatePatientResponse,
@@ -289,6 +292,40 @@ async def generate_patient_scheduling_link(
         current_user.id,
         patient_id,
         patient_name=patient.name or "",
+    )
+
+
+@router.post(
+    "/patients/{patient_id}/scheduling-link/email",
+    response_model=PatientSchedulingLinkEmailResponse,
+)
+async def email_patient_scheduling_link(
+    patient_id: UUID,
+    current_user: User = Depends(require_no_temp_password_user),
+    db: Session = Depends(get_db),
+    user_svc: UserService = Depends(get_user_service),
+):
+    if current_user.role is None or current_user.role.name != ROLE_DOCTOR:
+        raise HTTPException(status_code=403, detail="Solo usuarios con rol DOCTOR.")
+
+    patient = user_svc.get_patient_if_owned_by_doctor(patient_id, current_user.id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+
+    email = (patient.email or "").strip()
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="El paciente no tiene correo registrado.",
+        )
+
+    return DoctorAvailabilityService.email_patient_scheduling_link(
+        db,
+        current_user.id,
+        patient_id,
+        patient_name=(patient.name or "").strip() or "Paciente",
+        patient_email=email,
+        doctor_name=(current_user.name or "").strip() or "Tu médico",
     )
 
 

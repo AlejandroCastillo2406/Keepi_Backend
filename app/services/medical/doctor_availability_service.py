@@ -382,3 +382,40 @@ class DoctorAvailabilityService:
             patient_name=patient_name,
             message=message,
         )
+
+    @staticmethod
+    def email_patient_scheduling_link(
+        db: Session,
+        doctor_id: UUID,
+        patient_id: UUID,
+        *,
+        patient_name: str,
+        patient_email: str,
+        doctor_name: str,
+    ):
+        from app.models.doctor_scheduling import PatientSchedulingLinkEmailResponse
+        from app.services.notificaciones.patient_invite_email_service import (
+            send_patient_scheduling_link_email,
+        )
+
+        link_data = DoctorAvailabilityService.build_patient_scheduling_link(
+            db, doctor_id, patient_id, patient_name=patient_name
+        )
+        email_res = send_patient_scheduling_link_email(
+            to_email=patient_email,
+            patient_name=patient_name,
+            doctor_name=doctor_name,
+            scheduling_link=link_data.scheduling_link,
+        )
+        message = link_data.message
+        if email_res.success:
+            message = "Correo enviado al paciente con el enlace de agenda."
+        elif email_res.error:
+            message = email_res.error
+        return PatientSchedulingLinkEmailResponse(
+            scheduling_link=link_data.scheduling_link,
+            patient_name=link_data.patient_name,
+            email_sent=bool(email_res.success),
+            email_error=email_res.error,
+            message=message,
+        )
