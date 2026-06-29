@@ -1,7 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -30,6 +31,7 @@ from app.dto.timeline_dto import EventType
 from app.services.medical.appointment_service import AppointmentService
 from app.services.medical.doctor_availability_service import DoctorAvailabilityService
 from app.services.medical.doctor_timeline_note_service import DoctorTimelineNoteService
+from app.services.medical.ical_export_service import IcalExportService
 from app.services.medical.procedure_block_service import ProcedureBlockService
 
 router = APIRouter()
@@ -77,6 +79,45 @@ async def get_doctor_calendar(
         consultation_schedule=DoctorAvailabilityService.get_consultation_schedule(
             db, current_user.id
         ),
+    )
+
+
+@router.get("/doctor/export.ics")
+async def export_doctor_calendar_ics(
+    start_at: datetime = Query(...),
+    end_at: datetime = Query(...),
+    include_scheduled: bool = Query(True),
+    include_pending: bool = Query(False),
+    include_procedures: bool = Query(True),
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    if not include_scheduled and not include_pending and not include_procedures:
+        raise HTTPException(
+            status_code=400,
+            detail="Selecciona al menos un tipo de evento para exportar.",
+        )
+    if end_at <= start_at:
+        raise HTTPException(
+            status_code=400,
+            detail="El rango de fechas no es válido.",
+        )
+
+    content = IcalExportService.build_doctor_calendar(
+        db,
+        current_user.id,
+        start_at,
+        end_at,
+        include_scheduled=include_scheduled,
+        include_pending=include_pending,
+        include_procedures=include_procedures,
+    )
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="keepi-agenda.ics"',
+        },
     )
 
 
