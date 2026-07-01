@@ -343,13 +343,17 @@ class QuestionnaireService:
         return response
 
     def complete_public_invitation_flow(self, token: str) -> QuestionnaireInvitation:
+        inv = self._repo._get_invitation_for_public_token(token)
+        inv = self._repo._mark_expired_if_needed(inv)
+        already_completed = inv.status == "completed"
         inv = self._repo.complete_public_invitation(token)
-        NotificationService(self._db).notify_questionnaire_completed_for_doctor(
-            inv.doctor_id,
-            patient_name=inv.patient_name_snapshot,
-            invitation_id=str(inv.id),
-            patient_id=str(inv.patient_id),
-        )
+        if not already_completed and inv.status == "completed":
+            NotificationService(self._db).notify_questionnaire_completed_for_doctor(
+                inv.doctor_id,
+                patient_name=inv.patient_name_snapshot,
+                invitation_id=str(inv.id),
+                patient_id=str(inv.patient_id),
+            )
         return inv
 
     async def upload_public_prior_document(
