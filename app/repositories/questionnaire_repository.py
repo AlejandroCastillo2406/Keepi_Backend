@@ -771,6 +771,112 @@ class QuestionnaireRepository:
                 ids.append(uid)
         return ids
 
+    @staticmethod
+    def _question_ids_from_payload(data) -> List[uuid.UUID]:
+        raw = getattr(data, "question_ids", None) or []
+        ids: List[uuid.UUID] = []
+        for item in raw:
+            uid = _as_uuid(str(item))
+            if uid is not None:
+                ids.append(uid)
+        return ids
+
+    def _build_snapshot_from_question_ids(
+        self,
+        doctor_id: uuid.UUID,
+        question_ids: List[uuid.UUID],
+        *,
+        seen: Optional[set[uuid.UUID]] = None,
+    ) -> List[dict]:
+        seen = seen or set()
+        rows: List[dict] = []
+        spec_ids: set[uuid.UUID] = set()
+
+        questions: List[Question] = []
+        for q_id in question_ids:
+            if q_id in seen:
+                continue
+            q = self._db.query(Question).filter(Question.id == q_id).first()
+            if not q:
+                raise HTTPException(
+                    status_code=404, detail=f"Pregunta no encontrada: {q_id}"
+                )
+            if q.origin == "custom" and q.owner_user_id != doctor_id:
+                raise HTTPException(
+                    status_code=404, detail=f"Pregunta no encontrada: {q_id}"
+                )
+            questions.append(q)
+            if q.specialty_id:
+                spec_ids.add(q.specialty_id)
+
+        if not questions:
+            return rows
+
+        overrides = {
+            ov.question_id: ov
+            for ov in self._db.query(DoctorQuestionOverride)
+            .filter(
+                DoctorQuestionOverride.doctor_id == doctor_id,
+                DoctorQuestionOverride.question_id.in_([q.id for q in questions]),
+            )
+            .all()
+        }
+        specialties: dict[uuid.UUID, str] = {}
+        if spec_ids:
+            for s in self._db.query(Specialty).filter(Specialty.id.in_(spec_ids)).all():
+                specialties[s.id] = s.name
+
+        for q in questions:
+            if q.id in seen:
+                continue
+            ov = overrides.get(q.id)
+            eff = _effective_fields(q, ov)
+            if not eff["is_active"]:
+                continue
+            seen.add(q.id)
+            rows.append(
+                {
+                    "question_id": q.id,
+                    "question_text": q.text,
+                    "response_type": q.response_type,
+                    "options": list(q.options) if q.options else None,
+                    "help_text": q.help_text,
+                    "is_required": bool(eff["is_required"]),
+                    "specialty_name": (
+                        specialties.get(q.specialty_id) if q.specialty_id else None
+                    ),
+                    "template_name": "Pregunta adicional",
+                }
+            )
+        return rows
+
+    def _build_invitation_snapshot_rows(
+        self,
+        doctor_id: uuid.UUID,
+        template_ids: List[uuid.UUID],
+        question_ids: List[uuid.UUID],
+    ) -> List[dict]:
+        rows: List[dict] = []
+        seen: set[uuid.UUID] = set()
+
+        if template_ids:
+            rows.extend(self._build_snapshot_questions(doctor_id, template_ids))
+            seen = {row["question_id"] for row in rows}
+
+        if question_ids:
+            rows.extend(
+                self._build_snapshot_from_question_ids(
+                    doctor_id, question_ids, seen=seen
+                )
+            )
+
+        if (template_ids or question_ids) and not rows:
+            raise HTTPException(
+                status_code=400,
+                detail="No hay preguntas activas para enviar en el cuestionario",
+            )
+        return rows
+
     def _build_snapshot_questions(
         self,
         doctor_id: uuid.UUID,
@@ -870,7 +976,7 @@ class QuestionnaireRepository:
 
     @staticmethod
     def _enable_clinical_intake_from_payload(data) -> bool:
-        flag = getattr(data, "enable_clinical_intake", True)
+        flag = getattr(data, "enable_clinical_intake", False)
         if flag in (False, 0, "0", "false", "False", "no", "off"):
             return False
         return True
@@ -878,7 +984,8 @@ class QuestionnaireRepository:
     @staticmethod
     def _intake_only_from_payload(data) -> bool:
         template_ids = getattr(data, "template_ids", None) or []
-        if template_ids:
+        question_ids = getattr(data, "question_ids", None) or []
+        if template_ids or question_ids:
             return False
         flag = getattr(data, "intake_only", False)
         if flag in (True, 1, "1", "true", "True", "yes", "on"):
@@ -1216,9 +1323,11 @@ class QuestionnaireRepository:
     ) -> tuple[QuestionnaireInvitationSummaryResponse, str]:
         enable_intake = self._enable_clinical_intake_from_payload(data)
         template_ids = self._template_ids_from_payload(data)
+        question_ids = self._question_ids_from_payload(data)
         collect_docs = self._resolve_collect_prior_documents(data)
+        has_questionnaire = bool(template_ids or question_ids)
 
-        if not enable_intake and not collect_docs and not template_ids:
+        if not enable_intake and not collect_docs and not has_questionnaire:
             raise HTTPException(
                 status_code=400,
                 detail="Activa al menos una opción: ficha clínica, documentos o cuestionario",
@@ -1230,8 +1339,10 @@ class QuestionnaireRepository:
         patient = self._load_patient_owned_by_doctor(doctor_id, patient_id)
 
         snapshot_rows: List[dict] = []
-        if template_ids:
-            snapshot_rows = self._build_snapshot_questions(doctor_id, template_ids)
+        if has_questionnaire:
+            snapshot_rows = self._build_invitation_snapshot_rows(
+                doctor_id, template_ids, question_ids
+            )
 
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
@@ -1243,9 +1354,13 @@ class QuestionnaireRepository:
             token_hash="__pending__",
             status="pending",
             expires_at=expires_at,
-            collect_prior_documents=self._resolve_collect_prior_documents(data),
+            collect_prior_documents=collect_docs,
         )
         self._apply_clinical_intake_to_invitation(invitation, data)
+        if collect_docs and not enable_intake and not has_questionnaire:
+            invitation.enable_clinical_intake = False
+            invitation.intake_context = None
+            invitation.intake_responses = None
         self._db.add(invitation)
         self._db.flush()
 

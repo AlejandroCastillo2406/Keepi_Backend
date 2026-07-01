@@ -300,7 +300,10 @@ class QuestionnaireService:
             collect_prior_documents=bool(
                 getattr(payload, "collect_prior_documents", False)
             ),
-            has_questionnaire=bool(getattr(payload, "template_ids", None) or []),
+            has_questionnaire=bool(
+                getattr(payload, "template_ids", None) or []
+                or getattr(payload, "question_ids", None) or []
+            ),
             scheduling_link=scheduling_link,
         )
         if email_res.success:

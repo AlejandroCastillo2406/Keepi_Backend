@@ -237,6 +237,14 @@ def intake_is_complete(
     sections: List[Dict[str, Any]],
     saved_responses: Dict[str, Any],
 ) -> bool:
+    saved = saved_responses if isinstance(saved_responses, dict) else {}
+
+    # Cada paso del wizard debe guardarse al menos una vez (aunque sea opcional).
+    for section in sections:
+        sid = section.get("id")
+        if sid and sid not in saved:
+            return False
+
     for section in sections:
         sid = section["id"]
         section_answers = saved_responses.get(sid)

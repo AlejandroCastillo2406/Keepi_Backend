@@ -224,6 +224,10 @@ class QuestionnaireSendInvitationRequest(BaseModel):
         default_factory=list,
         description="Una plantilla de cuestionario (opcional).",
     )
+    question_ids: List[str] = Field(
+        default_factory=list,
+        description="Preguntas individuales adicionales (se suman a la plantilla).",
+    )
     collect_prior_documents: bool = Field(
         default=False,
         description="El paciente puede subir estudios previos (opcional).",

@@ -89,18 +89,31 @@ async def export_doctor_calendar_ics(
     include_scheduled: bool = Query(True),
     include_pending: bool = Query(False),
     include_procedures: bool = Query(True),
+    appointment_ids: str | None = Query(None),
+    procedure_ids: str | None = Query(None),
     current_user: User = Depends(require_doctor_user),
     db: Session = Depends(get_db),
 ):
-    if not include_scheduled and not include_pending and not include_procedures:
-        raise HTTPException(
-            status_code=400,
-            detail="Selecciona al menos un tipo de evento para exportar.",
-        )
     if end_at <= start_at:
         raise HTTPException(
             status_code=400,
             detail="El rango de fechas no es válido.",
+        )
+
+    appt_id_set = _parse_uuid_csv(appointment_ids)
+    proc_id_set = _parse_uuid_csv(procedure_ids)
+    selective = appt_id_set is not None or proc_id_set is not None
+
+    if selective:
+        if not appt_id_set and not proc_id_set:
+            raise HTTPException(
+                status_code=400,
+                detail="Selecciona al menos un evento para exportar.",
+            )
+    elif not include_scheduled and not include_pending and not include_procedures:
+        raise HTTPException(
+            status_code=400,
+            detail="Selecciona al menos un tipo de evento para exportar.",
         )
 
     content = IcalExportService.build_doctor_calendar(
@@ -111,6 +124,8 @@ async def export_doctor_calendar_ics(
         include_scheduled=include_scheduled,
         include_pending=include_pending,
         include_procedures=include_procedures,
+        appointment_ids=appt_id_set,
+        procedure_ids=proc_id_set,
     )
     return Response(
         content=content.encode("utf-8"),
@@ -119,6 +134,15 @@ async def export_doctor_calendar_ics(
             "Content-Disposition": 'attachment; filename="keepi-agenda.ics"',
         },
     )
+
+
+def _parse_uuid_csv(raw: str | None) -> set[UUID] | None:
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return set()
+    return {UUID(part.strip()) for part in text.split(",") if part.strip()}
 
 
 @router.post("/doctor/procedures", response_model=ProcedureBlockResponse)

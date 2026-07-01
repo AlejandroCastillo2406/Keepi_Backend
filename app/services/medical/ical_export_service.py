@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,7 @@ from app.models.appointment import Appointment
 from app.models.doctor_procedure_block import DoctorProcedureBlock
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.procedure_block_repository import ProcedureBlockRepository
+from app.services.medical.doctor_availability_service import DoctorAvailabilityService
 
 SCHEDULED_STATUSES = ("scheduled", "confirmed")
 PENDING_STATUSES = (
@@ -16,6 +18,7 @@ PENDING_STATUSES = (
     "pending_patient_approval",
     "pending_doctor_approval",
 )
+DEFAULT_TIMEZONE = "America/Mexico_City"
 
 
 class IcalExportService:
@@ -29,10 +32,17 @@ class IcalExportService:
         include_scheduled: bool = True,
         include_pending: bool = False,
         include_procedures: bool = True,
+        timezone_name: str | None = None,
+        appointment_ids: set[UUID] | None = None,
+        procedure_ids: set[UUID] | None = None,
     ) -> str:
+        tz_name = _resolve_timezone(db, doctor_id, timezone_name)
         events: list[str] = []
+        selective = appointment_ids is not None or procedure_ids is not None
+        appt_ids = appointment_ids or set()
+        proc_ids = procedure_ids or set()
 
-        if include_scheduled or include_pending:
+        if selective or include_scheduled or include_pending:
             rows = AppointmentRepository(db).list_doctor_calendar(
                 doctor_id, start_at, end_at
             )
@@ -44,7 +54,10 @@ class IcalExportService:
                 if not _overlaps_range(row, start_at, end_at):
                     continue
 
-                if row.status in SCHEDULED_STATUSES:
+                if selective:
+                    if row.id not in appt_ids:
+                        continue
+                elif row.status in SCHEDULED_STATUSES:
                     if not include_scheduled:
                         continue
                 elif row.status in PENDING_STATUSES:
@@ -53,29 +66,49 @@ class IcalExportService:
                 else:
                     continue
 
-                events.append(_appointment_event(row))
+                events.append(_appointment_event(row, tz_name))
 
-        if include_procedures:
+        if selective or include_procedures:
             blocks = ProcedureBlockRepository(db).list_in_range(
                 doctor_id, start_at, end_at
             )
             for block in blocks:
-                events.append(_procedure_event(block))
+                if selective and block.id not in proc_ids:
+                    continue
+                events.append(_procedure_event(block, tz_name))
 
-        body = "\r\n".join(events)
-        header = "\r\n".join(
-            [
-                "BEGIN:VCALENDAR",
-                "VERSION:2.0",
-                "PRODID:-//Keepi//Agenda Doctor//ES",
-                "CALSCALE:GREGORIAN",
-                "METHOD:PUBLISH",
-            ]
-        )
+        header_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//Keepi//Agenda Doctor//ES",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            f"X-WR-TIMEZONE:{tz_name}",
+        ]
+        header = "\r\n".join(line for line in header_lines if line)
         footer = "END:VCALENDAR"
+        body = "\r\n".join(events)
         if body:
             return f"{header}\r\n{body}\r\n{footer}\r\n"
         return f"{header}\r\n{footer}\r\n"
+
+
+def _resolve_timezone(
+    db: Session, doctor_id: UUID, timezone_name: str | None
+) -> str:
+    if timezone_name and timezone_name.strip():
+        return timezone_name.strip()
+    try:
+        return DoctorAvailabilityService.get_settings(db, doctor_id).timezone
+    except Exception:
+        return DEFAULT_TIMEZONE
+
+
+def _safe_tz(tz_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo(DEFAULT_TIMEZONE)
 
 
 def _overlaps_range(
@@ -88,7 +121,7 @@ def _overlaps_range(
     return start < end_at and end > start_at
 
 
-def _appointment_event(row: Appointment) -> str:
+def _appointment_event(row: Appointment, tz_name: str) -> str:
     start = row.appointment_date
     end = row.end_date or row.appointment_date
     if start is None or end is None:
@@ -112,10 +145,11 @@ def _appointment_event(row: Appointment) -> str:
         end_at=end,
         summary=summary,
         description="\n".join(description_parts),
+        tz_name=tz_name,
     )
 
 
-def _procedure_event(row: DoctorProcedureBlock) -> str:
+def _procedure_event(row: DoctorProcedureBlock, tz_name: str) -> str:
     title = (row.title or "").strip() or "Procedimiento"
     uid = f"keepi-proc-{row.id}@keepi"
     return _vevent(
@@ -124,6 +158,7 @@ def _procedure_event(row: DoctorProcedureBlock) -> str:
         end_at=row.end_at,
         summary=f"Procedimiento — {title}",
         description=title,
+        tz_name=tz_name,
     )
 
 
@@ -143,19 +178,25 @@ def _vevent(
     end_at: datetime,
     summary: str,
     description: str,
+    tz_name: str,
 ) -> str:
     now = datetime.now(timezone.utc)
     lines = [
         "BEGIN:VEVENT",
         f"UID:{_escape(uid)}",
         f"DTSTAMP:{_format_utc(now)}",
-        f"DTSTART:{_format_utc(start_at)}",
-        f"DTEND:{_format_utc(end_at)}",
+        f"DTSTART:{_format_local(start_at, tz_name)}",
+        f"DTEND:{_format_local(end_at, tz_name)}",
         f"SUMMARY:{_escape(summary)}",
         f"DESCRIPTION:{_escape(description)}",
         "END:VEVENT",
     ]
     return "\r\n".join(_fold_line(line) for line in lines)
+
+
+def _format_local(value: datetime, tz_name: str) -> str:
+    local = value.astimezone(_safe_tz(tz_name))
+    return local.strftime("%Y%m%dT%H%M%S")
 
 
 def _format_utc(value: datetime) -> str:
